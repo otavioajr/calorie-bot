@@ -1,5 +1,6 @@
 import { verifyWebhook, parseWebhookPayload } from '@/lib/whatsapp/webhook'
 import { createServiceRoleClient } from '@/lib/db/supabase'
+import { handleIncomingMessage } from '@/lib/bot/handler'
 
 export async function GET(request: Request) {
   const url = new URL(request.url)
@@ -36,11 +37,11 @@ export async function POST(request: Request) {
       return new Response('OK', { status: 200 })
     }
 
-    // TODO: Process message (will be wired in Task 15)
-    // For now, just acknowledge
-    console.log(`[webhook] Received message from ${event.from}: ${event.text}`)
-
     void data // suppress unused variable warning
+
+    if (event.type === 'text' && event.text) {
+      await handleIncomingMessage(event.from, event.messageId, event.text)
+    }
 
     return new Response('OK', { status: 200 })
   } catch (err) {
