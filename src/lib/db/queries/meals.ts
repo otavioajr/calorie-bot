@@ -127,6 +127,115 @@ export async function getDailyCalories(
 }
 
 // ---------------------------------------------------------------------------
+// deleteMeal
+// ---------------------------------------------------------------------------
+
+/**
+ * Deletes a meal by ID.
+ */
+export async function deleteMeal(
+  supabase: SupabaseClient,
+  mealId: string,
+): Promise<void> {
+  const { error } = await supabase.from('meals').delete().eq('id', mealId)
+
+  if (error) {
+    throw new Error(`Failed to delete meal: ${error.message}`)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// getLastMeal
+// ---------------------------------------------------------------------------
+
+export interface LastMeal {
+  id: string
+  mealType: string
+  totalCalories: number
+  registeredAt: string
+}
+
+/**
+ * Returns the most recent meal for a user, or null if none exist.
+ */
+export async function getLastMeal(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<LastMeal | null> {
+  const { data, error } = await supabase
+    .from('meals')
+    .select('id, meal_type, total_calories, registered_at')
+    .eq('user_id', userId)
+    .order('registered_at', { ascending: false })
+    .limit(1)
+    .single()
+
+  if (error) {
+    if (error.code === 'PGRST116') return null
+    throw new Error(`Failed to get last meal: ${error.message}`)
+  }
+
+  if (!data) return null
+
+  const row = data as Record<string, unknown>
+  return {
+    id: row.id as string,
+    mealType: row.meal_type as string,
+    totalCalories: row.total_calories as number,
+    registeredAt: row.registered_at as string,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// DailyMeal
+// ---------------------------------------------------------------------------
+
+export interface DailyMeal {
+  mealType: string
+  totalCalories: number
+}
+
+// ---------------------------------------------------------------------------
+// getDailyMeals
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns all meals for a user on a specific date (defaults to today).
+ * Useful for building daily summaries grouped by meal type.
+ */
+export async function getDailyMeals(
+  supabase: SupabaseClient,
+  userId: string,
+  date?: Date,
+): Promise<DailyMeal[]> {
+  const targetDate = date ?? new Date()
+
+  const startOfDay = new Date(targetDate)
+  startOfDay.setUTCHours(0, 0, 0, 0)
+
+  const endOfDay = new Date(targetDate)
+  endOfDay.setUTCHours(23, 59, 59, 999)
+
+  const { data, error } = await supabase
+    .from('meals')
+    .select('meal_type, total_calories')
+    .eq('user_id', userId)
+    .gte('registered_at', startOfDay.toISOString())
+    .lte('registered_at', endOfDay.toISOString())
+
+  if (error) {
+    throw new Error(`Failed to get daily meals: ${error.message}`)
+  }
+
+  if (!data) return []
+
+  return (data as Array<Record<string, unknown>>).map((row) => ({
+    mealType: row.meal_type as string,
+    totalCalories: row.total_calories as number,
+  }))
+}
+
+// ---------------------------------------------------------------------------
 // getRecentMeals
 // ---------------------------------------------------------------------------
 
