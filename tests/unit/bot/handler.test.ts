@@ -7,10 +7,18 @@ const {
   mockCreateServiceRoleClient,
   mockFindUserByPhone,
   mockCreateUser,
+  mockGetUserWithSettings,
   mockGetState,
   mockClassifyByRules,
   mockHandleOnboarding,
   mockHandleMealLog,
+  mockHandleSummary,
+  mockHandleQuery,
+  mockHandleEdit,
+  mockHandleWeight,
+  mockHandleSettings,
+  mockHandleHelp,
+  mockHandleUserData,
   mockGetLLMProvider,
   mockClassifyIntent,
   mockSendTextMessage,
@@ -22,10 +30,18 @@ const {
     mockCreateServiceRoleClient: vi.fn(),
     mockFindUserByPhone: vi.fn(),
     mockCreateUser: vi.fn(),
+    mockGetUserWithSettings: vi.fn(),
     mockGetState: vi.fn(),
     mockClassifyByRules: vi.fn(),
     mockHandleOnboarding: vi.fn(),
     mockHandleMealLog: vi.fn(),
+    mockHandleSummary: vi.fn(),
+    mockHandleQuery: vi.fn(),
+    mockHandleEdit: vi.fn(),
+    mockHandleWeight: vi.fn(),
+    mockHandleSettings: vi.fn(),
+    mockHandleHelp: vi.fn(),
+    mockHandleUserData: vi.fn(),
     mockGetLLMProvider: vi.fn(() => ({ classifyIntent: mockClassifyIntent })),
     mockClassifyIntent,
     mockSendTextMessage: vi.fn().mockResolvedValue('msg-id-123'),
@@ -45,6 +61,7 @@ vi.mock('@/lib/db/supabase', () => ({
 vi.mock('@/lib/db/queries/users', () => ({
   findUserByPhone: mockFindUserByPhone,
   createUser: mockCreateUser,
+  getUserWithSettings: mockGetUserWithSettings,
 }))
 
 vi.mock('@/lib/bot/state', () => ({
@@ -61,6 +78,31 @@ vi.mock('@/lib/bot/flows/onboarding', () => ({
 
 vi.mock('@/lib/bot/flows/meal-log', () => ({
   handleMealLog: mockHandleMealLog,
+}))
+
+vi.mock('@/lib/bot/flows/summary', () => ({
+  handleSummary: mockHandleSummary,
+}))
+
+vi.mock('@/lib/bot/flows/query', () => ({
+  handleQuery: mockHandleQuery,
+}))
+
+vi.mock('@/lib/bot/flows/edit', () => ({
+  handleEdit: mockHandleEdit,
+}))
+
+vi.mock('@/lib/bot/flows/weight', () => ({
+  handleWeight: mockHandleWeight,
+}))
+
+vi.mock('@/lib/bot/flows/settings', () => ({
+  handleSettings: mockHandleSettings,
+}))
+
+vi.mock('@/lib/bot/flows/help', () => ({
+  handleHelp: mockHandleHelp,
+  handleUserData: mockHandleUserData,
 }))
 
 vi.mock('@/lib/llm/index', () => ({
@@ -130,6 +172,23 @@ const completedUser = {
   onboardingStep: 8,
 }
 
+const mockSettingsData = {
+  user: completedUser,
+  settings: {
+    id: 'settings-001',
+    userId: completedUser.id,
+    remindersEnabled: false,
+    dailySummaryTime: '20:00',
+    reminderTime: '12:00',
+    detailLevel: 'brief' as const,
+    weightUnit: 'kg' as const,
+    lastReminderSentAt: null,
+    lastSummarySentAt: null,
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+  },
+}
+
 // ---------------------------------------------------------------------------
 // Setup
 // ---------------------------------------------------------------------------
@@ -140,6 +199,14 @@ beforeEach(() => {
   mockGetState.mockResolvedValue(null)
   mockHandleOnboarding.mockResolvedValue({ response: 'onboarding response', completed: false })
   mockHandleMealLog.mockResolvedValue({ response: 'meal log response', completed: false })
+  mockHandleSummary.mockResolvedValue('summary response')
+  mockHandleQuery.mockResolvedValue('query response')
+  mockHandleEdit.mockResolvedValue('edit response')
+  mockHandleWeight.mockResolvedValue('weight response')
+  mockHandleSettings.mockResolvedValue('settings response')
+  mockHandleHelp.mockResolvedValue('help response')
+  mockHandleUserData.mockResolvedValue('user data response')
+  mockGetUserWithSettings.mockResolvedValue(mockSettingsData)
   mockGetLLMProvider.mockReturnValue({ classifyIntent: mockClassifyIntent })
 })
 
@@ -261,70 +328,94 @@ describe('handleIncomingMessage — completed user, intent routing', () => {
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'out of scope message')
   })
 
-  it('sends placeholder for summary intent', async () => {
+  it('routes summary intent to handleSummary and sends its response', async () => {
     mockClassifyByRules.mockReturnValue('summary')
 
     await handleIncomingMessage(FROM, MESSAGE_ID, 'como tô hoje?')
 
-    expect(mockSendTextMessage).toHaveBeenCalledWith(
-      FROM,
-      'Essa função ainda não está disponível. Aguarde! 🚧'
+    expect(mockHandleSummary).toHaveBeenCalledWith(
+      mockSupabase,
+      completedUser.id,
+      'como tô hoje?',
+      { dailyCalorieTarget: completedUser.dailyCalorieTarget }
     )
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'summary response')
   })
 
-  it('sends placeholder for settings intent', async () => {
-    mockClassifyByRules.mockReturnValue('settings')
-
-    await handleIncomingMessage(FROM, MESSAGE_ID, 'config')
-
-    expect(mockSendTextMessage).toHaveBeenCalledWith(
-      FROM,
-      'Essa função ainda não está disponível. Aguarde! 🚧'
-    )
-  })
-
-  it('sends placeholder for weight intent', async () => {
-    mockClassifyByRules.mockReturnValue('weight')
-
-    await handleIncomingMessage(FROM, MESSAGE_ID, 'pesei 72kg')
-
-    expect(mockSendTextMessage).toHaveBeenCalledWith(
-      FROM,
-      'Essa função ainda não está disponível. Aguarde! 🚧'
-    )
-  })
-
-  it('sends placeholder for edit intent', async () => {
-    mockClassifyByRules.mockReturnValue('edit')
-
-    await handleIncomingMessage(FROM, MESSAGE_ID, 'corrigir')
-
-    expect(mockSendTextMessage).toHaveBeenCalledWith(
-      FROM,
-      'Essa função ainda não está disponível. Aguarde! 🚧'
-    )
-  })
-
-  it('sends placeholder for query intent', async () => {
+  it('routes query intent to handleQuery and sends its response', async () => {
     mockClassifyByRules.mockReturnValue('query')
 
     await handleIncomingMessage(FROM, MESSAGE_ID, 'quantas calorias tem uma banana?')
 
-    expect(mockSendTextMessage).toHaveBeenCalledWith(
-      FROM,
-      'Essa função ainda não está disponível. Aguarde! 🚧'
+    expect(mockHandleQuery).toHaveBeenCalledWith(
+      mockSupabase,
+      completedUser.id,
+      'quantas calorias tem uma banana?'
     )
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'query response')
   })
 
-  it('sends placeholder for user_data intent', async () => {
+  it('routes edit intent to handleEdit and sends its response', async () => {
+    mockClassifyByRules.mockReturnValue('edit')
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, 'corrigir')
+
+    expect(mockHandleEdit).toHaveBeenCalledWith(
+      mockSupabase,
+      completedUser.id,
+      'corrigir',
+      null
+    )
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'edit response')
+  })
+
+  it('routes weight intent to handleWeight and sends its response', async () => {
+    mockClassifyByRules.mockReturnValue('weight')
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, 'pesei 72kg')
+
+    expect(mockHandleWeight).toHaveBeenCalledWith(
+      mockSupabase,
+      completedUser.id,
+      'pesei 72kg',
+      completedUser
+    )
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'weight response')
+  })
+
+  it('routes settings intent to handleSettings and sends its response', async () => {
+    mockClassifyByRules.mockReturnValue('settings')
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, 'config')
+
+    expect(mockGetUserWithSettings).toHaveBeenCalledWith(mockSupabase, completedUser.id)
+    expect(mockHandleSettings).toHaveBeenCalledWith(
+      mockSupabase,
+      completedUser.id,
+      'config',
+      completedUser,
+      mockSettingsData.settings,
+      null
+    )
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'settings response')
+  })
+
+  it('routes help intent to handleHelp and sends its response', async () => {
+    mockClassifyByRules.mockReturnValue('help')
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, 'ajuda')
+
+    expect(mockHandleHelp).toHaveBeenCalled()
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'help response')
+  })
+
+  it('routes user_data intent to handleUserData and sends its response', async () => {
     mockClassifyByRules.mockReturnValue('user_data')
 
     await handleIncomingMessage(FROM, MESSAGE_ID, 'meus dados')
 
-    expect(mockSendTextMessage).toHaveBeenCalledWith(
-      FROM,
-      'Essa função ainda não está disponível. Aguarde! 🚧'
-    )
+    expect(mockHandleUserData).toHaveBeenCalledWith(mockSupabase, completedUser.id)
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'user data response')
   })
 
   it('routes meal_log intent to handleMealLog and sends its response', async () => {
@@ -508,6 +599,95 @@ describe('handleIncomingMessage — context-based routing', () => {
 
     expect(mockSendTextMessage).toHaveBeenCalledTimes(1)
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'done')
+  })
+
+  it('routes to handleWeight when context is awaiting_weight', async () => {
+    const mockContext = {
+      contextType: 'awaiting_weight',
+      contextData: {},
+    }
+    mockGetState.mockResolvedValue(mockContext)
+    mockHandleWeight.mockResolvedValue('weight logged response')
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, '72kg')
+
+    expect(mockHandleWeight).toHaveBeenCalledWith(
+      mockSupabase,
+      completedUser.id,
+      '72kg',
+      completedUser
+    )
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'weight logged response')
+  })
+
+  it('does not call classifyByRules when context is awaiting_weight', async () => {
+    const mockContext = {
+      contextType: 'awaiting_weight',
+      contextData: {},
+    }
+    mockGetState.mockResolvedValue(mockContext)
+    mockHandleWeight.mockResolvedValue('weight logged response')
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, '72kg')
+
+    expect(mockClassifyByRules).not.toHaveBeenCalled()
+  })
+
+  it('routes to handleSettings when context is settings_menu', async () => {
+    const mockContext = {
+      contextType: 'settings_menu',
+      contextData: {},
+    }
+    mockGetState.mockResolvedValue(mockContext)
+    mockHandleSettings.mockResolvedValue('settings menu response')
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, '1')
+
+    expect(mockGetUserWithSettings).toHaveBeenCalledWith(mockSupabase, completedUser.id)
+    expect(mockHandleSettings).toHaveBeenCalledWith(
+      mockSupabase,
+      completedUser.id,
+      '1',
+      completedUser,
+      mockSettingsData.settings,
+      mockContext
+    )
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'settings menu response')
+  })
+
+  it('routes to handleSettings when context is settings_change', async () => {
+    const mockContext = {
+      contextType: 'settings_change',
+      contextData: { option: 1, field: 'goal' },
+    }
+    mockGetState.mockResolvedValue(mockContext)
+    mockHandleSettings.mockResolvedValue('settings change response')
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, '2')
+
+    expect(mockGetUserWithSettings).toHaveBeenCalledWith(mockSupabase, completedUser.id)
+    expect(mockHandleSettings).toHaveBeenCalledWith(
+      mockSupabase,
+      completedUser.id,
+      '2',
+      completedUser,
+      mockSettingsData.settings,
+      mockContext
+    )
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'settings change response')
+  })
+
+  it('does not call classifyByRules when context is settings_menu', async () => {
+    const mockContext = {
+      contextType: 'settings_menu',
+      contextData: {},
+    }
+    mockGetState.mockResolvedValue(mockContext)
+    mockHandleSettings.mockResolvedValue('settings menu response')
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, '1')
+
+    expect(mockClassifyByRules).not.toHaveBeenCalled()
   })
 })
 
