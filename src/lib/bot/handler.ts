@@ -3,6 +3,8 @@ import { findUserByPhone, createUser } from '@/lib/db/queries/users'
 import { getState } from '@/lib/bot/state'
 import { classifyByRules } from '@/lib/bot/router'
 import { handleOnboarding } from '@/lib/bot/flows/onboarding'
+import { handleMealLog } from '@/lib/bot/flows/meal-log'
+import { getLLMProvider } from '@/lib/llm/index'
 import { sendTextMessage } from '@/lib/whatsapp/client'
 import { formatOutOfScope, formatError } from '@/lib/utils/formatters'
 
@@ -27,17 +29,37 @@ export async function handleIncomingMessage(
       return
     }
 
+    const userSettings = {
+      calorieMode: user.calorieMode,
+      dailyCalorieTarget: user.dailyCalorieTarget,
+    }
+
     // 3. Check for active conversation context
     const context = await getState(user.id)
     if (context) {
-      // TODO: Handle context-specific flows (meal confirmation, etc.)
-      // For now, just handle onboarding context if somehow still active
-      // Other context types will be added in Phase 6-7
+      if (
+        ['awaiting_confirmation', 'awaiting_clarification', 'awaiting_correction'].includes(
+          context.contextType
+        )
+      ) {
+        const result = await handleMealLog(supabase, user.id, text, userSettings, context)
+        await sendTextMessage(from, result.response)
+        return
+      }
+      // Other context types will be handled later (settings_menu, etc.)
     }
 
     // 4. Classify intent
-    const intent = classifyByRules(text)
-    // TODO: LLM fallback when intent is null (Task 23)
+    let intent = classifyByRules(text)
+    if (!intent) {
+      try {
+        const llm = getLLMProvider()
+        intent = await llm.classifyIntent(text)
+      } catch {
+        // LLM failed — default to assuming it's a meal log
+        intent = 'meal_log'
+      }
+    }
 
     // 5. Route to appropriate flow
     let response: string
@@ -46,22 +68,24 @@ export async function handleIncomingMessage(
         // TODO: Task 29
         response = formatOutOfScope() // placeholder
         break
+      case 'meal_log': {
+        const result = await handleMealLog(supabase, user.id, text, userSettings, null)
+        response = result.response
+        break
+      }
       case 'summary':
       case 'edit':
       case 'query':
       case 'weight':
       case 'settings':
       case 'user_data':
-      case 'meal_log':
-        // TODO: Will be implemented in Tasks 22-30
+        // TODO: Will be implemented in Tasks 24-30
         response = 'Essa função ainda não está disponível. Aguarde! 🚧'
         break
       case 'out_of_scope':
         response = formatOutOfScope()
         break
       default:
-        // No rule matched, no LLM yet — treat as potential meal log
-        // TODO: LLM classification (Task 23)
         response = 'Não entendi 🤔 Me manda o que comeu ou digite "menu".'
         break
     }

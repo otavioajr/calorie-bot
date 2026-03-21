@@ -10,20 +10,29 @@ const {
   mockGetState,
   mockClassifyByRules,
   mockHandleOnboarding,
+  mockHandleMealLog,
+  mockGetLLMProvider,
+  mockClassifyIntent,
   mockSendTextMessage,
   mockFormatOutOfScope,
   mockFormatError,
-} = vi.hoisted(() => ({
-  mockCreateServiceRoleClient: vi.fn(),
-  mockFindUserByPhone: vi.fn(),
-  mockCreateUser: vi.fn(),
-  mockGetState: vi.fn(),
-  mockClassifyByRules: vi.fn(),
-  mockHandleOnboarding: vi.fn(),
-  mockSendTextMessage: vi.fn().mockResolvedValue('msg-id-123'),
-  mockFormatOutOfScope: vi.fn().mockReturnValue('out of scope message'),
-  mockFormatError: vi.fn().mockReturnValue('error message'),
-}))
+} = vi.hoisted(() => {
+  const mockClassifyIntent = vi.fn()
+  return {
+    mockCreateServiceRoleClient: vi.fn(),
+    mockFindUserByPhone: vi.fn(),
+    mockCreateUser: vi.fn(),
+    mockGetState: vi.fn(),
+    mockClassifyByRules: vi.fn(),
+    mockHandleOnboarding: vi.fn(),
+    mockHandleMealLog: vi.fn(),
+    mockGetLLMProvider: vi.fn(() => ({ classifyIntent: mockClassifyIntent })),
+    mockClassifyIntent,
+    mockSendTextMessage: vi.fn().mockResolvedValue('msg-id-123'),
+    mockFormatOutOfScope: vi.fn().mockReturnValue('out of scope message'),
+    mockFormatError: vi.fn().mockReturnValue('error message'),
+  }
+})
 
 // ---------------------------------------------------------------------------
 // Mock all dependencies
@@ -48,6 +57,14 @@ vi.mock('@/lib/bot/router', () => ({
 
 vi.mock('@/lib/bot/flows/onboarding', () => ({
   handleOnboarding: mockHandleOnboarding,
+}))
+
+vi.mock('@/lib/bot/flows/meal-log', () => ({
+  handleMealLog: mockHandleMealLog,
+}))
+
+vi.mock('@/lib/llm/index', () => ({
+  getLLMProvider: mockGetLLMProvider,
 }))
 
 vi.mock('@/lib/whatsapp/client', () => ({
@@ -122,6 +139,8 @@ beforeEach(() => {
   mockCreateServiceRoleClient.mockReturnValue(mockSupabase)
   mockGetState.mockResolvedValue(null)
   mockHandleOnboarding.mockResolvedValue({ response: 'onboarding response', completed: false })
+  mockHandleMealLog.mockResolvedValue({ response: 'meal log response', completed: false })
+  mockGetLLMProvider.mockReturnValue({ classifyIntent: mockClassifyIntent })
 })
 
 // ---------------------------------------------------------------------------
@@ -308,26 +327,20 @@ describe('handleIncomingMessage — completed user, intent routing', () => {
     )
   })
 
-  it('sends placeholder for meal_log intent', async () => {
+  it('routes meal_log intent to handleMealLog and sends its response', async () => {
     mockClassifyByRules.mockReturnValue('meal_log')
+    mockHandleMealLog.mockResolvedValue({ response: 'meal log response', completed: false })
 
     await handleIncomingMessage(FROM, MESSAGE_ID, 'almocei arroz')
 
-    expect(mockSendTextMessage).toHaveBeenCalledWith(
-      FROM,
-      'Essa função ainda não está disponível. Aguarde! 🚧'
+    expect(mockHandleMealLog).toHaveBeenCalledWith(
+      mockSupabase,
+      completedUser.id,
+      'almocei arroz',
+      { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget },
+      null
     )
-  })
-
-  it('sends helpful default message when no rule matches (null intent)', async () => {
-    mockClassifyByRules.mockReturnValue(null)
-
-    await handleIncomingMessage(FROM, MESSAGE_ID, 'alguma coisa aleatória')
-
-    expect(mockSendTextMessage).toHaveBeenCalledWith(
-      FROM,
-      expect.stringContaining('menu')
-    )
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal log response')
   })
 
   it('does not call handleOnboarding for a completed user', async () => {
@@ -340,7 +353,166 @@ describe('handleIncomingMessage — completed user, intent routing', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Test 4: Error in handler → sends error message
+// Test 4: LLM classification fallback when rules return null
+// ---------------------------------------------------------------------------
+
+describe('handleIncomingMessage — LLM classification fallback', () => {
+  beforeEach(() => {
+    mockFindUserByPhone.mockResolvedValue(completedUser)
+    mockClassifyByRules.mockReturnValue(null)
+  })
+
+  it('calls getLLMProvider().classifyIntent when classifyByRules returns null', async () => {
+    mockClassifyIntent.mockResolvedValue('meal_log')
+    mockHandleMealLog.mockResolvedValue({ response: 'meal log response', completed: false })
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, 'almocei frango grelhado')
+
+    expect(mockGetLLMProvider).toHaveBeenCalled()
+    expect(mockClassifyIntent).toHaveBeenCalledWith('almocei frango grelhado')
+  })
+
+  it('routes to handleMealLog when LLM classifies as meal_log', async () => {
+    mockClassifyIntent.mockResolvedValue('meal_log')
+    mockHandleMealLog.mockResolvedValue({ response: 'meal log response', completed: false })
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, 'almocei frango grelhado')
+
+    expect(mockHandleMealLog).toHaveBeenCalledWith(
+      mockSupabase,
+      completedUser.id,
+      'almocei frango grelhado',
+      { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget },
+      null
+    )
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal log response')
+  })
+
+  it('defaults to meal_log when LLM classifyIntent throws', async () => {
+    mockClassifyIntent.mockRejectedValue(new Error('LLM timeout'))
+    mockHandleMealLog.mockResolvedValue({ response: 'meal log response', completed: false })
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, 'comi pizza')
+
+    expect(mockHandleMealLog).toHaveBeenCalledWith(
+      mockSupabase,
+      completedUser.id,
+      'comi pizza',
+      { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget },
+      null
+    )
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal log response')
+  })
+
+  it('routes to out_of_scope when LLM classifies as out_of_scope', async () => {
+    mockClassifyIntent.mockResolvedValue('out_of_scope')
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, 'conta uma piada')
+
+    expect(mockFormatOutOfScope).toHaveBeenCalled()
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'out of scope message')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Test 5: Context-based routing (active context → handleMealLog)
+// ---------------------------------------------------------------------------
+
+describe('handleIncomingMessage — context-based routing', () => {
+  beforeEach(() => {
+    mockFindUserByPhone.mockResolvedValue(completedUser)
+  })
+
+  it('routes to handleMealLog when context is awaiting_confirmation', async () => {
+    const mockContext = {
+      contextType: 'awaiting_confirmation',
+      contextData: { mealAnalysis: {}, originalMessage: 'arroz e feijão' },
+    }
+    mockGetState.mockResolvedValue(mockContext)
+    mockHandleMealLog.mockResolvedValue({ response: 'confirmed!', completed: true })
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, 'sim')
+
+    expect(mockHandleMealLog).toHaveBeenCalledWith(
+      mockSupabase,
+      completedUser.id,
+      'sim',
+      { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget },
+      mockContext
+    )
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'confirmed!')
+  })
+
+  it('routes to handleMealLog when context is awaiting_clarification', async () => {
+    const mockContext = {
+      contextType: 'awaiting_clarification',
+      contextData: { originalMessage: 'comi algo' },
+    }
+    mockGetState.mockResolvedValue(mockContext)
+    mockHandleMealLog.mockResolvedValue({ response: 'clarification received', completed: false })
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, '200g de frango')
+
+    expect(mockHandleMealLog).toHaveBeenCalledWith(
+      mockSupabase,
+      completedUser.id,
+      '200g de frango',
+      { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget },
+      mockContext
+    )
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'clarification received')
+  })
+
+  it('routes to handleMealLog when context is awaiting_correction', async () => {
+    const mockContext = {
+      contextType: 'awaiting_correction',
+      contextData: { originalMessage: 'comi arroz' },
+    }
+    mockGetState.mockResolvedValue(mockContext)
+    mockHandleMealLog.mockResolvedValue({ response: 'correction received', completed: false })
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, 'na verdade foi 300g')
+
+    expect(mockHandleMealLog).toHaveBeenCalledWith(
+      mockSupabase,
+      completedUser.id,
+      'na verdade foi 300g',
+      { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget },
+      mockContext
+    )
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'correction received')
+  })
+
+  it('does not call classifyByRules when an active meal context is present', async () => {
+    const mockContext = {
+      contextType: 'awaiting_confirmation',
+      contextData: { mealAnalysis: {}, originalMessage: 'pizza' },
+    }
+    mockGetState.mockResolvedValue(mockContext)
+    mockHandleMealLog.mockResolvedValue({ response: 'done', completed: true })
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, 'sim')
+
+    expect(mockClassifyByRules).not.toHaveBeenCalled()
+  })
+
+  it('returns early (does not call sendTextMessage twice) when context routes to handleMealLog', async () => {
+    const mockContext = {
+      contextType: 'awaiting_confirmation',
+      contextData: { mealAnalysis: {}, originalMessage: 'pizza' },
+    }
+    mockGetState.mockResolvedValue(mockContext)
+    mockHandleMealLog.mockResolvedValue({ response: 'done', completed: true })
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, 'sim')
+
+    expect(mockSendTextMessage).toHaveBeenCalledTimes(1)
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'done')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Test 6: Error in handler → sends error message
 // ---------------------------------------------------------------------------
 
 describe('handleIncomingMessage — error handling', () => {
