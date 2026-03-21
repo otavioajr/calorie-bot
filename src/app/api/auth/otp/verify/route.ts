@@ -57,7 +57,15 @@ export async function POST(request: Request): Promise<NextResponse> {
       )
     }
 
-    return NextResponse.json({ success: true, userId: user.id }, { status: 200 })
+    const response = NextResponse.json({ success: true, userId: user.id }, { status: 200 })
+    response.cookies.set('caloriebot-user-id', user.id, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 30, // 30 days
+      path: '/',
+    })
+    return response
   } catch (err) {
     console.error('[OTP verify] unexpected error:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

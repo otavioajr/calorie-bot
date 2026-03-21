@@ -12,10 +12,9 @@ export function createBrowserClient() {
 
 // For server components and API routes (uses cookies)
 // Requires Next.js runtime context — do not call outside of server context
-export function createServerClient() {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { cookies } = require('next/headers') as typeof import('next/headers')
-  const cookieStore = cookies()
+export async function createServerClient() {
+  const { cookies } = await import('next/headers')
+  const cookieStore = await cookies()
 
   return createSSRClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

@@ -26,7 +26,8 @@ export async function POST(request: Request) {
 
     // Deduplicate by message_id
     const supabase = createServiceRoleClient()
-    const { data, error } = await supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any)
       .from('processed_messages')
       .insert({ message_id: event.messageId })
       .select()
