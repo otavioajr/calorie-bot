@@ -1,0 +1,126 @@
+import { MealAnalysis, MealAnalysisSchema } from '../schemas/meal-analysis'
+import { IntentClassificationSchema } from '../schemas/intent'
+import { CalorieMode } from '../schemas/common'
+import { LLMProvider, IntentType } from '../provider'
+import { buildApproximatePrompt } from '../prompts/approximate'
+import { buildTacoPrompt, TacoFood } from '../prompts/taco'
+import { buildClassifyPrompt } from '../prompts/classify'
+
+interface OpenRouterMessage {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+}
+
+interface OpenRouterRequestBody {
+  model: string
+  messages: OpenRouterMessage[]
+  response_format?: { type: 'json_object' }
+}
+
+interface OpenRouterResponse {
+  choices: Array<{
+    message: {
+      content: string
+    }
+  }>
+}
+
+export class OpenRouterProvider implements LLMProvider {
+  private apiKey: string
+  private mealModel: string
+  private classifyModel: string
+
+  constructor() {
+    this.apiKey = process.env.LLM_API_KEY!
+    this.mealModel = process.env.LLM_MODEL_MEAL ?? 'openai/gpt-4o-mini'
+    this.classifyModel =
+      process.env.LLM_MODEL_CLASSIFY ?? 'meta-llama/llama-3.1-8b-instruct:free'
+  }
+
+  async analyzeMeal(message: string, mode: CalorieMode, context?: TacoFood[]): Promise<MealAnalysis> {
+    const systemPrompt = mode === 'taco'
+      ? buildTacoPrompt(context ?? [])
+      : buildApproximatePrompt()
+
+    const rawContent = await this.callAPI(this.mealModel, systemPrompt, message, true)
+
+    const parsed = this.parseJSON(rawContent)
+    const validated = MealAnalysisSchema.safeParse(parsed)
+
+    if (validated.success) {
+      return validated.data
+    }
+
+    // Retry once on validation failure
+    const retryContent = await this.callAPI(this.mealModel, systemPrompt, message, true)
+    const retryParsed = this.parseJSON(retryContent)
+    const retryValidated = MealAnalysisSchema.safeParse(retryParsed)
+
+    if (retryValidated.success) {
+      return retryValidated.data
+    }
+
+    throw new Error(
+      `MealAnalysis validation failed after retry: ${retryValidated.error.message}`,
+    )
+  }
+
+  async classifyIntent(message: string): Promise<IntentType> {
+    const systemPrompt = buildClassifyPrompt()
+    const rawContent = await this.callAPI(this.classifyModel, systemPrompt, message, true)
+
+    const parsed = this.parseJSON(rawContent)
+    const validated = IntentClassificationSchema.parse(parsed)
+
+    return validated.intent
+  }
+
+  async chat(message: string, systemPrompt: string): Promise<string> {
+    return this.callAPI(this.mealModel, systemPrompt, message, false)
+  }
+
+  private parseJSON(content: string): unknown {
+    try {
+      return JSON.parse(content)
+    } catch {
+      return null
+    }
+  }
+
+  private async callAPI(
+    model: string,
+    systemPrompt: string,
+    userMessage: string,
+    jsonMode: boolean,
+  ): Promise<string> {
+    const body: OpenRouterRequestBody = {
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage },
+      ],
+    }
+
+    if (jsonMode) {
+      body.response_format = { type: 'json_object' }
+    }
+
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://caloriebot.vercel.app',
+        'X-Title': 'CalorieBot',
+      },
+      body: JSON.stringify(body),
+    })
+
+    if (!response.ok) {
+      throw new Error(`OpenRouter API error: ${response.status} ${response.statusText}`)
+    }
+
+    const data = (await response.json()) as OpenRouterResponse
+    return data.choices[0].message.content
+  }
+}
