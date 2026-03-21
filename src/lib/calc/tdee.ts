@@ -1,0 +1,53 @@
+export type Sex = 'male' | 'female'
+export type ActivityLevel = 'sedentary' | 'light' | 'moderate' | 'intense'
+export type Goal = 'lose' | 'maintain' | 'gain'
+
+const ACTIVITY_FACTORS: Record<ActivityLevel, number> = {
+  sedentary: 1.2,
+  light: 1.375,
+  moderate: 1.55,
+  intense: 1.725,
+}
+
+const GOAL_ADJUSTMENTS: Record<Goal, number> = {
+  lose: -500,
+  maintain: 0,
+  gain: 300,
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100
+}
+
+export function calculateTMB(
+  sex: Sex,
+  weightKg: number,
+  heightCm: number,
+  age: number,
+): number {
+  const base = 10 * weightKg + 6.25 * heightCm - 5 * age
+  const sexAdjustment = sex === 'male' ? 5 : -161
+  return round2(base + sexAdjustment)
+}
+
+export function calculateTDEE(tmb: number, activityLevel: ActivityLevel): number {
+  return round2(tmb * ACTIVITY_FACTORS[activityLevel])
+}
+
+export function calculateDailyTarget(tdee: number, goal: Goal): number {
+  return round2(tdee + GOAL_ADJUSTMENTS[goal])
+}
+
+export function calculateAll(params: {
+  sex: Sex
+  weightKg: number
+  heightCm: number
+  age: number
+  activityLevel: ActivityLevel
+  goal: Goal
+}): { tmb: number; tdee: number; dailyTarget: number } {
+  const tmb = calculateTMB(params.sex, params.weightKg, params.heightCm, params.age)
+  const tdee = calculateTDEE(tmb, params.activityLevel)
+  const dailyTarget = calculateDailyTarget(tdee, params.goal)
+  return { tmb, tdee, dailyTarget }
+}
