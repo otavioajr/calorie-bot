@@ -98,8 +98,9 @@ describe('OllamaProvider', () => {
       const provider = new OllamaProvider()
       await provider.analyzeMeal('arroz', 'approximate')
 
-      expect(capturedBody?.format).toBe('json')
-      expect(capturedBody?.stream).toBe(false)
+      const body = capturedBody as { format?: string; stream?: boolean } | null
+      expect(body?.format).toBe('json')
+      expect(body?.stream).toBe(false)
     })
 
     it('does not send Authorization header', async () => {
@@ -146,8 +147,9 @@ describe('OllamaProvider', () => {
       const provider = new OllamaProvider()
       await provider.classifyIntent('test')
 
-      expect(capturedBody?.format).toBe('json')
-      expect(capturedBody?.stream).toBe(false)
+      const body = capturedBody as { format?: string; stream?: boolean } | null
+      expect(body?.format).toBe('json')
+      expect(body?.stream).toBe(false)
     })
   })
 
@@ -178,7 +180,8 @@ describe('OllamaProvider', () => {
       const provider = new OllamaProvider()
       await provider.chat('Oi', 'System prompt')
 
-      expect(capturedBody?.format).toBeUndefined()
+      const body = capturedBody as { format?: unknown } | null
+      expect(body?.format).toBeUndefined()
     })
   })
 })

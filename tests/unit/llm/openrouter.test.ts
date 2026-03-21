@@ -152,7 +152,8 @@ describe('OpenRouterProvider', () => {
       const provider = new OpenRouterProvider()
       await provider.analyzeMeal('arroz', 'approximate')
 
-      expect(capturedBody?.response_format).toEqual({ type: 'json_object' })
+      const body = capturedBody as { response_format?: { type: string } } | null
+      expect(body?.response_format).toEqual({ type: 'json_object' })
     })
   })
 
@@ -183,7 +184,8 @@ describe('OpenRouterProvider', () => {
       const provider = new OpenRouterProvider()
       await provider.classifyIntent('help me')
 
-      expect(capturedBody?.model).toBe('meta-llama/llama-3.1-8b-instruct:free')
+      const body = capturedBody as { model: string } | null
+      expect(body?.model).toBe('meta-llama/llama-3.1-8b-instruct:free')
     })
 
     it('sends response_format json_object for classifyIntent', async () => {
@@ -199,7 +201,8 @@ describe('OpenRouterProvider', () => {
       const provider = new OpenRouterProvider()
       await provider.classifyIntent('test')
 
-      expect(capturedBody?.response_format).toEqual({ type: 'json_object' })
+      const body = capturedBody as { response_format?: { type: string } } | null
+      expect(body?.response_format).toEqual({ type: 'json_object' })
     })
   })
 
@@ -230,7 +233,8 @@ describe('OpenRouterProvider', () => {
       const provider = new OpenRouterProvider()
       await provider.chat('Oi', 'System prompt')
 
-      expect(capturedBody?.response_format).toBeUndefined()
+      const body = capturedBody as { response_format?: unknown } | null
+      expect(body?.response_format).toBeUndefined()
     })
   })
 })

@@ -23,7 +23,8 @@ function makeMockProvider(overrides: Partial<LLMProvider> = {}): LLMProvider {
 
 // Vitest v4 requires a class keyword when mocking constructors called with `new`
 function setupConstructorMock(
-  MockClass: typeof OpenRouterProvider | typeof OllamaProvider,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  MockClass: { mockImplementation: (impl: any) => void },
   instance: LLMProvider,
 ) {
   MockClass.mockImplementation(
@@ -31,7 +32,7 @@ function setupConstructorMock(
       analyzeMeal = instance.analyzeMeal
       classifyIntent = instance.classifyIntent
       chat = instance.chat
-    } as unknown as new () => OpenRouterProvider,
+    },
   )
 }
 
@@ -241,7 +242,7 @@ describe('logLLMUsage', () => {
       }),
     )
     // Optional fields should not be present when not provided
-    const callArg = insertFn.mock.calls[0][0] as Record<string, unknown>
+    const callArg = (insertFn.mock.calls as unknown as [Record<string, unknown>][])[0][0]
     expect(callArg).not.toHaveProperty('user_id')
     expect(callArg).not.toHaveProperty('tokens_input')
     expect(callArg).not.toHaveProperty('tokens_output')
