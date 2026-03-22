@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { downloadWhatsAppMedia, AudioTooLargeError } from '@/lib/audio/transcribe'
+import { downloadWhatsAppMedia, AudioTooLargeError, transcribeAudio } from '@/lib/audio/transcribe'
 
 describe('downloadWhatsAppMedia', () => {
   beforeEach(() => {
@@ -123,5 +123,99 @@ describe('downloadWhatsAppMedia', () => {
     await expect(downloadWhatsAppMedia('media-id-no-token')).rejects.toThrow(
       'WHATSAPP_ACCESS_TOKEN is not configured'
     )
+  })
+})
+
+describe('transcribeAudio', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    vi.stubEnv('OPENAI_API_KEY', 'test-api-key')
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('sends POST to api.openai.com/v1/audio/transcriptions with correct headers and form data', async () => {
+    const audioBuffer = Buffer.from('fake-audio-data')
+
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ text: 'almocei arroz e feijão' }),
+    })
+
+    vi.stubGlobal('fetch', mockFetch)
+
+    await transcribeAudio(audioBuffer)
+
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+
+    const [url, options] = mockFetch.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://api.openai.com/v1/audio/transcriptions')
+    expect(options.method).toBe('POST')
+    expect((options.headers as Record<string, string>)['Authorization']).toBe('Bearer test-api-key')
+
+    const body = options.body as FormData
+    expect(body.get('model')).toBe('whisper-1')
+    expect(body.get('language')).toBe('pt')
+    expect(body.get('file')).toBeInstanceOf(Blob)
+  })
+
+  it('returns a TranscriptionResult with text and latencyMs', async () => {
+    const audioBuffer = Buffer.from('fake-audio-data')
+
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ text: 'almocei arroz e feijão' }),
+    })
+
+    vi.stubGlobal('fetch', mockFetch)
+
+    const result = await transcribeAudio(audioBuffer)
+
+    expect(result.text).toBe('almocei arroz e feijão')
+    expect(typeof result.latencyMs).toBe('number')
+    expect(result.latencyMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it('throws when OPENAI_API_KEY is not set', async () => {
+    vi.stubEnv('OPENAI_API_KEY', '')
+
+    const audioBuffer = Buffer.from('fake-audio-data')
+
+    await expect(transcribeAudio(audioBuffer)).rejects.toThrow(
+      'OPENAI_API_KEY is not configured'
+    )
+  })
+
+  it('throws when Whisper API returns non-ok response', async () => {
+    const audioBuffer = Buffer.from('fake-audio-data')
+
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      text: async () => 'Rate limit exceeded',
+    })
+
+    vi.stubGlobal('fetch', mockFetch)
+
+    await expect(transcribeAudio(audioBuffer)).rejects.toThrow(
+      'Whisper API error: 429'
+    )
+  })
+
+  it('returns empty string when Whisper returns empty text', async () => {
+    const audioBuffer = Buffer.from('fake-audio-data')
+
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ text: '' }),
+    })
+
+    vi.stubGlobal('fetch', mockFetch)
+
+    const result = await transcribeAudio(audioBuffer)
+
+    expect(result.text).toBe('')
   })
 })

@@ -4,7 +4,7 @@ export interface LLMUsageEntry {
   userId?: string
   provider: string
   model: string
-  functionType: 'meal_analysis' | 'classify_intent' | 'vision' | 'chat'
+  functionType: 'meal_analysis' | 'classify_intent' | 'vision' | 'chat' | 'audio_transcription'
   tokensInput?: number
   tokensOutput?: number
   costUsd?: number
