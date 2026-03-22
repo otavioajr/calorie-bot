@@ -9,6 +9,7 @@ export class AudioTooLargeError extends Error {
 
 export async function downloadWhatsAppMedia(mediaId: string): Promise<Buffer> {
   const accessToken = process.env.WHATSAPP_ACCESS_TOKEN
+  if (!accessToken) throw new Error('WHATSAPP_ACCESS_TOKEN is not configured')
   // Step 1: GET media metadata → { url }
   const metaRes = await fetch(`https://graph.facebook.com/v21.0/${mediaId}`, {
     headers: { Authorization: `Bearer ${accessToken}` },

@@ -1,10 +1,14 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { downloadWhatsAppMedia, AudioTooLargeError } from '@/lib/audio/transcribe'
 
 describe('downloadWhatsAppMedia', () => {
   beforeEach(() => {
     vi.resetAllMocks()
-    process.env.WHATSAPP_ACCESS_TOKEN = 'test-access-token'
+    vi.stubEnv('WHATSAPP_ACCESS_TOKEN', 'test-access-token')
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
   it('calls GET /v21.0/{mediaId} with WHATSAPP_ACCESS_TOKEN, then fetches the returned URL', async () => {
@@ -110,6 +114,14 @@ describe('downloadWhatsAppMedia', () => {
 
     await expect(downloadWhatsAppMedia('media-id-binary-fail')).rejects.toThrow(
       'WhatsApp media download error: 403'
+    )
+  })
+
+  it('throws when WHATSAPP_ACCESS_TOKEN is not configured', async () => {
+    vi.stubEnv('WHATSAPP_ACCESS_TOKEN', '')
+
+    await expect(downloadWhatsAppMedia('media-id-no-token')).rejects.toThrow(
+      'WHATSAPP_ACCESS_TOKEN is not configured'
     )
   })
 })
