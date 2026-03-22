@@ -48,7 +48,10 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     const supabase = createServiceRoleClient()
+    // Try with and without '+' prefix (webhook stores without '+')
+    const phoneWithoutPlus = phone.startsWith('+') ? phone.slice(1) : phone
     const user = await findUserByPhone(supabase, phone)
+      ?? await findUserByPhone(supabase, phoneWithoutPlus)
 
     if (!user) {
       return NextResponse.json(

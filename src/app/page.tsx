@@ -15,15 +15,18 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
 
-  function formatPhone(value: string): string {
-    // Strip non-digits
-    const digits = value.replace(/\D/g, "")
-    // Format as Brazilian number
-    if (digits.length <= 2) return digits
-    if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`
-    if (digits.length <= 11)
+  function handlePhoneChange(value: string): string {
+    // Allow only digits while typing
+    return value.replace(/\D/g, "").slice(0, 11)
+  }
+
+  function displayPhone(digits: string): string {
+    // Format for display only when complete (10-11 digits)
+    if (digits.length >= 11)
       return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`
-    return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7, 11)}`
+    if (digits.length >= 10)
+      return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`
+    return digits
   }
 
   function toE164(formatted: string): string {
@@ -112,12 +115,12 @@ export default function LoginPage() {
                   <Input
                     id="phone"
                     type="tel"
-                    placeholder="(11) 99999-9999"
+                    placeholder="11999999999"
                     value={phone}
-                    onChange={(e) => setPhone(formatPhone(e.target.value))}
+                    onChange={(e) => setPhone(handlePhoneChange(e.target.value))}
                     required
                     className="h-11"
-                    maxLength={15}
+                    maxLength={11}
                   />
                 </div>
                 {error && (
@@ -126,7 +129,7 @@ export default function LoginPage() {
                 <Button
                   type="submit"
                   className="w-full h-11 text-base"
-                  disabled={loading || phone.replace(/\D/g, "").length < 10}
+                  disabled={loading || phone.length < 10}
                 >
                   {loading ? "Enviando..." : "Enviar código"}
                 </Button>
