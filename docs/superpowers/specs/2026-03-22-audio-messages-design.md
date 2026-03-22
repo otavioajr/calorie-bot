@@ -21,7 +21,8 @@ Add support for WhatsApp audio messages (voice notes). When a user sends an audi
 
 - Add `'audio'` to `WhatsAppMessage.type` union: `'text' | 'image' | 'audio' | 'unknown'`
 - Add optional field `audioId?: string` to `WhatsAppMessage`
-- Add `RawMessage.audio` handling: when `msgType === 'audio'`, extract `audio.id` from payload
+- Add `audio?: { id?: unknown; mime_type?: unknown }` to `RawMessage` interface (mirrors existing `text` pattern)
+- When `msgType === 'audio'`, extract `audio.id` from payload
 - WhatsApp sends: `{ audio: { id: "MEDIA_ID", mime_type: "audio/ogg" } }`
 
 ### 2. Audio module (`src/lib/audio/transcribe.ts`) — NEW
@@ -56,10 +57,12 @@ New exported function:
 **`handleIncomingAudio(from: string, messageId: string, audioId: string): Promise<void>`**
 1. Call `downloadWhatsAppMedia(audioId)` — if size exceeds limit, respond: "🎤 Áudio muito longo! Manda um áudio de até 30 segundos 😊"
 2. Call `transcribeAudio(buffer)` — if transcription is empty, respond: "🎤 Não consegui entender o áudio. Tenta mandar de novo ou digita o que comeu?"
-3. Send feedback: "🎤 Entendi: *{transcribed text}*"
+3. Send feedback: "🎤 Entendi: *{transcribed text}*" — **must `await` before step 4** to guarantee message ordering
 4. Call `handleIncomingMessage(from, messageId, transcribedText)` — reuses 100% of existing pipeline
 
 On any error (download fail, API fail), respond with standard error message via `formatError()`.
+
+**Graceful degradation:** If `OPENAI_API_KEY` is not configured, respond: "🎤 Suporte a áudio não está disponível. Digita o que comeu?" — do not crash.
 
 ### 5. Environment
 
@@ -76,6 +79,9 @@ OPENAI_API_KEY=sk-...
 - **Webhook always returns 200** — even if transcription fails
 - **Empty transcription** — user gets friendly message asking to retry or type instead
 - **No retry on transcription** — unlike LLM calls, not worth retrying; user can resend audio
+- **Media URL expiry** — WhatsApp media URLs expire in ~5 minutes; the flow is synchronous so this is not an issue
+- **Missing `OPENAI_API_KEY`** — graceful degradation, asks user to type instead
+- **Logging** — log Whisper API calls to `llm_usage_log` (model: `whisper-1`, tokens: 0, cost estimated from audio duration)
 
 ## Files Modified
 
@@ -87,3 +93,4 @@ OPENAI_API_KEY=sk-...
 | `src/lib/bot/handler.ts` | Add `handleIncomingAudio` function |
 | `.env.example` | Add `OPENAI_API_KEY` |
 | `.env.local` | Add `OPENAI_API_KEY` value |
+| `CLAUDE.md` | Add `OPENAI_API_KEY` to env vars, `src/lib/audio/` to project structure |
