@@ -107,7 +107,7 @@ async function handleConfirmation(
   supabase: SupabaseClient,
   userId: string,
   context: ConversationContext,
-  user: { dailyCalorieTarget: number | null },
+  user: { calorieMode: string; dailyCalorieTarget: number | null },
 ): Promise<MealLogResult> {
   const analysis = context.contextData.mealAnalysis as MealAnalysis
   const originalMessage = context.contextData.originalMessage as string

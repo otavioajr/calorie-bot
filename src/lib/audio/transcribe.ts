@@ -43,7 +43,7 @@ export async function transcribeAudio(audioBuffer: Buffer): Promise<Transcriptio
   const startTime = Date.now()
 
   const formData = new FormData()
-  formData.append('file', new Blob([audioBuffer], { type: 'audio/ogg' }), 'audio.ogg')
+  formData.append('file', new Blob([new Uint8Array(audioBuffer)], { type: 'audio/ogg' }), 'audio.ogg')
   formData.append('model', 'whisper-1')
   formData.append('language', 'pt')
 

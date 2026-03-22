@@ -36,7 +36,7 @@ caloriebot/
 │   │   │   └── history/              # Histórico de refeições
 │   │   ├── api/
 │   │   │   ├── webhook/
-│   │   │   │   └── whatsapp/route.ts # Webhook do WhatsApp (POST + GET para verificação)
+│   │   │   │   └── whatsapp/route.ts # Webhook do WhatsApp (POST + GET para verificação, suporte a texto e áudio)
 │   │   │   ├── auth/otp/
 │   │   │   │   ├── send/route.ts     # Gera e envia OTP via WhatsApp
 │   │   │   │   └── verify/route.ts   # Valida OTP e cria sessão
@@ -61,6 +61,9 @@ caloriebot/
 │   │   │   │   ├── manual.ts         # System prompt — modo manual
 │   │   │   │   └── classify.ts       # System prompt — classificador de intenção
 │   │   │   └── index.ts              # Factory: retorna provider ativo via LLM_PROVIDER
+│   │   │
+│   │   ├── audio/
+│   │   │   └── transcribe.ts         # Download WhatsApp media + Whisper transcription
 │   │   │
 │   │   ├── whatsapp/
 │   │   │   ├── client.ts             # Envio de mensagens via Meta Cloud API
@@ -159,6 +162,9 @@ OLLAMA_MODEL_CLASSIFY=llama3.1:8b
 
 # Fallback (opcional — vazio = sem fallback)
 LLM_FALLBACK_PROVIDER=
+
+# Audio (OpenAI Whisper)
+OPENAI_API_KEY=sk-...                                       # transcrição de áudio via Whisper
 ```
 
 ---
