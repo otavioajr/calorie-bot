@@ -13,6 +13,8 @@ import { handleHelp, handleUserData } from '@/lib/bot/flows/help'
 import { getLLMProvider } from '@/lib/llm/index'
 import { sendTextMessage } from '@/lib/whatsapp/client'
 import { formatOutOfScope, formatError } from '@/lib/utils/formatters'
+import { downloadWhatsAppMedia, transcribeAudio, AudioTooLargeError } from '@/lib/audio/transcribe'
+import { logLLMUsage } from '@/lib/db/queries/llm-usage'
 
 export async function handleIncomingMessage(
   from: string,
@@ -126,6 +128,61 @@ export async function handleIncomingMessage(
     await sendTextMessage(from, response)
   } catch (err) {
     console.error('[handler] Error:', err)
+    await sendTextMessage(from, formatError()).catch(() => {})
+  }
+}
+
+export async function handleIncomingAudio(
+  from: string,
+  messageId: string,
+  audioId: string
+): Promise<void> {
+  const supabase = createServiceRoleClient()
+
+  try {
+    let buffer: Buffer
+    try {
+      buffer = await downloadWhatsAppMedia(audioId)
+    } catch (err) {
+      if (err instanceof AudioTooLargeError || (err instanceof Error && err.name === 'AudioTooLargeError')) {
+        await sendTextMessage(from, '🎤 Áudio muito longo! Manda um áudio de até 30 segundos 😊')
+        return
+      }
+      throw err
+    }
+
+    let transcription: string
+    let latencyMs: number
+    try {
+      const result = await transcribeAudio(buffer)
+      transcription = result.text
+      latencyMs = result.latencyMs
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('OPENAI_API_KEY')) {
+        await sendTextMessage(from, '🎤 Suporte a áudio não está disponível. Digita o que comeu?')
+        return
+      }
+      throw err
+    }
+
+    // Log Whisper API usage (fire-and-forget)
+    logLLMUsage(supabase, {
+      provider: 'openai',
+      model: 'whisper-1',
+      functionType: 'audio_transcription',
+      latencyMs,
+      success: true,
+    }).catch(() => {})
+
+    if (!transcription.trim()) {
+      await sendTextMessage(from, '🎤 Não consegui entender o áudio. Tenta mandar de novo ou digita o que comeu?')
+      return
+    }
+
+    await sendTextMessage(from, `🎤 Entendi: *${transcription}*`)
+    await handleIncomingMessage(from, messageId, transcription)
+  } catch (err) {
+    console.error('[handler] Audio error:', err)
     await sendTextMessage(from, formatError()).catch(() => {})
   }
 }
