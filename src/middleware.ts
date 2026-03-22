@@ -2,16 +2,32 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
 export function middleware(request: NextRequest) {
-  // Check for auth cookie/session
-  // For MVP: check for a simple cookie 'caloriebot-user-id'
-  // (Set by the verify OTP route on success)
-  const userId = request.cookies.get('caloriebot-user-id')
-  if (!userId) {
-    return NextResponse.redirect(new URL('/', request.url))
+  const { pathname } = request.nextUrl
+
+  // Skip API routes, static files, and public paths
+  if (
+    pathname.startsWith('/api/') ||
+    pathname.startsWith('/_next/') ||
+    pathname.startsWith('/favicon') ||
+    pathname === '/'
+  ) {
+    return NextResponse.next()
   }
+
+  // Protected routes: /dashboard, /settings, /history
+  const protectedPaths = ['/dashboard', '/settings', '/history']
+  const isProtected = protectedPaths.some(p => pathname.startsWith(p))
+
+  if (isProtected) {
+    const userId = request.cookies.get('caloriebot-user-id')
+    if (!userId) {
+      return NextResponse.redirect(new URL('/', request.url))
+    }
+  }
+
   return NextResponse.next()
 }
 
 export const config = {
-  matcher: ['/(auth)/:path*'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 }

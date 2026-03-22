@@ -31,7 +31,13 @@ export async function handleIncomingMessage(
     // 2. Check if onboarding is complete
     if (!user.onboardingComplete) {
       const result = await handleOnboarding(supabase, user.id, text, user.onboardingStep)
-      await sendTextMessage(from, result.response)
+      console.log('[handler] Sending onboarding response to', from, ':', result.response.substring(0, 50))
+      try {
+        await sendTextMessage(from, result.response)
+        console.log('[handler] Message sent successfully')
+      } catch (sendErr) {
+        console.error('[handler] Failed to send message:', sendErr)
+      }
       return
     }
 

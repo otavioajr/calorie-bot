@@ -83,6 +83,15 @@ export class OpenRouterProvider implements LLMProvider {
     try {
       return JSON.parse(content)
     } catch {
+      // Some models wrap JSON in markdown code blocks
+      const match = content.match(/```(?:json)?\s*([\s\S]*?)```/)
+      if (match) {
+        try {
+          return JSON.parse(match[1].trim())
+        } catch {
+          return null
+        }
+      }
       return null
     }
   }
@@ -117,10 +126,18 @@ export class OpenRouterProvider implements LLMProvider {
     })
 
     if (!response.ok) {
+      const errorBody = await response.text()
+      console.error(`[OpenRouter] ${response.status} for model ${model}:`, errorBody)
       throw new Error(`OpenRouter API error: ${response.status} ${response.statusText}`)
     }
 
-    const data = (await response.json()) as OpenRouterResponse
-    return data.choices[0].message.content
+    const data = await response.json()
+    console.log('[OpenRouter] Response:', JSON.stringify(data).substring(0, 500))
+
+    const content = data?.choices?.[0]?.message?.content
+    if (!content) {
+      throw new Error(`OpenRouter returned unexpected format: ${JSON.stringify(data).substring(0, 200)}`)
+    }
+    return content
   }
 }

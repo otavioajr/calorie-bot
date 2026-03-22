@@ -199,7 +199,7 @@ export async function handleOnboarding(
     await updateUser(supabase, userId, {
       tmb,
       tdee,
-      dailyCalorieTarget: dailyTarget,
+      dailyCalorieTarget: Math.round(dailyTarget),
       onboardingComplete: true,
       onboardingStep: 8,
     })

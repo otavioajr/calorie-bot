@@ -126,7 +126,7 @@ async function handleConfirmation(
       proteinG: item.protein,
       carbsG: item.carbs,
       fatG: item.fat,
-      source: item.quantity_source,
+      source: user.calorieMode ?? 'approximate',
       tacoId: item.taco_id ?? undefined,
     })),
   })
