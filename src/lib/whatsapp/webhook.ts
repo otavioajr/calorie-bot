@@ -3,10 +3,11 @@
 // ---------------------------------------------------------------------------
 
 export interface WhatsAppMessage {
-  type: 'text' | 'image' | 'unknown'
+  type: 'text' | 'image' | 'audio' | 'unknown'
   from: string
   messageId: string
   text?: string
+  audioId?: string
   timestamp: number
 }
 
@@ -27,6 +28,7 @@ interface RawMessage {
   timestamp?: unknown
   type?: unknown
   text?: { body?: unknown }
+  audio?: { id?: unknown; mime_type?: unknown }
 }
 
 interface RawStatus {
@@ -169,6 +171,18 @@ export function parseWebhookPayload(body: unknown): WebhookEvent {
         type: 'image',
         from,
         messageId,
+        timestamp,
+      }
+    }
+
+    if (msgType === 'audio') {
+      const audioId = isObject(rawMsg.audio) ? asString((rawMsg.audio as { id?: unknown }).id) : undefined
+
+      return {
+        type: 'audio',
+        from,
+        messageId,
+        audioId,
         timestamp,
       }
     }

@@ -101,6 +101,28 @@ function makeStatusPayload() {
   }
 }
 
+function makeAudioPayload() {
+  return {
+    object: 'whatsapp_business_account',
+    entry: [{
+      id: 'BIZ_ACCOUNT_ID',
+      changes: [{
+        value: {
+          messaging_product: 'whatsapp',
+          messages: [{
+            from: '5511999887766',
+            id: 'wamid.audio789',
+            timestamp: '1710000002',
+            type: 'audio',
+            audio: { id: 'media_audio_123', mime_type: 'audio/ogg' },
+          }],
+        },
+        field: 'messages',
+      }],
+    }],
+  }
+}
+
 // ---------------------------------------------------------------------------
 // parseWebhookPayload
 // ---------------------------------------------------------------------------
@@ -210,15 +232,18 @@ describe('parseWebhookPayload', () => {
   it('returns WhatsAppMessage with type "unknown" for an unrecognised message type', () => {
     const payload = makeTextPayload()
     // Replace the single message with an audio message type
-    ;(
+    const messages = (
       (payload.entry[0].changes[0].value as Record<string, unknown>)
         .messages as Array<Record<string, unknown>>
-    )[0].type = 'audio'
+    )
+    messages[0].type = 'audio'
+    messages[0].audio = { id: 'media_audio_123', mime_type: 'audio/ogg' }
 
     const result = parseWebhookPayload(payload)
     expect(result).not.toBeNull()
     const msg = result as WhatsAppMessage
-    expect(msg.type).toBe('unknown')
+    expect(msg.type).toBe('audio')
+    expect(msg.audioId).toBe('media_audio_123')
   })
 
   it('returns null when messages array is empty', () => {
@@ -232,6 +257,27 @@ describe('parseWebhookPayload', () => {
     const msg = result as WhatsAppMessage
     expect(typeof msg.timestamp).toBe('number')
     expect(msg.timestamp).toBe(1710000000)
+  })
+
+  it('parses audio message correctly', () => {
+    const result = parseWebhookPayload(makeAudioPayload())
+
+    expect(result).not.toBeNull()
+    const msg = result as WhatsAppMessage
+    expect(msg.type).toBe('audio')
+    expect(msg.from).toBe('5511999887766')
+    expect(msg.messageId).toBe('wamid.audio789')
+    expect(msg.audioId).toBe('media_audio_123')
+    expect(msg.timestamp).toBe(1710000002)
+  })
+
+  it('audioId is undefined for non-audio message types', () => {
+    const result = parseWebhookPayload(makeTextPayload())
+
+    expect(result).not.toBeNull()
+    const msg = result as WhatsAppMessage
+    expect(msg.type).toBe('text')
+    expect(msg.audioId).toBeUndefined()
   })
 })
 
