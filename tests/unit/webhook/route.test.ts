@@ -25,6 +25,16 @@ vi.mock('@/lib/whatsapp/webhook', async (importOriginal) => {
   return actual
 })
 
+const { mockHandleIncomingMessage, mockHandleIncomingAudio } = vi.hoisted(() => ({
+  mockHandleIncomingMessage: vi.fn().mockResolvedValue(undefined),
+  mockHandleIncomingAudio: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('@/lib/bot/handler', () => ({
+  handleIncomingMessage: mockHandleIncomingMessage,
+  handleIncomingAudio: mockHandleIncomingAudio,
+}))
+
 // Import after mocks are set up
 import { GET, POST } from '@/app/api/webhook/whatsapp/route'
 
@@ -73,6 +83,28 @@ function makeTextPayload() {
         ],
       },
     ],
+  }
+}
+
+function makeAudioPayload() {
+  return {
+    object: 'whatsapp_business_account',
+    entry: [{
+      id: 'BIZ_ACCOUNT_ID',
+      changes: [{
+        value: {
+          messaging_product: 'whatsapp',
+          messages: [{
+            from: '5511999887766',
+            id: 'wamid.audio789',
+            timestamp: '1710000002',
+            type: 'audio',
+            audio: { id: 'media_audio_123', mime_type: 'audio/ogg' },
+          }],
+        },
+        field: 'messages',
+      }],
+    }],
   }
 }
 
@@ -247,5 +279,56 @@ describe('POST /api/webhook/whatsapp', () => {
     expect(response.status).toBe(200)
     const text = await response.text()
     expect(text).toBe('OK')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POST — audio messages
+// ---------------------------------------------------------------------------
+
+describe('POST — audio messages', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('returns 200 for audio message and calls handleIncomingAudio with correct args', async () => {
+    mockSingle.mockResolvedValue({ data: { message_id: 'wamid.audio789' }, error: null })
+
+    const request = makePostRequest(makeAudioPayload())
+    const response = await POST(request)
+
+    expect(response.status).toBe(200)
+    const text = await response.text()
+    expect(text).toBe('OK')
+    expect(mockHandleIncomingAudio).toHaveBeenCalledWith(
+      '5511999887766',
+      'wamid.audio789',
+      'media_audio_123',
+    )
+  })
+
+  it('returns 200 even when handleIncomingAudio throws', async () => {
+    mockSingle.mockResolvedValue({ data: { message_id: 'wamid.audio789' }, error: null })
+    mockHandleIncomingAudio.mockRejectedValueOnce(new Error('audio processing failed'))
+
+    const request = makePostRequest(makeAudioPayload())
+    const response = await POST(request)
+
+    expect(response.status).toBe(200)
+    const text = await response.text()
+    expect(text).toBe('OK')
+  })
+
+  it('deduplication works for audio: when insert returns error, handler is NOT called', async () => {
+    mockSingle.mockResolvedValue({
+      data: null,
+      error: { code: '23505', message: 'duplicate key value' },
+    })
+
+    const request = makePostRequest(makeAudioPayload())
+    const response = await POST(request)
+
+    expect(response.status).toBe(200)
+    expect(mockHandleIncomingAudio).not.toHaveBeenCalled()
   })
 })
