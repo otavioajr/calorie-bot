@@ -45,10 +45,10 @@ export function ResetDataButton() {
         Você vai precisar refazer o cadastro. Essa ação não pode ser desfeita.
       </p>
       <AlertDialog>
-        <AlertDialogTrigger asChild>
-          <Button variant="destructive" className="w-full">
-            Limpar todos os dados e recomeçar
-          </Button>
+        <AlertDialogTrigger
+          render={<Button variant="destructive" className="w-full" />}
+        >
+          Limpar todos os dados e recomeçar
         </AlertDialogTrigger>
         <AlertDialogContent>
           <AlertDialogHeader>
