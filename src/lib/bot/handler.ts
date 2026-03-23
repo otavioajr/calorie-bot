@@ -181,10 +181,10 @@ export async function handleIncomingAudio(
       throw err
     }
 
-    // Log Whisper API usage (fire-and-forget)
+    // Log transcription API usage (fire-and-forget)
     logLLMUsage(supabase, {
       provider: 'openai',
-      model: 'whisper-1',
+      model: 'gpt-4o-mini-transcribe',
       functionType: 'audio_transcription',
       latencyMs,
       success: true,

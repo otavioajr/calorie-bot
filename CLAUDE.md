@@ -424,8 +424,10 @@ npm run test:unit              # Apenas testes unitários
 npm run test:integration       # Apenas testes de integração (requer supabase start)
 npm run test:e2e               # Playwright (e2e)
 
-# Deploy
-vercel                         # Deploy para Vercel
+# Deploy — Vercel tem integração com GitHub, deploy automático via push
+git add <files> && git commit  # Commitar as mudanças
+git push                       # Push dispara deploy automático na Vercel
+# Usar `vercel` CLI APENAS para configurar variáveis de ambiente (vercel env)
 ```
 
 ---

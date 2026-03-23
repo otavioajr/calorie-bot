@@ -33,7 +33,7 @@ export async function transcribeAudio(audioBuffer: Buffer): Promise<Transcriptio
 
   const formData = new FormData()
   formData.append('file', new Blob([new Uint8Array(audioBuffer)], { type: 'audio/ogg' }), 'audio.ogg')
-  formData.append('model', 'whisper-1')
+  formData.append('model', 'gpt-4o-mini-transcribe')
   formData.append('language', 'pt')
 
   const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {

@@ -156,7 +156,7 @@ describe('transcribeAudio', () => {
     expect((options.headers as Record<string, string>)['Authorization']).toBe('Bearer test-api-key')
 
     const body = options.body as FormData
-    expect(body.get('model')).toBe('whisper-1')
+    expect(body.get('model')).toBe('gpt-4o-mini-transcribe')
     expect(body.get('language')).toBe('pt')
     expect(body.get('file')).toBeInstanceOf(Blob)
   })
