@@ -1,6 +1,6 @@
 import { createServiceRoleClient } from '@/lib/db/supabase'
 import { findUserByPhone, createUser, getUserWithSettings } from '@/lib/db/queries/users'
-import { getState } from '@/lib/bot/state'
+import { getState, setState, type ConversationContext } from '@/lib/bot/state'
 import { classifyByRules } from '@/lib/bot/router'
 import { handleOnboarding } from '@/lib/bot/flows/onboarding'
 import { handleMealLog } from '@/lib/bot/flows/meal-log'
@@ -12,9 +12,17 @@ import { handleSettings } from '@/lib/bot/flows/settings'
 import { handleHelp, handleUserData } from '@/lib/bot/flows/help'
 import { getLLMProvider } from '@/lib/llm/index'
 import { sendTextMessage } from '@/lib/whatsapp/client'
-import { formatOutOfScope, formatError } from '@/lib/utils/formatters'
+import { formatOutOfScope, formatError, formatMealBreakdown } from '@/lib/utils/formatters'
 import { downloadAudioMedia, transcribeAudio, AudioTooLargeError } from '@/lib/audio/transcribe'
+import { downloadWhatsAppMedia, MediaTooLargeError } from '@/lib/whatsapp/media'
+import { detectMimeType } from '@/lib/whatsapp/mime'
 import { logLLMUsage } from '@/lib/db/queries/llm-usage'
+import { getDailyCalories } from '@/lib/db/queries/meals'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import type { ImageAnalysis } from '@/lib/llm/schemas/image-analysis'
+import type { MealAnalysis } from '@/lib/llm/schemas/meal-analysis'
+
+const MAX_IMAGE_SIZE = 5_242_880 // 5MB
 
 export async function handleIncomingMessage(
   from: string,
@@ -69,6 +77,13 @@ export async function handleIncomingMessage(
           const settingsData = await getUserWithSettings(supabase, user.id)
           const settingsResponse = await handleSettings(supabase, user.id, text, user, settingsData.settings, context)
           await sendTextMessage(from, settingsResponse)
+          return
+        }
+        case 'awaiting_label_portions': {
+          await handleLabelPortions(supabase, from, user.id, text, context, {
+            calorieMode: user.calorieMode,
+            dailyCalorieTarget: user.dailyCalorieTarget,
+          })
           return
         }
       }
@@ -185,4 +200,170 @@ export async function handleIncomingAudio(
     console.error('[handler] Audio error:', err)
     await sendTextMessage(from, formatError()).catch(() => {})
   }
+}
+
+export async function handleIncomingImage(
+  from: string,
+  messageId: string,
+  imageId: string,
+  caption?: string,
+): Promise<void> {
+  const supabase = createServiceRoleClient()
+
+  try {
+    let user = await findUserByPhone(supabase, from)
+    if (!user) {
+      user = await createUser(supabase, from)
+    }
+
+    if (!user.onboardingComplete) {
+      await sendTextMessage(from, 'Primeiro preciso te conhecer! Me diz, qual o seu nome?')
+      return
+    }
+
+    let buffer: Buffer
+    try {
+      buffer = await downloadWhatsAppMedia(imageId, MAX_IMAGE_SIZE)
+    } catch (err) {
+      if (err instanceof MediaTooLargeError) {
+        await sendTextMessage(from, '📸 Imagem muito grande! Tenta mandar uma foto menor (até 5MB) 😊')
+        return
+      }
+      throw err
+    }
+
+    const mimeType = detectMimeType(buffer)
+    const base64 = buffer.toString('base64')
+    const dataUrl = `data:${mimeType};base64,${base64}`
+
+    const llm = getLLMProvider()
+    const calorieMode = user.calorieMode as Parameters<typeof llm.analyzeMeal>[1]
+
+    const startTime = Date.now()
+    const imageResult: ImageAnalysis = await llm.analyzeImage(dataUrl, caption, calorieMode)
+    const latencyMs = Date.now() - startTime
+
+    logLLMUsage(supabase, {
+      provider: process.env.LLM_PROVIDER || 'openrouter',
+      model: process.env.LLM_MODEL_VISION || 'openai/gpt-4o',
+      functionType: 'vision',
+      latencyMs,
+      success: true,
+    }).catch(() => {})
+
+    if (imageResult.needs_clarification || imageResult.items.length === 0) {
+      const msg = imageResult.clarification_question ||
+        'Não consegui identificar os alimentos nessa foto 😅 Pode descrever o que comeu?'
+      await sendTextMessage(from, msg)
+      return
+    }
+
+    const mealAnalysis: MealAnalysis = {
+      meal_type: imageResult.meal_type ?? 'snack',
+      confidence: imageResult.confidence,
+      items: imageResult.items,
+      unknown_items: imageResult.unknown_items,
+      needs_clarification: false,
+    }
+
+    if (imageResult.image_type === 'nutrition_label') {
+      const item = mealAnalysis.items[0]
+      const labelMsg = [
+        '📋 Tabela nutricional detectada!',
+        '',
+        `• ${item.food} (porção ${item.quantity_grams}g) — ${Math.round(item.calories)} kcal`,
+        `  P: ${item.protein}g | C: ${item.carbs}g | G: ${item.fat}g`,
+        '',
+        'Quantas porções você comeu? Responda com o número para eu registrar.',
+      ].join('\n')
+
+      await setState(user.id, 'awaiting_label_portions', {
+        mealAnalysis: mealAnalysis as unknown as Record<string, unknown>,
+        originalMessage: caption || '[imagem]',
+      })
+
+      await sendTextMessage(from, labelMsg)
+      return
+    }
+
+    const dailyConsumed = await getDailyCalories(supabase, user.id)
+    const target = user.dailyCalorieTarget ?? 2000
+
+    const response = formatMealBreakdown(
+      mealAnalysis.meal_type,
+      mealAnalysis.items.map((item) => ({
+        food: item.food,
+        quantityGrams: item.quantity_grams,
+        calories: item.calories,
+      })),
+      Math.round(mealAnalysis.items.reduce((sum, item) => sum + item.calories, 0)),
+      dailyConsumed,
+      target,
+    )
+
+    await setState(user.id, 'awaiting_confirmation', {
+      mealAnalysis: mealAnalysis as unknown as Record<string, unknown>,
+      originalMessage: caption || '[imagem]',
+    })
+
+    await sendTextMessage(from, response)
+  } catch (err) {
+    console.error('[handler] Image error:', err)
+    await sendTextMessage(from, formatError()).catch(() => {})
+  }
+}
+
+async function handleLabelPortions(
+  supabase: SupabaseClient,
+  from: string,
+  userId: string,
+  message: string,
+  context: ConversationContext,
+  user: { calorieMode: string; dailyCalorieTarget: number | null },
+): Promise<void> {
+  const portions = parseFloat(message.trim().replace(',', '.'))
+
+  if (isNaN(portions) || portions <= 0) {
+    await sendTextMessage(from, 'Me manda um número de porções (ex: 1, 2, 0.5) 😊')
+    return
+  }
+
+  const mealAnalysis = context.contextData.mealAnalysis as unknown as MealAnalysis
+
+  const multipliedItems = mealAnalysis.items.map((item) => ({
+    ...item,
+    quantity_grams: Math.round(item.quantity_grams * portions),
+    calories: Math.round(item.calories * portions),
+    protein: Math.round(item.protein * portions * 10) / 10,
+    carbs: Math.round(item.carbs * portions * 10) / 10,
+    fat: Math.round(item.fat * portions * 10) / 10,
+  }))
+
+  const multipliedAnalysis: MealAnalysis = {
+    ...mealAnalysis,
+    items: multipliedItems,
+  }
+
+  const dailyConsumed = await getDailyCalories(supabase, userId)
+  const target = user.dailyCalorieTarget ?? 2000
+  const total = Math.round(multipliedItems.reduce((sum, item) => sum + item.calories, 0))
+
+  const response = formatMealBreakdown(
+    multipliedAnalysis.meal_type,
+    multipliedItems.map((item) => ({
+      food: item.food,
+      quantityGrams: item.quantity_grams,
+      calories: item.calories,
+    })),
+    total,
+    dailyConsumed,
+    target,
+  )
+
+  await setState(userId, 'awaiting_confirmation', {
+    mealAnalysis: multipliedAnalysis as unknown as Record<string, unknown>,
+    originalMessage: context.contextData.originalMessage || '[imagem]',
+  })
+
+  await sendTextMessage(from, response)
 }

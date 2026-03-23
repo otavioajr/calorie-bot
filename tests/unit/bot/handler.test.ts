@@ -27,8 +27,15 @@ const {
   mockDownloadAudioMedia,
   mockTranscribeAudio,
   mockLogLLMUsage,
+  mockDownloadImageMedia,
+  mockDetectMimeType,
+  mockAnalyzeImage,
+  mockSetState,
+  mockGetDailyCalories,
+  mockFormatMealBreakdown,
 } = vi.hoisted(() => {
   const mockClassifyIntent = vi.fn()
+  const mockAnalyzeImage = vi.fn()
   return {
     mockCreateServiceRoleClient: vi.fn(),
     mockFindUserByPhone: vi.fn(),
@@ -45,14 +52,20 @@ const {
     mockHandleSettings: vi.fn(),
     mockHandleHelp: vi.fn(),
     mockHandleUserData: vi.fn(),
-    mockGetLLMProvider: vi.fn(() => ({ classifyIntent: mockClassifyIntent })),
+    mockGetLLMProvider: vi.fn(() => ({ classifyIntent: mockClassifyIntent, analyzeImage: mockAnalyzeImage })),
     mockClassifyIntent,
+    mockAnalyzeImage,
     mockSendTextMessage: vi.fn().mockResolvedValue('msg-id-123'),
     mockFormatOutOfScope: vi.fn().mockReturnValue('out of scope message'),
     mockFormatError: vi.fn().mockReturnValue('error message'),
     mockDownloadAudioMedia: vi.fn(),
     mockTranscribeAudio: vi.fn(),
     mockLogLLMUsage: vi.fn().mockResolvedValue(undefined),
+    mockDownloadImageMedia: vi.fn(),
+    mockDetectMimeType: vi.fn().mockReturnValue('image/jpeg'),
+    mockSetState: vi.fn().mockResolvedValue(undefined),
+    mockGetDailyCalories: vi.fn().mockResolvedValue(0),
+    mockFormatMealBreakdown: vi.fn().mockReturnValue('meal breakdown message'),
   }
 })
 
@@ -72,6 +85,7 @@ vi.mock('@/lib/db/queries/users', () => ({
 
 vi.mock('@/lib/bot/state', () => ({
   getState: mockGetState,
+  setState: mockSetState,
 }))
 
 vi.mock('@/lib/bot/router', () => ({
@@ -122,6 +136,7 @@ vi.mock('@/lib/whatsapp/client', () => ({
 vi.mock('@/lib/utils/formatters', () => ({
   formatOutOfScope: mockFormatOutOfScope,
   formatError: mockFormatError,
+  formatMealBreakdown: mockFormatMealBreakdown,
 }))
 
 vi.mock('@/lib/audio/transcribe', () => ({
@@ -136,10 +151,27 @@ vi.mock('@/lib/db/queries/llm-usage', () => ({
   logLLMUsage: mockLogLLMUsage,
 }))
 
+vi.mock('@/lib/whatsapp/media', () => ({
+  downloadWhatsAppMedia: mockDownloadImageMedia,
+  MediaTooLargeError: class MediaTooLargeError extends Error {
+    constructor(size: number, maxSize: number) { super(`Media size ${size} exceeds ${maxSize}`); this.name = 'MediaTooLargeError' }
+  },
+}))
+
+vi.mock('@/lib/whatsapp/mime', () => ({
+  detectMimeType: mockDetectMimeType,
+}))
+
+vi.mock('@/lib/db/queries/meals', () => ({
+  createMeal: vi.fn(),
+  getDailyCalories: mockGetDailyCalories,
+}))
+
 // ---------------------------------------------------------------------------
 // Import after mocks are registered
 // ---------------------------------------------------------------------------
-import { handleIncomingMessage, handleIncomingAudio } from '@/lib/bot/handler'
+import { handleIncomingMessage, handleIncomingAudio, handleIncomingImage } from '@/lib/bot/handler'
+import { MediaTooLargeError } from '@/lib/whatsapp/media'
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -225,9 +257,20 @@ beforeEach(() => {
   mockHandleHelp.mockResolvedValue('help response')
   mockHandleUserData.mockResolvedValue('user data response')
   mockGetUserWithSettings.mockResolvedValue(mockSettingsData)
-  mockGetLLMProvider.mockReturnValue({ classifyIntent: mockClassifyIntent })
+  mockGetLLMProvider.mockReturnValue({ classifyIntent: mockClassifyIntent, analyzeImage: mockAnalyzeImage })
   mockDownloadAudioMedia.mockResolvedValue(Buffer.from('fake-audio'))
   mockTranscribeAudio.mockResolvedValue({ text: 'almocei arroz e feijão', latencyMs: 500 })
+  mockDownloadImageMedia.mockResolvedValue(Buffer.from([0xFF, 0xD8, 0xFF, 0xE0]))
+  mockDetectMimeType.mockReturnValue('image/jpeg')
+  mockGetDailyCalories.mockResolvedValue(500)
+  mockAnalyzeImage.mockResolvedValue({
+    image_type: 'food',
+    meal_type: 'lunch',
+    confidence: 'high',
+    items: [{ food: 'Arroz', quantity_grams: 150, calories: 195, protein: 4, carbs: 42, fat: 0.5 }],
+    unknown_items: [],
+    needs_clarification: false,
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -844,5 +887,257 @@ describe('handleIncomingAudio', () => {
     await handleIncomingAudio(FROM, MESSAGE_ID, AUDIO_ID)
 
     expect(mockFindUserByPhone).toHaveBeenCalledWith(mockSupabase, FROM)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Test 8: handleIncomingImage
+// ---------------------------------------------------------------------------
+
+const IMAGE_ID = 'img_media_123'
+
+describe('handleIncomingImage', () => {
+  beforeEach(() => {
+    mockFindUserByPhone.mockResolvedValue(completedUser)
+    mockGetLLMProvider.mockReturnValue({
+      classifyIntent: mockClassifyIntent,
+      analyzeImage: mockAnalyzeImage,
+    })
+  })
+
+  it('downloads image, analyzes via LLM vision, and sends food confirmation', async () => {
+    await handleIncomingImage(FROM, MESSAGE_ID, IMAGE_ID, 'meu almoço')
+
+    expect(mockDownloadImageMedia).toHaveBeenCalledWith(IMAGE_ID, 5_242_880)
+    expect(mockDetectMimeType).toHaveBeenCalled()
+    expect(mockAnalyzeImage).toHaveBeenCalledWith(
+      expect.stringContaining('data:image/jpeg;base64,'),
+      'meu almoço',
+      'approximate',
+    )
+    expect(mockSetState).toHaveBeenCalledWith(
+      completedUser.id,
+      'awaiting_confirmation',
+      expect.objectContaining({ originalMessage: 'meu almoço' }),
+    )
+    expect(mockFormatMealBreakdown).toHaveBeenCalled()
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal breakdown message')
+  })
+
+  it('sends clarification message when LLM returns needs_clarification', async () => {
+    mockAnalyzeImage.mockResolvedValue({
+      image_type: 'food',
+      confidence: 'low',
+      items: [],
+      needs_clarification: true,
+      clarification_question: 'Não consegui identificar.',
+    })
+
+    await handleIncomingImage(FROM, MESSAGE_ID, IMAGE_ID)
+
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'Não consegui identificar.')
+    expect(mockSetState).not.toHaveBeenCalled()
+  })
+
+  it('sends default clarification when items empty and no question', async () => {
+    mockAnalyzeImage.mockResolvedValue({
+      image_type: 'food',
+      confidence: 'low',
+      items: [],
+      needs_clarification: false,
+    })
+
+    await handleIncomingImage(FROM, MESSAGE_ID, IMAGE_ID)
+
+    expect(mockSendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('Não consegui identificar'),
+    )
+    expect(mockSetState).not.toHaveBeenCalled()
+  })
+
+  it('enters awaiting_label_portions for nutrition_label images', async () => {
+    mockAnalyzeImage.mockResolvedValue({
+      image_type: 'nutrition_label',
+      confidence: 'high',
+      items: [{ food: 'Granola', quantity_grams: 40, calories: 180, protein: 4, carbs: 28, fat: 6 }],
+      unknown_items: [],
+      needs_clarification: false,
+    })
+
+    await handleIncomingImage(FROM, MESSAGE_ID, IMAGE_ID, 'tabela nutricional')
+
+    expect(mockSetState).toHaveBeenCalledWith(
+      completedUser.id,
+      'awaiting_label_portions',
+      expect.objectContaining({
+        mealAnalysis: expect.objectContaining({ meal_type: 'snack' }),
+      }),
+    )
+    expect(mockSendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('Quantas porções'),
+    )
+  })
+
+  it('handles MediaTooLargeError gracefully', async () => {
+    mockDownloadImageMedia.mockRejectedValue(new MediaTooLargeError(6_000_000, 5_242_880))
+
+    await handleIncomingImage(FROM, MESSAGE_ID, IMAGE_ID)
+
+    expect(mockSendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('Imagem muito grande'),
+    )
+    expect(mockAnalyzeImage).not.toHaveBeenCalled()
+  })
+
+  it('sends onboarding message for incomplete user', async () => {
+    mockFindUserByPhone.mockResolvedValue(existingUserIncomplete)
+
+    await handleIncomingImage(FROM, MESSAGE_ID, IMAGE_ID)
+
+    expect(mockSendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('Primeiro preciso te conhecer'),
+    )
+    expect(mockDownloadImageMedia).not.toHaveBeenCalled()
+  })
+
+  it('sends formatError on unexpected error', async () => {
+    mockDownloadImageMedia.mockRejectedValue(new Error('Network timeout'))
+
+    await handleIncomingImage(FROM, MESSAGE_ID, IMAGE_ID)
+
+    expect(mockFormatError).toHaveBeenCalled()
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'error message')
+  })
+
+  it('uses "[imagem]" as originalMessage when no caption', async () => {
+    await handleIncomingImage(FROM, MESSAGE_ID, IMAGE_ID)
+
+    expect(mockSetState).toHaveBeenCalledWith(
+      completedUser.id,
+      'awaiting_confirmation',
+      expect.objectContaining({ originalMessage: '[imagem]' }),
+    )
+  })
+
+  it('logs vision API usage', async () => {
+    await handleIncomingImage(FROM, MESSAGE_ID, IMAGE_ID)
+
+    expect(mockLogLLMUsage).toHaveBeenCalledWith(
+      mockSupabase,
+      expect.objectContaining({
+        functionType: 'vision',
+        success: true,
+      }),
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Test 9: handleIncomingMessage — awaiting_label_portions context
+// ---------------------------------------------------------------------------
+
+describe('handleIncomingMessage — awaiting_label_portions context', () => {
+  const labelContext = {
+    contextType: 'awaiting_label_portions',
+    contextData: {
+      mealAnalysis: {
+        meal_type: 'snack',
+        confidence: 'high',
+        items: [{ food: 'Granola', quantity_grams: 40, calories: 180, protein: 4, carbs: 28, fat: 6 }],
+        unknown_items: [],
+        needs_clarification: false,
+      },
+      originalMessage: '[imagem]',
+    },
+  }
+
+  beforeEach(() => {
+    mockFindUserByPhone.mockResolvedValue(completedUser)
+    mockGetState.mockResolvedValue(labelContext)
+    mockGetLLMProvider.mockReturnValue({
+      classifyIntent: mockClassifyIntent,
+      analyzeImage: mockAnalyzeImage,
+    })
+  })
+
+  it('multiplies nutrition values by portion count and enters awaiting_confirmation', async () => {
+    await handleIncomingMessage(FROM, MESSAGE_ID, '2')
+
+    expect(mockSetState).toHaveBeenCalledWith(
+      completedUser.id,
+      'awaiting_confirmation',
+      expect.objectContaining({
+        mealAnalysis: expect.objectContaining({
+          items: expect.arrayContaining([
+            expect.objectContaining({
+              food: 'Granola',
+              quantity_grams: 80,
+              calories: 360,
+            }),
+          ]),
+        }),
+      }),
+    )
+    expect(mockFormatMealBreakdown).toHaveBeenCalled()
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal breakdown message')
+  })
+
+  it('handles decimal portions like "1.5"', async () => {
+    await handleIncomingMessage(FROM, MESSAGE_ID, '1.5')
+
+    expect(mockSetState).toHaveBeenCalledWith(
+      completedUser.id,
+      'awaiting_confirmation',
+      expect.objectContaining({
+        mealAnalysis: expect.objectContaining({
+          items: expect.arrayContaining([
+            expect.objectContaining({
+              quantity_grams: 60,
+              calories: 270,
+            }),
+          ]),
+        }),
+      }),
+    )
+  })
+
+  it('handles comma decimal "1,5"', async () => {
+    await handleIncomingMessage(FROM, MESSAGE_ID, '1,5')
+
+    expect(mockSetState).toHaveBeenCalledWith(
+      completedUser.id,
+      'awaiting_confirmation',
+      expect.objectContaining({
+        mealAnalysis: expect.objectContaining({
+          items: expect.arrayContaining([
+            expect.objectContaining({ calories: 270 }),
+          ]),
+        }),
+      }),
+    )
+  })
+
+  it('asks again when message is not a number', async () => {
+    await handleIncomingMessage(FROM, MESSAGE_ID, 'banana')
+
+    expect(mockSendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('número de porções'),
+    )
+    expect(mockSetState).not.toHaveBeenCalled()
+  })
+
+  it('asks again when number is zero or negative', async () => {
+    await handleIncomingMessage(FROM, MESSAGE_ID, '0')
+
+    expect(mockSendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('número de porções'),
+    )
+    expect(mockSetState).not.toHaveBeenCalled()
   })
 })
