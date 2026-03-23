@@ -6,6 +6,7 @@ export const CONTEXT_TTLS: Record<ContextType, number> = {
   awaiting_clarification: 10,
   awaiting_correction: 10,
   awaiting_weight: 5,
+  awaiting_label_portions: 5,
   settings_menu: 5,
   settings_change: 5,
 }
@@ -16,6 +17,7 @@ export type ContextType =
   | 'awaiting_clarification'
   | 'awaiting_correction'
   | 'awaiting_weight'
+  | 'awaiting_label_portions'
   | 'settings_menu'
   | 'settings_change'
 

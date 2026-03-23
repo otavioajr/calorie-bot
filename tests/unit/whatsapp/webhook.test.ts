@@ -279,6 +279,45 @@ describe('parseWebhookPayload', () => {
     expect(msg.type).toBe('text')
     expect(msg.audioId).toBeUndefined()
   })
+
+  it('parses image message with imageId and caption', () => {
+    const payload = {
+      object: 'whatsapp_business_account',
+      entry: [{
+        id: 'BIZ_ACCOUNT_ID',
+        changes: [{
+          value: {
+            messaging_product: 'whatsapp',
+            messages: [{
+              from: '5511999887766',
+              id: 'wamid.img789',
+              timestamp: '1710000003',
+              type: 'image',
+              image: { id: 'img_media_id_789', mime_type: 'image/jpeg', caption: 'meu almoço de hoje' },
+            }],
+          },
+          field: 'messages',
+        }],
+      }],
+    }
+
+    const result = parseWebhookPayload(payload)
+    expect(result).not.toBeNull()
+    const msg = result as WhatsAppMessage
+    expect(msg.type).toBe('image')
+    expect(msg.imageId).toBe('img_media_id_789')
+    expect(msg.caption).toBe('meu almoço de hoje')
+    expect(msg.from).toBe('5511999887766')
+  })
+
+  it('parses image message without caption', () => {
+    const result = parseWebhookPayload(makeImagePayload())
+    expect(result).not.toBeNull()
+    const msg = result as WhatsAppMessage
+    expect(msg.type).toBe('image')
+    expect(msg.imageId).toBe('img_media_id')
+    expect(msg.caption).toBeUndefined()
+  })
 })
 
 // ---------------------------------------------------------------------------
