@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ProfileForm } from "@/components/settings/ProfileForm"
 import { BotSettings } from "@/components/settings/BotSettings"
+import { ResetDataButton } from "@/components/settings/ResetDataButton"
 
 export default async function SettingsPage() {
   const cookieStore = await cookies()
@@ -69,6 +70,18 @@ export default async function SettingsPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Card className="border-destructive">
+        <CardHeader>
+          <CardTitle className="text-destructive">Zona de Perigo</CardTitle>
+          <CardDescription>
+            Ações irreversíveis na sua conta
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ResetDataButton />
+        </CardContent>
+      </Card>
     </div>
   )
 }
