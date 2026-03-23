@@ -154,9 +154,9 @@ describe('handleQuery', () => {
     it('includes protein, carbs, and fat in response', async () => {
       const result = await handleQuery(supabase, USER_ID, 'quantas calorias tem uma coxinha?')
 
-      expect(result).toMatch(/13.*prot|prot.*13/i)
-      expect(result).toMatch(/22.*carb|carb.*22/i)
-      expect(result).toMatch(/17.*fat|fat.*17/i)
+      expect(result).toMatch(/13.*proteína|proteína.*13/i)
+      expect(result).toMatch(/22.*carbos|carbos.*22/i)
+      expect(result).toMatch(/17.*gordura|gordura.*17/i)
     })
 
     it('ends with offer to register as meal', async () => {

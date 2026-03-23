@@ -15,9 +15,9 @@ function round(n: number): number {
  * Formats a single meal item's nutritional info.
  */
 function formatItem(item: MealItem): string {
-  const protStr = `${round(item.protein)}g prot`
-  const carbStr = `${round(item.carbs)}g carbs`
-  const fatStr = `${round(item.fat)}g fat`
+  const protStr = `${round(item.protein)}g proteína`
+  const carbStr = `${round(item.carbs)}g carbos`
+  const fatStr = `${round(item.fat)}g gordura`
   const qty = item.quantity_grams ? `~${item.quantity_grams}g` : ''
   const qtyPart = qty ? `(${qty})` : ''
 
@@ -35,7 +35,7 @@ function formatTotal(analysis: MealAnalysis): string {
   const totalCarbs = round(analysis.items.reduce((sum, item) => sum + item.carbs, 0))
   const totalFat = round(analysis.items.reduce((sum, item) => sum + item.fat, 0))
 
-  return `📊 Total: ${totalCal} kcal | ${totalProt}g prot | ${totalCarbs}g carbs | ${totalFat}g fat`
+  return `📊 Total: ${totalCal} kcal | ${totalProt}g proteína | ${totalCarbs}g carbos | ${totalFat}g gordura`
 }
 
 // ---------------------------------------------------------------------------

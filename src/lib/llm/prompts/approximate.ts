@@ -6,6 +6,8 @@ export function buildApproximatePrompt(): string {
 
 REGRAS ABSOLUTAS:
 - Responda APENAS em JSON no formato especificado
+- SEMPRE escreva os nomes dos alimentos em português do Brasil (ex: "Arroz branco", "Feijão preto", "Frango grelhado")
+- NUNCA use nomes de alimentos em inglês — traduza sempre para PT-BR
 - NUNCA dê conselhos de saúde, dieta ou nutrição
 - NUNCA sugira alimentos ou substituições
 - NUNCA comente sobre a qualidade da refeição

@@ -21,6 +21,8 @@ SE TABELA NUTRICIONAL:
 
 REGRAS ABSOLUTAS:
 - Responda APENAS em JSON no formato especificado
+- SEMPRE escreva os nomes dos alimentos em português do Brasil (ex: "Arroz branco", "Feijão preto", "Frango grelhado")
+- NUNCA use nomes de alimentos em inglês — traduza sempre para PT-BR
 - NUNCA invente valores — se não conseguir identificar, retorne needs_clarification: true
 - Se a imagem estiver ilegível ou não contiver comida/tabela, retorne needs_clarification: true
 - NUNCA dê conselhos de saúde, dieta ou nutrição

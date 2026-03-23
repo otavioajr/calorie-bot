@@ -23,6 +23,21 @@ export interface DailyEntry {
 }
 
 // ---------------------------------------------------------------------------
+// Meal type translation
+// ---------------------------------------------------------------------------
+const MEAL_TYPE_PT: Record<string, string> = {
+  breakfast: 'Café da manhã',
+  lunch: 'Almoço',
+  snack: 'Lanche',
+  dinner: 'Jantar',
+  supper: 'Ceia',
+}
+
+function translateMealType(mealType: string): string {
+  return MEAL_TYPE_PT[mealType] ?? mealType
+}
+
+// ---------------------------------------------------------------------------
 // formatMealBreakdown
 // ---------------------------------------------------------------------------
 export function formatMealBreakdown(
@@ -40,7 +55,7 @@ export function formatMealBreakdown(
   const progressLine = formatProgress(dailyConsumed, dailyTarget)
 
   return [
-    `🍽️ ${mealType} registrado!`,
+    `🍽️ ${translateMealType(mealType)} registrado!`,
     '',
     itemLines,
     '',
