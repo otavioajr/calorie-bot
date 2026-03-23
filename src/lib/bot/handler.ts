@@ -13,7 +13,7 @@ import { handleHelp, handleUserData } from '@/lib/bot/flows/help'
 import { getLLMProvider } from '@/lib/llm/index'
 import { sendTextMessage } from '@/lib/whatsapp/client'
 import { formatOutOfScope, formatError } from '@/lib/utils/formatters'
-import { downloadWhatsAppMedia, transcribeAudio, AudioTooLargeError } from '@/lib/audio/transcribe'
+import { downloadAudioMedia, transcribeAudio, AudioTooLargeError } from '@/lib/audio/transcribe'
 import { logLLMUsage } from '@/lib/db/queries/llm-usage'
 
 export async function handleIncomingMessage(
@@ -142,7 +142,7 @@ export async function handleIncomingAudio(
   try {
     let buffer: Buffer
     try {
-      buffer = await downloadWhatsAppMedia(audioId)
+      buffer = await downloadAudioMedia(audioId)
     } catch (err) {
       if (err instanceof AudioTooLargeError || (err instanceof Error && err.name === 'AudioTooLargeError')) {
         await sendTextMessage(from, '🎤 Áudio muito longo! Manda um áudio de até 30 segundos 😊')

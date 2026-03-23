@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { downloadWhatsAppMedia, AudioTooLargeError, transcribeAudio } from '@/lib/audio/transcribe'
+import { downloadAudioMedia, AudioTooLargeError, transcribeAudio } from '@/lib/audio/transcribe'
 
-describe('downloadWhatsAppMedia', () => {
+describe('downloadAudioMedia', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     vi.stubEnv('WHATSAPP_ACCESS_TOKEN', 'test-access-token')
@@ -28,7 +28,7 @@ describe('downloadWhatsAppMedia', () => {
 
     vi.stubGlobal('fetch', mockFetch)
 
-    await downloadWhatsAppMedia(mediaId)
+    await downloadAudioMedia(mediaId)
 
     expect(mockFetch).toHaveBeenCalledTimes(2)
     expect(mockFetch).toHaveBeenNthCalledWith(
@@ -60,7 +60,7 @@ describe('downloadWhatsAppMedia', () => {
 
     vi.stubGlobal('fetch', mockFetch)
 
-    const result = await downloadWhatsAppMedia('media-id-456')
+    const result = await downloadAudioMedia('media-id-456')
 
     expect(result).toBeInstanceOf(Buffer)
     expect(result).toEqual(Buffer.from(audioBytes))
@@ -79,8 +79,8 @@ describe('downloadWhatsAppMedia', () => {
 
     vi.stubGlobal('fetch', mockFetch)
 
-    await expect(downloadWhatsAppMedia('media-id-large')).rejects.toThrow(AudioTooLargeError)
-    await expect(downloadWhatsAppMedia('media-id-large')).rejects.toThrow('Audio exceeds 30 second limit')
+    await expect(downloadAudioMedia('media-id-large')).rejects.toThrow(AudioTooLargeError)
+    await expect(downloadAudioMedia('media-id-large')).rejects.toThrow('Audio exceeds 30 second limit')
   })
 
   it('throws when the media metadata request fails (non-ok response)', async () => {
@@ -92,7 +92,7 @@ describe('downloadWhatsAppMedia', () => {
 
     vi.stubGlobal('fetch', mockFetch)
 
-    await expect(downloadWhatsAppMedia('media-id-fail')).rejects.toThrow(
+    await expect(downloadAudioMedia('media-id-fail')).rejects.toThrow(
       'WhatsApp Media API error: 401'
     )
   })
@@ -112,7 +112,7 @@ describe('downloadWhatsAppMedia', () => {
 
     vi.stubGlobal('fetch', mockFetch)
 
-    await expect(downloadWhatsAppMedia('media-id-binary-fail')).rejects.toThrow(
+    await expect(downloadAudioMedia('media-id-binary-fail')).rejects.toThrow(
       'WhatsApp media download error: 403'
     )
   })
@@ -120,7 +120,7 @@ describe('downloadWhatsAppMedia', () => {
   it('throws when WHATSAPP_ACCESS_TOKEN is not configured', async () => {
     vi.stubEnv('WHATSAPP_ACCESS_TOKEN', '')
 
-    await expect(downloadWhatsAppMedia('media-id-no-token')).rejects.toThrow(
+    await expect(downloadAudioMedia('media-id-no-token')).rejects.toThrow(
       'WHATSAPP_ACCESS_TOKEN is not configured'
     )
   })

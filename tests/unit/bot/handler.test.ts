@@ -24,7 +24,7 @@ const {
   mockSendTextMessage,
   mockFormatOutOfScope,
   mockFormatError,
-  mockDownloadWhatsAppMedia,
+  mockDownloadAudioMedia,
   mockTranscribeAudio,
   mockLogLLMUsage,
 } = vi.hoisted(() => {
@@ -50,7 +50,7 @@ const {
     mockSendTextMessage: vi.fn().mockResolvedValue('msg-id-123'),
     mockFormatOutOfScope: vi.fn().mockReturnValue('out of scope message'),
     mockFormatError: vi.fn().mockReturnValue('error message'),
-    mockDownloadWhatsAppMedia: vi.fn(),
+    mockDownloadAudioMedia: vi.fn(),
     mockTranscribeAudio: vi.fn(),
     mockLogLLMUsage: vi.fn().mockResolvedValue(undefined),
   }
@@ -125,7 +125,7 @@ vi.mock('@/lib/utils/formatters', () => ({
 }))
 
 vi.mock('@/lib/audio/transcribe', () => ({
-  downloadWhatsAppMedia: mockDownloadWhatsAppMedia,
+  downloadAudioMedia: mockDownloadAudioMedia,
   transcribeAudio: mockTranscribeAudio,
   AudioTooLargeError: class AudioTooLargeError extends Error {
     constructor() { super('Audio exceeds 30 second limit'); this.name = 'AudioTooLargeError' }
@@ -226,7 +226,7 @@ beforeEach(() => {
   mockHandleUserData.mockResolvedValue('user data response')
   mockGetUserWithSettings.mockResolvedValue(mockSettingsData)
   mockGetLLMProvider.mockReturnValue({ classifyIntent: mockClassifyIntent })
-  mockDownloadWhatsAppMedia.mockResolvedValue(Buffer.from('fake-audio'))
+  mockDownloadAudioMedia.mockResolvedValue(Buffer.from('fake-audio'))
   mockTranscribeAudio.mockResolvedValue({ text: 'almocei arroz e feijão', latencyMs: 500 })
 })
 
@@ -776,7 +776,7 @@ describe('handleIncomingAudio', () => {
   it('downloads audio, transcribes it, sends feedback, then runs the pipeline', async () => {
     await handleIncomingAudio(FROM, MESSAGE_ID, AUDIO_ID)
 
-    expect(mockDownloadWhatsAppMedia).toHaveBeenCalledWith(AUDIO_ID)
+    expect(mockDownloadAudioMedia).toHaveBeenCalledWith(AUDIO_ID)
     expect(mockTranscribeAudio).toHaveBeenCalledWith(Buffer.from('fake-audio'))
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, '🎤 Entendi: *almocei arroz e feijão*')
     // Pipeline ran — findUserByPhone is called inside handleIncomingMessage
@@ -786,7 +786,7 @@ describe('handleIncomingAudio', () => {
   })
 
   it('sends AudioTooLargeError message when download throws AudioTooLargeError', async () => {
-    mockDownloadWhatsAppMedia.mockRejectedValue(new AudioTooLargeError())
+    mockDownloadAudioMedia.mockRejectedValue(new AudioTooLargeError())
 
     await handleIncomingAudio(FROM, MESSAGE_ID, AUDIO_ID)
 
@@ -822,7 +822,7 @@ describe('handleIncomingAudio', () => {
   })
 
   it('sends formatError() when download throws an unexpected error', async () => {
-    mockDownloadWhatsAppMedia.mockRejectedValue(new Error('Network error'))
+    mockDownloadAudioMedia.mockRejectedValue(new Error('Network error'))
 
     await handleIncomingAudio(FROM, MESSAGE_ID, AUDIO_ID)
 

@@ -1,3 +1,5 @@
+import { downloadWhatsAppMedia, MediaTooLargeError } from '@/lib/whatsapp/media'
+
 const MAX_AUDIO_SIZE = 480_000 // ~30s OGG/Opus
 
 export interface TranscriptionResult {
@@ -12,28 +14,15 @@ export class AudioTooLargeError extends Error {
   }
 }
 
-export async function downloadWhatsAppMedia(mediaId: string): Promise<Buffer> {
-  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN
-  if (!accessToken) throw new Error('WHATSAPP_ACCESS_TOKEN is not configured')
-  // Step 1: GET media metadata → { url }
-  const metaRes = await fetch(`https://graph.facebook.com/v21.0/${mediaId}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  })
-  if (!metaRes.ok) throw new Error(`WhatsApp Media API error: ${metaRes.status}`)
-  const { url } = (await metaRes.json()) as { url: string }
-
-  // Step 2: GET binary from URL
-  const binaryRes = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  })
-  if (!binaryRes.ok) throw new Error(`WhatsApp media download error: ${binaryRes.status}`)
-
-  const arrayBuffer = await binaryRes.arrayBuffer()
-  const buffer = Buffer.from(arrayBuffer)
-
-  if (buffer.length > MAX_AUDIO_SIZE) throw new AudioTooLargeError()
-
-  return buffer
+export async function downloadAudioMedia(mediaId: string): Promise<Buffer> {
+  try {
+    return await downloadWhatsAppMedia(mediaId, MAX_AUDIO_SIZE)
+  } catch (err) {
+    if (err instanceof MediaTooLargeError) {
+      throw new AudioTooLargeError()
+    }
+    throw err
+  }
 }
 
 export async function transcribeAudio(audioBuffer: Buffer): Promise<TranscriptionResult> {
