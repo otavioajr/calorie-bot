@@ -752,6 +752,20 @@ describe('handleIncomingMessage — context-based routing', () => {
 
     expect(mockClassifyByRules).not.toHaveBeenCalled()
   })
+
+  it('routes to handleSettings when context is awaiting_reset_confirmation', async () => {
+    const mockContext = {
+      contextType: 'awaiting_reset_confirmation',
+      contextData: {},
+    }
+    mockGetState.mockResolvedValue(mockContext)
+    mockHandleSettings.mockResolvedValue('reset response')
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, 'sim')
+
+    expect(mockHandleSettings).toHaveBeenCalled()
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'reset response')
+  })
 })
 
 // ---------------------------------------------------------------------------
