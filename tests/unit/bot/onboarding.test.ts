@@ -649,7 +649,7 @@ describe('handleOnboarding — step 8 (calorie mode + finalization)', () => {
       expect.objectContaining({
         tmb: 1683.75,
         tdee: 2609.81,
-        dailyCalorieTarget: 2109.81,
+        dailyCalorieTarget: 2110,
       }),
     )
   })

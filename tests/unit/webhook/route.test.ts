@@ -25,14 +25,16 @@ vi.mock('@/lib/whatsapp/webhook', async (importOriginal) => {
   return actual
 })
 
-const { mockHandleIncomingMessage, mockHandleIncomingAudio } = vi.hoisted(() => ({
+const { mockHandleIncomingMessage, mockHandleIncomingAudio, mockHandleIncomingImage } = vi.hoisted(() => ({
   mockHandleIncomingMessage: vi.fn().mockResolvedValue(undefined),
   mockHandleIncomingAudio: vi.fn().mockResolvedValue(undefined),
+  mockHandleIncomingImage: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('@/lib/bot/handler', () => ({
   handleIncomingMessage: mockHandleIncomingMessage,
   handleIncomingAudio: mockHandleIncomingAudio,
+  handleIncomingImage: mockHandleIncomingImage,
 }))
 
 // Import after mocks are set up
@@ -100,6 +102,28 @@ function makeAudioPayload() {
             timestamp: '1710000002',
             type: 'audio',
             audio: { id: 'media_audio_123', mime_type: 'audio/ogg' },
+          }],
+        },
+        field: 'messages',
+      }],
+    }],
+  }
+}
+
+function makeImagePayload(caption?: string) {
+  return {
+    object: 'whatsapp_business_account',
+    entry: [{
+      id: 'BIZ_ACCOUNT_ID',
+      changes: [{
+        value: {
+          messaging_product: 'whatsapp',
+          messages: [{
+            from: '5511999887766',
+            id: 'wamid.image456',
+            timestamp: '1710000003',
+            type: 'image',
+            image: { id: 'media_image_456', mime_type: 'image/jpeg', caption },
           }],
         },
         field: 'messages',
@@ -330,5 +354,72 @@ describe('POST — audio messages', () => {
 
     expect(response.status).toBe(200)
     expect(mockHandleIncomingAudio).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POST — image messages
+// ---------------------------------------------------------------------------
+
+describe('POST — image messages', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('returns 200 for image message and calls handleIncomingImage with correct args', async () => {
+    mockSingle.mockResolvedValue({ data: { message_id: 'wamid.image456' }, error: null })
+
+    const request = makePostRequest(makeImagePayload())
+    const response = await POST(request)
+
+    expect(response.status).toBe(200)
+    const text = await response.text()
+    expect(text).toBe('OK')
+    expect(mockHandleIncomingImage).toHaveBeenCalledWith(
+      '5511999887766',
+      'wamid.image456',
+      'media_image_456',
+      undefined,
+    )
+  })
+
+  it('passes caption to handleIncomingImage when present', async () => {
+    mockSingle.mockResolvedValue({ data: { message_id: 'wamid.image456' }, error: null })
+
+    const request = makePostRequest(makeImagePayload('tabela nutricional'))
+    const response = await POST(request)
+
+    expect(response.status).toBe(200)
+    expect(mockHandleIncomingImage).toHaveBeenCalledWith(
+      '5511999887766',
+      'wamid.image456',
+      'media_image_456',
+      'tabela nutricional',
+    )
+  })
+
+  it('returns 200 even when handleIncomingImage throws', async () => {
+    mockSingle.mockResolvedValue({ data: { message_id: 'wamid.image456' }, error: null })
+    mockHandleIncomingImage.mockRejectedValueOnce(new Error('image processing failed'))
+
+    const request = makePostRequest(makeImagePayload())
+    const response = await POST(request)
+
+    expect(response.status).toBe(200)
+    const text = await response.text()
+    expect(text).toBe('OK')
+  })
+
+  it('deduplication works for image: when insert returns error, handler is NOT called', async () => {
+    mockSingle.mockResolvedValue({
+      data: null,
+      error: { code: '23505', message: 'duplicate key value' },
+    })
+
+    const request = makePostRequest(makeImagePayload())
+    const response = await POST(request)
+
+    expect(response.status).toBe(200)
+    expect(mockHandleIncomingImage).not.toHaveBeenCalled()
   })
 })

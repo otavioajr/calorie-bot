@@ -36,7 +36,7 @@ caloriebot/
 │   │   │   └── history/              # Histórico de refeições
 │   │   ├── api/
 │   │   │   ├── webhook/
-│   │   │   │   └── whatsapp/route.ts # Webhook do WhatsApp (POST + GET para verificação, suporte a texto e áudio)
+│   │   │   │   └── whatsapp/route.ts # Webhook do WhatsApp (POST + GET para verificação, suporte a texto, áudio e imagem)
 │   │   │   ├── auth/otp/
 │   │   │   │   ├── send/route.ts     # Gera e envia OTP via WhatsApp
 │   │   │   │   └── verify/route.ts   # Valida OTP e cria sessão
@@ -53,13 +53,15 @@ caloriebot/
 │   │   │   │   └── ollama.ts         # Implementação Ollama
 │   │   │   ├── schemas/
 │   │   │   │   ├── meal-analysis.ts  # Zod schema MealAnalysis
+│   │   │   │   ├── image-analysis.ts # Zod schema ImageAnalysis
 │   │   │   │   ├── intent.ts         # Zod schema IntentType
 │   │   │   │   └── common.ts         # Tipos compartilhados
 │   │   │   ├── prompts/
 │   │   │   │   ├── approximate.ts    # System prompt — modo aproximado
 │   │   │   │   ├── taco.ts           # System prompt — modo TACO
 │   │   │   │   ├── manual.ts         # System prompt — modo manual
-│   │   │   │   └── classify.ts       # System prompt — classificador de intenção
+│   │   │   │   ├── classify.ts       # System prompt — classificador de intenção
+│   │   │   │   └── vision.ts         # System prompt — análise de imagem (tabela nutricional)
 │   │   │   └── index.ts              # Factory: retorna provider ativo via LLM_PROVIDER
 │   │   │
 │   │   ├── audio/
@@ -68,6 +70,8 @@ caloriebot/
 │   │   ├── whatsapp/
 │   │   │   ├── client.ts             # Envio de mensagens via Meta Cloud API
 │   │   │   ├── webhook.ts            # Parsing de mensagens recebidas
+│   │   │   ├── media.ts              # Shared media download utility (WhatsApp Media API)
+│   │   │   ├── mime.ts               # MIME type detection from buffer
 │   │   │   └── templates.ts          # Message templates (lembretes)
 │   │   │
 │   │   ├── bot/
@@ -159,6 +163,7 @@ LLM_MODEL_VISION=openai/gpt-4o                              # foto de tabela nut
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL_MEAL=llama3.1:8b
 OLLAMA_MODEL_CLASSIFY=llama3.1:8b
+OLLAMA_MODEL_VISION=llava:13b
 
 # Fallback (opcional — vazio = sem fallback)
 LLM_FALLBACK_PROVIDER=
@@ -225,7 +230,7 @@ Mensagem → Tem cadastro? → Onboarding completo? → Classificar intenção �
 
 ### Estado da conversa (`conversation_context`)
 
-Cada estado ativo é salvo na tabela `conversation_context` com TTL de expiração. Se expirar, a próxima mensagem é tratada como nova. Tipos: `onboarding`, `awaiting_confirmation`, `awaiting_clarification`, `awaiting_correction`, `awaiting_weight`, `settings_menu`, `settings_change`.
+Cada estado ativo é salvo na tabela `conversation_context` com TTL de expiração. Se expirar, a próxima mensagem é tratada como nova. Tipos: `onboarding`, `awaiting_confirmation`, `awaiting_clarification`, `awaiting_correction`, `awaiting_weight`, `awaiting_label_portions`, `settings_menu`, `settings_change`.
 
 ---
 

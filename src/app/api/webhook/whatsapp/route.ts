@@ -1,6 +1,6 @@
 import { verifyWebhook, parseWebhookPayload } from '@/lib/whatsapp/webhook'
 import { createServiceRoleClient } from '@/lib/db/supabase'
-import { handleIncomingMessage, handleIncomingAudio } from '@/lib/bot/handler'
+import { handleIncomingMessage, handleIncomingAudio, handleIncomingImage } from '@/lib/bot/handler'
 
 export async function GET(request: Request) {
   const url = new URL(request.url)
@@ -46,6 +46,10 @@ export async function POST(request: Request) {
 
     if (event.type === 'audio' && event.audioId) {
       await handleIncomingAudio(event.from, event.messageId, event.audioId)
+    }
+
+    if (event.type === 'image' && event.imageId) {
+      await handleIncomingImage(event.from, event.messageId, event.imageId, event.caption)
     }
 
     return new Response('OK', { status: 200 })

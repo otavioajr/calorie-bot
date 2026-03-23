@@ -15,6 +15,7 @@ const MockOllamaProvider = vi.mocked(OllamaProvider)
 function makeMockProvider(overrides: Partial<LLMProvider> = {}): LLMProvider {
   return {
     analyzeMeal: vi.fn().mockResolvedValue({ items: [] }),
+    analyzeImage: vi.fn().mockResolvedValue({ image_type: 'food', items: [] }),
     classifyIntent: vi.fn().mockResolvedValue('meal_log'),
     chat: vi.fn().mockResolvedValue('response'),
     ...overrides,
@@ -30,6 +31,7 @@ function setupConstructorMock(
   MockClass.mockImplementation(
     class {
       analyzeMeal = instance.analyzeMeal
+      analyzeImage = instance.analyzeImage
       classifyIntent = instance.classifyIntent
       chat = instance.chat
     },
