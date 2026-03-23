@@ -835,7 +835,7 @@ describe('handleIncomingAudio', () => {
 
     expect(mockDownloadAudioMedia).toHaveBeenCalledWith(AUDIO_ID)
     expect(mockTranscribeAudio).toHaveBeenCalledWith(Buffer.from('fake-audio'))
-    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, '🎤 Entendi: *almocei arroz e feijão*')
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, '🎤 Entendi: *almocei arroz e feijão*\n\n⏳ Registrando...')
     // Pipeline ran — findUserByPhone is called inside handleIncomingMessage
     expect(mockFindUserByPhone).toHaveBeenCalled()
     // At least two sends: feedback + pipeline response
@@ -893,7 +893,7 @@ describe('handleIncomingAudio', () => {
     expect(mockSendTextMessage).toHaveBeenNthCalledWith(
       1,
       FROM,
-      '🎤 Entendi: *almocei arroz e feijão*'
+      '🎤 Entendi: *almocei arroz e feijão*\n\n⏳ Registrando...'
     )
   })
 

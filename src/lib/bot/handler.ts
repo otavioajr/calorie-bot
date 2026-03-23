@@ -195,7 +195,7 @@ export async function handleIncomingAudio(
       return
     }
 
-    await sendTextMessage(from, `🎤 Entendi: *${transcription}*`)
+    await sendTextMessage(from, `🎤 Entendi: *${transcription}*\n\n⏳ Registrando...`)
     await handleIncomingMessage(from, messageId, transcription)
   } catch (err) {
     console.error('[handler] Audio error:', err)
