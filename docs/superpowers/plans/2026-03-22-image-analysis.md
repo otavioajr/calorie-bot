@@ -1730,11 +1730,12 @@ async function handleLabelPortions(
 }
 ```
 
-Note: `SupabaseClient` type is already used internally by handler.ts's dependency modules. If needed, add:
+Add these imports to the top of `handler.ts` (they are not currently imported):
 ```typescript
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type { ConversationContext } from '@/lib/bot/state'
 ```
-The function receives `supabase` from the caller (`handleIncomingMessage`) which already has it from `createServiceRoleClient()`.
+Both are needed for the `handleLabelPortions` function signature. `ConversationContext` is re-exported from `@/lib/bot/state`.
 
 - [ ] **Step 4: Route `awaiting_label_portions` in `handleIncomingMessage`**
 
