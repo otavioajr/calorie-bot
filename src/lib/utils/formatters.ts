@@ -192,6 +192,7 @@ export function formatSettingsMenu(settings: {
     `5️⃣ Nível de detalhe (atual: ${settings.detailLevel})`,
     `6️⃣ Atualizar peso`,
     `7️⃣ Abrir painel completo na web`,
+    `8️⃣ Limpar dados e recomeçar`,
     '',
     'Qual quer alterar?',
   ].join('\n')

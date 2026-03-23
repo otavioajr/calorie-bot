@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { User, UserSettings } from '@/lib/db/queries/users'
-import { updateUser } from '@/lib/db/queries/users'
+import { updateUser, resetUserData } from '@/lib/db/queries/users'
 import { updateSettings } from '@/lib/db/queries/settings'
 import type { ConversationContext } from '@/lib/bot/state'
 import { setState, clearState } from '@/lib/bot/state'
@@ -46,6 +46,13 @@ export async function handleSettings(
   context: ConversationContext | null,
 ): Promise<string> {
   const trimmed = message.trim()
+
+  // -------------------------------------------------------------------------
+  // Branch: awaiting_reset_confirmation — handle reset confirmation
+  // -------------------------------------------------------------------------
+  if (context?.contextType === 'awaiting_reset_confirmation') {
+    return handleResetConfirmation(supabase, userId, trimmed)
+  }
 
   // -------------------------------------------------------------------------
   // Branch: settings_change context — apply the value
@@ -109,8 +116,8 @@ async function handleMenuSelection(
 ): Promise<string> {
   const option = parseInt(message, 10)
 
-  if (isNaN(option) || option < 1 || option > 7) {
-    return 'Opção inválida. Por favor, escolha um número de 1 a 7.'
+  if (isNaN(option) || option < 1 || option > 8) {
+    return 'Opção inválida. Por favor, escolha um número de 1 a 8.'
   }
 
   switch (option) {
@@ -142,8 +149,12 @@ async function handleMenuSelection(
       await clearState(userId)
       return `Acesse o painel completo na web: ${WEB_PANEL_URL}`
 
+    case 8:
+      await setState(userId, 'awaiting_reset_confirmation', {})
+      return '⚠️ Isso vai apagar todas as suas refeições, peso e configurações. Você vai passar pelo cadastro de novo.\n\nTem certeza? Responda SIM para confirmar.'
+
     default:
-      return 'Opção inválida. Por favor, escolha um número de 1 a 7.'
+      return 'Opção inválida. Por favor, escolha um número de 1 a 8.'
   }
 }
 
@@ -368,6 +379,20 @@ function buildGoalSubMenu(currentGoal: string | null): string {
     '2️⃣ Manter peso',
     '3️⃣ Ganhar massa',
   ].join('\n')
+}
+
+async function handleResetConfirmation(
+  supabase: SupabaseClient,
+  userId: string,
+  message: string,
+): Promise<string> {
+  if (message.toLowerCase() === 'sim') {
+    await resetUserData(supabase, userId)
+    return 'Dados apagados! Vamos recomeçar 🔄 Me manda qualquer mensagem pra iniciar o cadastro.'
+  }
+
+  await clearState(userId)
+  return 'Cancelado. Seus dados continuam intactos! ✅'
 }
 
 function buildCalorieModeSubMenu(currentMode: string): string {

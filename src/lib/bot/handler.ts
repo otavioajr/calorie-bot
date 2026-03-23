@@ -73,7 +73,8 @@ export async function handleIncomingMessage(
           return
         }
         case 'settings_menu':
-        case 'settings_change': {
+        case 'settings_change':
+        case 'awaiting_reset_confirmation': {
           const settingsData = await getUserWithSettings(supabase, user.id)
           const settingsResponse = await handleSettings(supabase, user.id, text, user, settingsData.settings, context)
           await sendTextMessage(from, settingsResponse)

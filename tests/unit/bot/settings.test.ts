@@ -11,6 +11,7 @@ const {
   mockSetState,
   mockClearState,
   mockFormatSettingsMenu,
+  mockResetUserData,
 } = vi.hoisted(() => {
   return {
     mockUpdateUser: vi.fn().mockResolvedValue({}),
@@ -18,11 +19,13 @@ const {
     mockSetState: vi.fn().mockResolvedValue(undefined),
     mockClearState: vi.fn().mockResolvedValue(undefined),
     mockFormatSettingsMenu: vi.fn().mockReturnValue('⚙️ Configurações:\n\n1️⃣ Objetivo...'),
+    mockResetUserData: vi.fn().mockResolvedValue(undefined),
   }
 })
 
 vi.mock('@/lib/db/queries/users', () => ({
   updateUser: mockUpdateUser,
+  resetUserData: mockResetUserData,
 }))
 
 vi.mock('@/lib/db/queries/settings', () => ({
@@ -92,6 +95,17 @@ function buildSettingsMenuContext(): ConversationContext {
     id: 'ctx-1',
     userId: USER_ID,
     contextType: 'settings_menu',
+    contextData: {},
+    expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+    createdAt: new Date().toISOString(),
+  }
+}
+
+function buildResetConfirmationContext(): ConversationContext {
+  return {
+    id: 'ctx-reset',
+    userId: USER_ID,
+    contextType: 'awaiting_reset_confirmation',
     contextData: {},
     expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
     createdAt: new Date().toISOString(),
@@ -219,7 +233,7 @@ describe('handleSettings', () => {
       const context = buildSettingsMenuContext()
       const result = await handleSettings(supabase, USER_ID, '99', mockUser, mockSettings, context)
 
-      expect(result).toMatch(/opção|inválid|1.*7/i)
+      expect(result).toMatch(/opção|inválid|1.*8/i)
     })
   })
 
@@ -317,6 +331,46 @@ describe('handleSettings', () => {
 
       expect(mockUpdateUser).not.toHaveBeenCalled()
       expect(result).toMatch(/inválido|número|kcal/i)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // option 8 — reset data
+  // -------------------------------------------------------------------------
+
+  describe('option 8 — reset data', () => {
+    it('shows confirmation prompt when option 8 is selected', async () => {
+      const context = buildSettingsMenuContext()
+      const result = await handleSettings(supabase, USER_ID, '8', mockUser, mockSettings, context)
+
+      expect(result).toMatch(/apagar/)
+      expect(result).toMatch(/SIM/)
+      expect(mockSetState).toHaveBeenCalledWith(USER_ID, 'awaiting_reset_confirmation', {})
+    })
+
+    it('executes reset when user confirms with "sim"', async () => {
+      const context = buildResetConfirmationContext()
+      const result = await handleSettings(supabase, USER_ID, 'sim', mockUser, mockSettings, context)
+
+      expect(mockResetUserData).toHaveBeenCalledWith(supabase, USER_ID)
+      expect(result).toMatch(/apagados/i)
+      expect(result).toMatch(/recomeçar/i)
+    })
+
+    it('executes reset when user confirms with "SIM"', async () => {
+      const context = buildResetConfirmationContext()
+      const result = await handleSettings(supabase, USER_ID, 'SIM', mockUser, mockSettings, context)
+
+      expect(mockResetUserData).toHaveBeenCalledWith(supabase, USER_ID)
+    })
+
+    it('cancels reset when user sends anything other than "sim"', async () => {
+      const context = buildResetConfirmationContext()
+      const result = await handleSettings(supabase, USER_ID, 'não', mockUser, mockSettings, context)
+
+      expect(mockResetUserData).not.toHaveBeenCalled()
+      expect(mockClearState).toHaveBeenCalledWith(USER_ID)
+      expect(result).toMatch(/cancelado|intactos/i)
     })
   })
 })
