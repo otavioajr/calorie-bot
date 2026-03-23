@@ -206,6 +206,82 @@ describe('OpenRouterProvider', () => {
     })
   })
 
+  describe('analyzeImage', () => {
+    it('sends multimodal message with image_url and text to vision model', async () => {
+      vi.stubEnv('LLM_MODEL_VISION', 'openai/gpt-4o')
+
+      const mockImageResponse = JSON.stringify({
+        image_type: 'food',
+        meal_type: 'lunch',
+        confidence: 'high',
+        items: [{ food: 'Rice', quantity_grams: 150, calories: 195, protein: 4, carbs: 42, fat: 0.5 }],
+        unknown_items: [],
+        needs_clarification: false,
+      })
+
+      let capturedBody: {
+        model: string
+        messages: Array<{ role: string; content: unknown }>
+      } | null = null
+
+      server.use(
+        http.post('https://openrouter.ai/api/v1/chat/completions', async ({ request }) => {
+          capturedBody = (await request.json()) as typeof capturedBody
+          return HttpResponse.json(makeOpenRouterResponse(mockImageResponse))
+        }),
+      )
+
+      const provider = new OpenRouterProvider()
+      const result = await provider.analyzeImage('data:image/jpeg;base64,abc123', 'meu almoço', 'approximate')
+
+      expect(result.image_type).toBe('food')
+      expect(result.items).toHaveLength(1)
+
+      expect(capturedBody).not.toBeNull()
+      expect(capturedBody!.model).toBe('openai/gpt-4o')
+
+      const userMsg = capturedBody!.messages[1]
+      expect(Array.isArray(userMsg.content)).toBe(true)
+      const contentParts = userMsg.content as Array<{ type: string; text?: string }>
+      expect(contentParts[0].type).toBe('image_url')
+      expect(contentParts[1].type).toBe('text')
+      expect(contentParts[1].text).toBe('meu almoço')
+    })
+
+    it('uses default text when no caption provided', async () => {
+      vi.stubEnv('LLM_MODEL_VISION', 'openai/gpt-4o')
+
+      const mockImageResponse = JSON.stringify({
+        image_type: 'food',
+        confidence: 'low',
+        items: [],
+        needs_clarification: true,
+        clarification_question: 'Não consegui identificar.',
+      })
+
+      let capturedBody: {
+        messages: Array<{ role: string; content: unknown }>
+      } | null = null
+
+      server.use(
+        http.post('https://openrouter.ai/api/v1/chat/completions', async ({ request }) => {
+          capturedBody = (await request.json()) as typeof capturedBody
+          return HttpResponse.json(makeOpenRouterResponse(mockImageResponse))
+        }),
+      )
+
+      const provider = new OpenRouterProvider()
+      const result = await provider.analyzeImage('data:image/jpeg;base64,abc123', undefined, 'approximate')
+
+      expect(result.needs_clarification).toBe(true)
+
+      expect(capturedBody).not.toBeNull()
+      const userMsg = capturedBody!.messages[1]
+      const contentParts = userMsg.content as Array<{ type: string; text?: string }>
+      expect(contentParts[1].text).toBe('Analise esta imagem.')
+    })
+  })
+
   describe('chat', () => {
     it('returns raw text response', async () => {
       server.use(

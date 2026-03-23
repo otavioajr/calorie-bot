@@ -48,6 +48,13 @@ function createFallbackProxy(primary: LLMProvider, fallback: LLMProvider): LLMPr
         return await fallback.analyzeMeal(...args)
       }
     },
+    async analyzeImage(...args) {
+      try {
+        return await primary.analyzeImage(...args)
+      } catch {
+        return await fallback.analyzeImage(...args)
+      }
+    },
     async classifyIntent(...args) {
       try {
         return await primary.classifyIntent(...args)

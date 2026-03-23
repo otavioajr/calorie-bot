@@ -1,10 +1,12 @@
 import { MealAnalysis, MealAnalysisSchema } from '../schemas/meal-analysis'
+import { ImageAnalysis, ImageAnalysisSchema } from '../schemas/image-analysis'
 import { IntentClassificationSchema } from '../schemas/intent'
 import { CalorieMode } from '../schemas/common'
 import { LLMProvider, IntentType } from '../provider'
 import { buildApproximatePrompt } from '../prompts/approximate'
 import { buildTacoPrompt, TacoFood } from '../prompts/taco'
 import { buildClassifyPrompt } from '../prompts/classify'
+import { buildVisionPrompt } from '../prompts/vision'
 
 interface OpenRouterMessage {
   role: 'system' | 'user' | 'assistant'
@@ -14,6 +16,21 @@ interface OpenRouterMessage {
 interface OpenRouterRequestBody {
   model: string
   messages: OpenRouterMessage[]
+  response_format?: { type: 'json_object' }
+}
+
+type ContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
+
+interface OpenRouterVisionMessage {
+  role: 'system' | 'user' | 'assistant'
+  content: string | ContentPart[]
+}
+
+interface OpenRouterVisionRequestBody {
+  model: string
+  messages: OpenRouterVisionMessage[]
   response_format?: { type: 'json_object' }
 }
 
@@ -29,12 +46,14 @@ export class OpenRouterProvider implements LLMProvider {
   private apiKey: string
   private mealModel: string
   private classifyModel: string
+  private visionModel: string
 
   constructor() {
     this.apiKey = process.env.LLM_API_KEY!
     this.mealModel = process.env.LLM_MODEL_MEAL ?? 'openai/gpt-4o-mini'
     this.classifyModel =
       process.env.LLM_MODEL_CLASSIFY ?? 'meta-llama/llama-3.1-8b-instruct:free'
+    this.visionModel = process.env.LLM_MODEL_VISION ?? 'openai/gpt-4o'
   }
 
   async analyzeMeal(message: string, mode: CalorieMode, context?: TacoFood[]): Promise<MealAnalysis> {
@@ -65,6 +84,35 @@ export class OpenRouterProvider implements LLMProvider {
     )
   }
 
+  async analyzeImage(
+    imageBase64: string,
+    caption: string | undefined,
+    mode: CalorieMode,
+    context?: TacoFood[],
+  ): Promise<ImageAnalysis> {
+    const systemPrompt = buildVisionPrompt(mode, context)
+    const captionText = caption || 'Analise esta imagem.'
+
+    const rawContent = await this.callVisionAPI(this.visionModel, systemPrompt, imageBase64, captionText)
+    const parsed = this.parseJSON(rawContent)
+    const validated = ImageAnalysisSchema.safeParse(parsed)
+
+    if (validated.success) {
+      return validated.data
+    }
+
+    // Retry once on validation failure
+    const retryContent = await this.callVisionAPI(this.visionModel, systemPrompt, imageBase64, captionText)
+    const retryParsed = this.parseJSON(retryContent)
+    const retryValidated = ImageAnalysisSchema.safeParse(retryParsed)
+
+    if (retryValidated.success) {
+      return retryValidated.data
+    }
+
+    throw new Error(`ImageAnalysis validation failed after retry: ${retryValidated.error.message}`)
+  }
+
   async classifyIntent(message: string): Promise<IntentType> {
     const systemPrompt = buildClassifyPrompt()
     const rawContent = await this.callAPI(this.classifyModel, systemPrompt, message, true)
@@ -77,6 +125,54 @@ export class OpenRouterProvider implements LLMProvider {
 
   async chat(message: string, systemPrompt: string): Promise<string> {
     return this.callAPI(this.mealModel, systemPrompt, message, false)
+  }
+
+  private async callVisionAPI(
+    model: string,
+    systemPrompt: string,
+    imageBase64: string,
+    caption: string,
+  ): Promise<string> {
+    const body: OpenRouterVisionRequestBody = {
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        {
+          role: 'user',
+          content: [
+            { type: 'image_url', image_url: { url: imageBase64 } },
+            { type: 'text', text: caption },
+          ],
+        },
+      ],
+      response_format: { type: 'json_object' },
+    }
+
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://caloriebot.vercel.app',
+        'X-Title': 'CalorieBot',
+      },
+      body: JSON.stringify(body),
+    })
+
+    if (!response.ok) {
+      const errorBody = await response.text()
+      console.error(`[OpenRouter] ${response.status} for model ${model}:`, errorBody)
+      throw new Error(`OpenRouter API error: ${response.status} ${response.statusText}`)
+    }
+
+    const data = await response.json()
+    console.log('[OpenRouter] Vision response:', JSON.stringify(data).substring(0, 500))
+
+    const content = data?.choices?.[0]?.message?.content
+    if (!content) {
+      throw new Error(`OpenRouter returned unexpected format: ${JSON.stringify(data).substring(0, 200)}`)
+    }
+    return content
   }
 
   private parseJSON(content: string): unknown {
