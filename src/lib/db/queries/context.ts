@@ -9,6 +9,7 @@ export const CONTEXT_TTLS: Record<ContextType, number> = {
   awaiting_label_portions: 5,
   settings_menu: 5,
   settings_change: 5,
+  awaiting_reset_confirmation: 5,
 }
 
 export type ContextType =
@@ -20,6 +21,7 @@ export type ContextType =
   | 'awaiting_label_portions'
   | 'settings_menu'
   | 'settings_change'
+  | 'awaiting_reset_confirmation'
 
 export interface ConversationContext {
   id: string

@@ -133,3 +133,18 @@ export async function getUserWithSettings(
     settings,
   }
 }
+
+/**
+ * Reset all user data and restart onboarding.
+ * Calls the `reset_user_data` PostgreSQL function for atomic execution.
+ * Deletes: meals, meal_items (cascade), weight_log, user_settings,
+ * conversation_context, llm_usage_log.
+ * Resets user profile fields and sets onboarding_complete = false.
+ */
+export async function resetUserData(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<void> {
+  const { error } = await supabase.rpc('reset_user_data', { p_user_id: userId })
+  if (error) throw new Error(`Failed to reset user data: ${error.message}`)
+}
