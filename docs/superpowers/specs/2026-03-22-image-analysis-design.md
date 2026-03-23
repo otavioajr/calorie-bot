@@ -58,7 +58,10 @@ Add `imageId` and `caption` fields to image message parsing:
 // New: returns { type: 'image', from, messageId, timestamp, imageId, caption? }
 ```
 
-Update `WhatsAppMessage` type to include `imageId: string` and `caption?: string` for image messages.
+**Type changes required:**
+- `RawMessage` interface: add `image?: { id: string; caption?: string }` field (same pattern as `audio?: { id: string }`)
+- `WhatsAppMessage` type: add `imageId: string` and `caption?: string` for image messages
+- Image branch in parser: extract `msg.image.id` and `msg.image.caption` from the raw message
 
 ### 2. Webhook Route (`src/app/api/webhook/whatsapp/route.ts`)
 
@@ -72,14 +75,34 @@ Add handler for `event.type === 'image'`:
 New function `handleIncomingImage(from: string, imageId: string, caption?: string)`:
 1. Check user exists + onboarding complete (same as text/audio)
 2. Call `downloadWhatsAppMedia(imageId)` to get image buffer
-3. Convert buffer to base64 data URL (`data:image/jpeg;base64,...`)
-4. Get user's `calorie_mode` from database
-5. Call `llm.analyzeImage(imageBase64, caption, calorieMode, tacoContext?)`
-6. Format result based on `image_type`:
-   - `food`: standard meal breakdown message
-   - `nutrition_label`: formatted label data with serving info
-7. Enter `awaiting_confirmation` state with meal data
-8. Send confirmation message to user
+3. Detect MIME type from buffer magic bytes (JPEG: `FF D8`, PNG: `89 50 4E 47`, WebP: `52 49 46 46`). Default to `image/jpeg` if unknown.
+4. Convert buffer to base64 data URL (`data:{mimeType};base64,...`)
+5. Get user's `calorie_mode` from database
+6. Call `llm.analyzeImage(imageBase64, caption, calorieMode, tacoContext?)`
+7. If `needs_clarification === true` or `items` is empty: send clarification message and return (do NOT enter meal-log flow)
+8. **Convert `ImageAnalysis` → `MealAnalysis`:** Map the result to `MealAnalysis` format:
+   - `meal_type`: use value from LLM if present; default to `"snack"` for nutrition labels or when absent
+   - `items`: must have at least 1 item (guaranteed by step 7 guard)
+   - Drop `image_type` field (only used for message formatting in this function)
+9. Format result based on `image_type`:
+   - `food`: standard meal breakdown message → enter `awaiting_confirmation` state
+   - `nutrition_label`: show extracted data + ask portions → enter **`awaiting_label_portions`** state (new state, see section below)
+10. Send message to user
+
+#### Nutrition Label Portions Flow (new conversation state)
+
+When `image_type === "nutrition_label"`, instead of going directly to `awaiting_confirmation`:
+
+1. Bot shows extracted label data and asks "Quantas porções você comeu?"
+2. State saved as `awaiting_label_portions` in `conversation_context` with `context_data` containing the `MealAnalysis` (per-serving values)
+3. User responds with a number (e.g., "2", "1.5", "meia porção")
+4. Handler parses numeric value, multiplies all nutritional values (calories, protein, carbs, fat) by portions count
+5. Shows final breakdown → enters `awaiting_confirmation` with multiplied values
+6. Standard confirmation flow from here
+
+**Router integration:** When `conversation_context.state === 'awaiting_label_portions'`, route the next text message to a `handleLabelPortions(from, message)` function. Simple numeric parse — if not a number, ask again.
+
+This requires adding `'awaiting_label_portions'` to the `ConversationState` type.
 
 ### 4. LLM Provider Interface (`src/lib/llm/provider.ts`)
 
@@ -100,6 +123,7 @@ interface LLMProvider {
 ### 5. OpenRouter Provider (`src/lib/llm/providers/openrouter.ts`)
 
 - Load `LLM_MODEL_VISION` from environment
+- **Type changes:** Update `OpenRouterMessage` to support multimodal content. The `content` field must accept both `string` and `Array<{ type: "text", text: string } | { type: "image_url", image_url: { url: string } }>`. Either widen the existing type or create a new `callVisionAPI` method that uses the multimodal type.
 - Implement `analyzeImage()` using multimodal message format:
 
 ```typescript
@@ -109,7 +133,7 @@ messages: [
     role: "user",
     content: [
       { type: "image_url", image_url: { url: imageBase64DataUrl } },
-      { type: "text", text: caption || "Analyze this image." }
+      { type: "text", text: caption || "Analise esta imagem." }
     ]
   }
 ]
@@ -139,9 +163,9 @@ New schema file:
 ```typescript
 export const ImageAnalysisSchema = z.object({
   image_type: z.enum(["food", "nutrition_label"]),
-  meal_type: MealTypeSchema.optional(),
+  meal_type: MealTypeSchema.optional(),       // Optional: LLM may not know for labels. Default to "snack" in handler.
   confidence: ConfidenceSchema,
-  items: z.array(MealItemSchema).default([]),
+  items: z.array(MealItemSchema).default([]), // Can be empty when needs_clarification is true
   unknown_items: z.array(z.string()).default([]),
   needs_clarification: z.boolean().default(false),
   clarification_question: z.string().nullable().optional(),
@@ -149,6 +173,12 @@ export const ImageAnalysisSchema = z.object({
 ```
 
 Same structure as `MealAnalysis` plus `image_type`. Both food and nutrition_label results are normalized into `items[]` with calories and macros.
+
+**Conversion to `MealAnalysis`:** The handler maps `ImageAnalysis` → `MealAnalysis` before entering the meal-log flow. This is only done when `items.length > 0` and `needs_clarification === false`. The mapping:
+- `meal_type`: use LLM value if present, otherwise `"snack"`
+- `items`: passed through (already `MealItemSchema[]`)
+- `image_type`: dropped (not part of `MealAnalysis`)
+- All other fields: passed through as-is
 
 ### 8. Vision System Prompt (`src/lib/llm/prompts/vision.ts`)
 
@@ -183,7 +213,13 @@ Mode-specific additions (taco context, etc.) appended dynamically, same as text 
 
 ### 9. Media Download
 
-Reuse existing `downloadWhatsAppMedia()` from `src/lib/audio/transcribe.ts`. Consider extracting to a shared utility (`src/lib/whatsapp/media.ts`) since it's now used by both audio and image flows.
+Extract `downloadWhatsAppMedia()` from `src/lib/audio/transcribe.ts` to a shared utility at `src/lib/whatsapp/media.ts`, since it's now used by both audio and image flows.
+
+**Important:** The current implementation has a hardcoded `MAX_AUDIO_SIZE = 480_000` bytes and throws `AudioTooLargeError`. Images are typically larger. The extracted version must:
+- Accept an optional `maxSize` parameter (default: no limit)
+- Each caller passes its own limit: audio keeps 480KB, images use 5MB (`MAX_IMAGE_SIZE = 5_242_880`)
+- Rename the error to `MediaTooLargeError` (generic)
+- `src/lib/audio/transcribe.ts` imports from the new location and passes the audio size limit
 
 ## Environment Variables
 
@@ -233,7 +269,17 @@ Confirma o registro? (sim/não)
 Quantas porções você comeu? Responda com o número para eu registrar.
 ```
 
-Note: For nutrition labels, the portions question is included in the confirmation message itself. The user responds with the number, and the bot uses the existing `awaiting_confirmation` state to handle the response, multiplying the values accordingly.
+Note: For nutrition labels, the bot enters `awaiting_label_portions` state. The user responds with a number, the handler multiplies the per-serving values, then enters the standard `awaiting_confirmation` flow.
+
+## LLM Usage Logging
+
+Vision model calls (e.g., GPT-4o) are significantly more expensive than text calls. All vision API calls must be logged to `llm_usage_log` with:
+- `model`: the vision model used
+- `tokens_in` / `tokens_out`: from API response
+- `latency_ms`: measured in the provider
+- `purpose`: `"image_analysis"`
+
+Same pattern as existing meal analysis logging.
 
 ## CLAUDE.md Updates
 
@@ -244,3 +290,4 @@ Add to project structure:
 
 Update webhook description to include image support.
 Add `OLLAMA_MODEL_VISION` to environment variables section.
+Add `awaiting_label_portions` to conversation state types documentation.
