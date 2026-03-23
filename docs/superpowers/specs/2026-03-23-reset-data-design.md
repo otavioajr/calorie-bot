@@ -97,7 +97,13 @@ Add `awaiting_reset_confirmation` to `ContextType` union and `CONTEXT_TTLS` map 
 
 ### Handler Integration
 
-In `settings.ts`, the `handleSettings` function already handles `settings_menu` context. Add case 8 to `handleMenuSelection`. Add a new branch in `handleSettings` for `awaiting_reset_confirmation` context type.
+**`src/lib/bot/handler.ts`:** The context-type switch (~line 62) must add a case for `awaiting_reset_confirmation` that routes to `handleSettings`. Without this, the confirmation message would fall through to intent classification.
+
+**`src/lib/bot/flows/settings.ts`:**
+- `handleSettings`: Add a branch for `awaiting_reset_confirmation` context type BEFORE the `settings_change` branch (order matters to avoid collision with `applySettingChange` which maps "sim" to enable reminders).
+- `handleMenuSelection`: Add case 8. Update validation range from `> 7` to `> 8` and error messages from "1 a 7" to "1 a 8".
+
+**`src/lib/utils/formatters.ts`:** Update `formatSettingsMenu` to include option 8.
 
 ## Web Flow
 
@@ -158,24 +164,44 @@ export async function resetUserData(
 ): Promise<void>
 ```
 
-**Implementation:** Sequential deletes followed by user update. Order matters to respect FK constraints:
-1. DELETE from `meal_items` via cascade (handled by deleting meals)
-2. DELETE from `meals` WHERE user_id = userId
-3. DELETE from `weight_log` WHERE user_id = userId
-4. DELETE from `user_settings` WHERE user_id = userId
-5. DELETE from `conversation_context` WHERE user_id = userId
-6. DELETE from `llm_usage_log` WHERE user_id = userId
-7. UPDATE `users` SET all profile fields to reset values WHERE id = userId
+**Implementation:** Use a Supabase RPC (PostgreSQL function) wrapped in a transaction to ensure atomicity. If any step fails, the entire operation rolls back — no partial reset state.
 
-Uses service role client (not RLS) since this is a privileged operation initiated from an authenticated API route.
+**Migration:** Add a new migration with `reset_user_data(p_user_id UUID)` function:
+```sql
+CREATE OR REPLACE FUNCTION reset_user_data(p_user_id UUID) RETURNS void AS $$
+BEGIN
+  DELETE FROM meals WHERE user_id = p_user_id;        -- meal_items cascade
+  DELETE FROM weight_log WHERE user_id = p_user_id;
+  DELETE FROM user_settings WHERE user_id = p_user_id;
+  DELETE FROM conversation_context WHERE user_id = p_user_id;
+  DELETE FROM llm_usage_log WHERE user_id = p_user_id;
+  UPDATE users SET
+    name = '', sex = NULL, age = NULL, weight_kg = NULL, height_cm = NULL,
+    activity_level = NULL, goal = NULL, calorie_mode = 'approximate',
+    daily_calorie_target = NULL, calorie_target_manual = false,
+    tmb = NULL, tdee = NULL, onboarding_complete = false, onboarding_step = 0,
+    updated_at = NOW()
+  WHERE id = p_user_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+```
+
+**TypeScript call:**
+```typescript
+const { error } = await supabase.rpc('reset_user_data', { p_user_id: userId })
+```
+
+Uses service role client (not RLS) since this is a privileged cross-table operation. Justified because the API route authenticates via cookie and the operation spans multiple tables with different RLS policies — a single service role RPC call is more reliable than multiple RLS-scoped queries.
 
 ## Testing
 
 ### Unit Tests
-- `resetUserData` correctly deletes all associated tables and resets user fields
-- Bot settings menu shows option 8
+- `resetUserData` correctly calls RPC and handles errors
+- Bot settings menu shows option 8 and validates range 1-8
 - Confirmation flow: "sim" triggers reset, anything else cancels
+- Confirmation after TTL expiry is treated as new intent (no crash)
 - API route returns 401 without cookie, 200 on success
+- Reset with no data to delete (fresh user) succeeds without errors
 
 ### Integration Tests
 - Full reset cycle: create user → add meals/weight/settings → reset → verify all deleted and user in onboarding state
