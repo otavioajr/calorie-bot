@@ -222,6 +222,9 @@ export async function handleIncomingImage(
       return
     }
 
+    // Send immediate feedback while processing
+    const processingPromise = sendTextMessage(from, '📸 Analisando sua foto... aguarda um instante!')
+
     let buffer: Buffer
     try {
       buffer = await downloadWhatsAppMedia(imageId, MAX_IMAGE_SIZE)
@@ -236,6 +239,9 @@ export async function handleIncomingImage(
     const mimeType = detectMimeType(buffer)
     const base64 = buffer.toString('base64')
     const dataUrl = `data:${mimeType};base64,${base64}`
+
+    // Ensure processing message was sent before continuing
+    await processingPromise
 
     const llm = getLLMProvider()
     const calorieMode = user.calorieMode as Parameters<typeof llm.analyzeMeal>[1]

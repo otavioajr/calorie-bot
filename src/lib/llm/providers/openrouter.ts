@@ -17,6 +17,7 @@ interface OpenRouterRequestBody {
   model: string
   messages: OpenRouterMessage[]
   response_format?: { type: 'json_object' }
+  reasoning?: { effort: 'none' | 'low' | 'medium' | 'high' }
 }
 
 type ContentPart =
@@ -32,6 +33,7 @@ interface OpenRouterVisionRequestBody {
   model: string
   messages: OpenRouterVisionMessage[]
   response_format?: { type: 'json_object' }
+  reasoning?: { effort: 'none' | 'low' | 'medium' | 'high' }
 }
 
 interface OpenRouterResponse {
@@ -146,6 +148,7 @@ export class OpenRouterProvider implements LLMProvider {
         },
       ],
       response_format: { type: 'json_object' },
+      reasoning: { effort: 'none' },
     }
 
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -209,6 +212,8 @@ export class OpenRouterProvider implements LLMProvider {
     if (jsonMode) {
       body.response_format = { type: 'json_object' }
     }
+
+    body.reasoning = { effort: 'none' }
 
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
