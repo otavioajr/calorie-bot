@@ -58,12 +58,12 @@ export class OpenRouterProvider implements LLMProvider {
     this.visionModel = process.env.LLM_MODEL_VISION ?? 'openai/gpt-4o'
   }
 
-  async analyzeMeal(message: string, mode: CalorieMode, context?: TacoFood[]): Promise<MealAnalysis> {
+  async analyzeMeal(message: string, mode: CalorieMode, context?: TacoFood[], history?: { role: string; content: string }[]): Promise<MealAnalysis> {
     const systemPrompt = mode === 'taco'
       ? buildTacoPrompt(context ?? [])
       : buildApproximatePrompt()
 
-    const rawContent = await this.callAPI(this.mealModel, systemPrompt, message, true)
+    const rawContent = await this.callAPI(this.mealModel, systemPrompt, message, true, history)
 
     const parsed = this.parseJSON(rawContent)
     const validated = MealAnalysisSchema.safeParse(parsed)
@@ -73,7 +73,7 @@ export class OpenRouterProvider implements LLMProvider {
     }
 
     // Retry once on validation failure
-    const retryContent = await this.callAPI(this.mealModel, systemPrompt, message, true)
+    const retryContent = await this.callAPI(this.mealModel, systemPrompt, message, true, history)
     const retryParsed = this.parseJSON(retryContent)
     const retryValidated = MealAnalysisSchema.safeParse(retryParsed)
 
@@ -200,13 +200,23 @@ export class OpenRouterProvider implements LLMProvider {
     systemPrompt: string,
     userMessage: string,
     jsonMode: boolean,
+    history?: { role: string; content: string }[],
   ): Promise<string> {
+    const messages: OpenRouterMessage[] = [
+      { role: 'system', content: systemPrompt },
+    ]
+
+    if (history && history.length > 0) {
+      for (const msg of history) {
+        messages.push({ role: msg.role as 'user' | 'assistant', content: msg.content })
+      }
+    }
+
+    messages.push({ role: 'user', content: userMessage })
+
     const body: OpenRouterRequestBody = {
       model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMessage },
-      ],
+      messages,
     }
 
     if (jsonMode) {
