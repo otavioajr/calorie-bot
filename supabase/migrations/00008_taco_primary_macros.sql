@@ -33,7 +33,7 @@ RETURNS TABLE (
   carbs_per_100g DECIMAL,
   fat_per_100g DECIMAL,
   fiber_per_100g DECIMAL,
-  similarity FLOAT
+  similarity REAL
 ) AS $$
 BEGIN
   RETURN QUERY
@@ -60,7 +60,7 @@ RETURNS TABLE (
   carbs_per_100g DECIMAL,
   fat_per_100g DECIMAL,
   fiber_per_100g DECIMAL,
-  similarity FLOAT,
+  similarity REAL,
   query_name TEXT
 ) AS $$
 BEGIN
