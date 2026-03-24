@@ -33,6 +33,7 @@ const {
   mockSetState,
   mockGetDailyCalories,
   mockFormatMealBreakdown,
+  mockSaveMessage,
 } = vi.hoisted(() => {
   const mockClassifyIntent = vi.fn()
   const mockAnalyzeImage = vi.fn()
@@ -66,6 +67,7 @@ const {
     mockSetState: vi.fn().mockResolvedValue(undefined),
     mockGetDailyCalories: vi.fn().mockResolvedValue(0),
     mockFormatMealBreakdown: vi.fn().mockReturnValue('meal breakdown message'),
+    mockSaveMessage: vi.fn().mockResolvedValue(undefined),
   }
 })
 
@@ -165,6 +167,10 @@ vi.mock('@/lib/whatsapp/mime', () => ({
 vi.mock('@/lib/db/queries/meals', () => ({
   createMeal: vi.fn(),
   getDailyCalories: mockGetDailyCalories,
+}))
+
+vi.mock('@/lib/db/queries/message-history', () => ({
+  saveMessage: mockSaveMessage,
 }))
 
 // ---------------------------------------------------------------------------
@@ -617,21 +623,20 @@ describe('handleIncomingMessage — context-based routing', () => {
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'clarification received')
   })
 
-  it('routes to handleMealLog when context is awaiting_correction', async () => {
+  it('routes to handleEdit when context is awaiting_correction', async () => {
     const mockContext = {
       contextType: 'awaiting_correction',
       contextData: { originalMessage: 'comi arroz' },
     }
     mockGetState.mockResolvedValue(mockContext)
-    mockHandleMealLog.mockResolvedValue({ response: 'correction received', completed: false })
+    mockHandleEdit.mockResolvedValue('correction received')
 
     await handleIncomingMessage(FROM, MESSAGE_ID, 'na verdade foi 300g')
 
-    expect(mockHandleMealLog).toHaveBeenCalledWith(
+    expect(mockHandleEdit).toHaveBeenCalledWith(
       mockSupabase,
       completedUser.id,
       'na verdade foi 300g',
-      { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget },
       mockContext
     )
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'correction received')
@@ -1153,5 +1158,33 @@ describe('handleIncomingMessage — awaiting_label_portions context', () => {
       expect.stringContaining('número de porções'),
     )
     expect(mockSetState).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Test 10: Message history saving
+// ---------------------------------------------------------------------------
+
+describe('handleIncomingMessage — message history', () => {
+  it('saves user message and bot response to message history', async () => {
+    mockFindUserByPhone.mockResolvedValueOnce(completedUser)
+    mockGetState.mockResolvedValueOnce(null)
+    mockClassifyByRules.mockReturnValueOnce('meal_log')
+    mockHandleMealLog.mockResolvedValueOnce({ response: 'Almoço registrado!', completed: true })
+
+    await handleIncomingMessage('5511999999999', 'msg-1', 'arroz com feijão')
+
+    expect(mockSaveMessage).toHaveBeenCalledWith(expect.anything(), completedUser.id, 'user', 'arroz com feijão')
+    expect(mockSaveMessage).toHaveBeenCalledWith(expect.anything(), completedUser.id, 'assistant', 'Almoço registrado!')
+  })
+
+  it('does NOT save onboarding messages to history', async () => {
+    const onboardingUser = { ...completedUser, onboardingComplete: false, onboardingStep: 0 }
+    mockFindUserByPhone.mockResolvedValueOnce(onboardingUser)
+    mockHandleOnboarding.mockResolvedValueOnce({ response: 'Qual seu nome?' })
+
+    await handleIncomingMessage('5511999999999', 'msg-1', 'oi')
+
+    expect(mockSaveMessage).not.toHaveBeenCalled()
   })
 })

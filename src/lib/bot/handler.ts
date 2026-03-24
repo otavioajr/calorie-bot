@@ -18,11 +18,17 @@ import { downloadWhatsAppMedia, MediaTooLargeError } from '@/lib/whatsapp/media'
 import { detectMimeType } from '@/lib/whatsapp/mime'
 import { logLLMUsage } from '@/lib/db/queries/llm-usage'
 import { getDailyCalories } from '@/lib/db/queries/meals'
+import { saveMessage } from '@/lib/db/queries/message-history'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ImageAnalysis } from '@/lib/llm/schemas/image-analysis'
 import type { MealAnalysis } from '@/lib/llm/schemas/meal-analysis'
 
 const MAX_IMAGE_SIZE = 5_242_880 // 5MB
+
+function saveHistory(supabase: SupabaseClient, userId: string, userMsg: string, botMsg: string): void {
+  saveMessage(supabase, userId, 'user', userMsg).catch(() => {})
+  saveMessage(supabase, userId, 'assistant', botMsg).catch(() => {})
+}
 
 export async function handleIncomingMessage(
   from: string,
@@ -61,15 +67,22 @@ export async function handleIncomingMessage(
     if (context) {
       switch (context.contextType) {
         case 'awaiting_confirmation':
-        case 'awaiting_clarification':
-        case 'awaiting_correction': {
+        case 'awaiting_clarification': {
           const mealResult = await handleMealLog(supabase, user.id, text, userSettings, context)
           await sendTextMessage(from, mealResult.response)
+          saveHistory(supabase, user.id, text, mealResult.response)
+          return
+        }
+        case 'awaiting_correction': {
+          const editResponse = await handleEdit(supabase, user.id, text, context)
+          await sendTextMessage(from, editResponse)
+          saveHistory(supabase, user.id, text, editResponse)
           return
         }
         case 'awaiting_weight': {
           const weightResponse = await handleWeight(supabase, user.id, text, user)
           await sendTextMessage(from, weightResponse)
+          saveHistory(supabase, user.id, text, weightResponse)
           return
         }
         case 'settings_menu':
@@ -78,6 +91,7 @@ export async function handleIncomingMessage(
           const settingsData = await getUserWithSettings(supabase, user.id)
           const settingsResponse = await handleSettings(supabase, user.id, text, user, settingsData.settings, context)
           await sendTextMessage(from, settingsResponse)
+          saveHistory(supabase, user.id, text, settingsResponse)
           return
         }
         case 'awaiting_label_portions': {
@@ -85,6 +99,7 @@ export async function handleIncomingMessage(
             calorieMode: user.calorieMode,
             dailyCalorieTarget: user.dailyCalorieTarget,
           })
+          saveMessage(supabase, user.id, 'user', text).catch(() => {})
           return
         }
       }
@@ -142,6 +157,7 @@ export async function handleIncomingMessage(
     }
 
     await sendTextMessage(from, response)
+    saveHistory(supabase, user.id, text, response)
   } catch (err) {
     console.error('[handler] Error:', err)
     await sendTextMessage(from, formatError()).catch(() => {})
@@ -262,6 +278,7 @@ export async function handleIncomingImage(
       const msg = imageResult.clarification_question ||
         'Não consegui identificar os alimentos nessa foto 😅 Pode descrever o que comeu?'
       await sendTextMessage(from, msg)
+      saveHistory(supabase, user.id, caption || '[imagem de alimento]', msg)
       return
     }
 
@@ -290,6 +307,7 @@ export async function handleIncomingImage(
       })
 
       await sendTextMessage(from, labelMsg)
+      saveHistory(supabase, user.id, caption || '[imagem de alimento]', labelMsg)
       return
     }
 
@@ -314,6 +332,7 @@ export async function handleIncomingImage(
     })
 
     await sendTextMessage(from, response)
+    saveHistory(supabase, user.id, caption || '[imagem de alimento]', response)
   } catch (err) {
     console.error('[handler] Image error:', err)
     await sendTextMessage(from, formatError()).catch(() => {})
