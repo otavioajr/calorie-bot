@@ -81,7 +81,7 @@ Constante e três funções:
 - `saveMessage(userId: string, role: 'user' | 'assistant', content: string): Promise<void>` — insere mensagem e remove excedentes (mantém só 10)
 - `clearHistory(userId: string): Promise<void>` — limpa histórico do usuário (usado no reset de dados)
 
-## Migration (supabase/migrations/00008_message_history.sql)
+## Migration (supabase/migrations/00007_message_history.sql)
 
 ```sql
 CREATE TABLE message_history (
