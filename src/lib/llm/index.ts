@@ -62,6 +62,10 @@ function createFallbackProxy(primary: LLMProvider, fallback: LLMProvider): LLMPr
         return await fallback.classifyIntent(...args)
       }
     },
+    async decomposeMeal(...args) {
+      try { return await primary.decomposeMeal(...args) }
+      catch { return await fallback.decomposeMeal(...args) }
+    },
     async chat(...args) {
       try {
         return await primary.chat(...args)

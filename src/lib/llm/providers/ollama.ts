@@ -1,12 +1,12 @@
 import { MealAnalysis, MealAnalysisSchema, MultiMealAnalysisSchema } from '../schemas/meal-analysis'
 import { ImageAnalysis, ImageAnalysisSchema } from '../schemas/image-analysis'
 import { IntentClassificationSchema } from '../schemas/intent'
-import { CalorieMode } from '../schemas/common'
 import { LLMProvider, IntentType } from '../provider'
-import { buildApproximatePrompt } from '../prompts/approximate'
-import { buildTacoPrompt, TacoFood } from '../prompts/taco'
+import { buildAnalyzePrompt } from '../prompts/analyze'
+import { buildDecomposePrompt } from '../prompts/decompose'
 import { buildClassifyPrompt } from '../prompts/classify'
 import { buildVisionPrompt } from '../prompts/vision'
+import { DecomposedItem, DecompositionResultSchema } from '../schemas/decomposition'
 
 interface OllamaMessage {
   role: 'system' | 'user' | 'assistant'
@@ -52,10 +52,8 @@ export class OllamaProvider implements LLMProvider {
     this.visionModel = process.env.OLLAMA_MODEL_VISION || 'llava:13b'
   }
 
-  async analyzeMeal(message: string, mode: CalorieMode, context?: TacoFood[], history?: { role: string; content: string }[]): Promise<MealAnalysis[]> {
-    const systemPrompt = mode === 'taco'
-      ? buildTacoPrompt(context ?? [])
-      : buildApproximatePrompt()
+  async analyzeMeal(message: string, history?: { role: string; content: string }[]): Promise<MealAnalysis[]> {
+    const systemPrompt = buildAnalyzePrompt()
 
     const rawContent = await this.callAPI(this.mealModel, systemPrompt, message, true, history)
 
@@ -113,10 +111,8 @@ export class OllamaProvider implements LLMProvider {
   async analyzeImage(
     imageBase64: string,
     caption: string | undefined,
-    mode: CalorieMode,
-    context?: TacoFood[],
   ): Promise<ImageAnalysis> {
-    const systemPrompt = buildVisionPrompt(mode, context)
+    const systemPrompt = buildVisionPrompt()
     const captionText = caption || 'Analise esta imagem.'
 
     const rawContent = await this.callVisionAPI(this.visionModel, systemPrompt, imageBase64, captionText)
@@ -136,6 +132,24 @@ export class OllamaProvider implements LLMProvider {
     }
 
     throw new Error(`ImageAnalysis validation failed after retry: ${retryValidated.error.message}`)
+  }
+
+  async decomposeMeal(foodName: string, grams: number): Promise<DecomposedItem[]> {
+    const systemPrompt = buildDecomposePrompt(foodName, grams)
+    const rawContent = await this.callAPI(this.mealModel, systemPrompt, `Decompor: ${foodName} (${grams}g)`, true)
+    const parsed = this.parseJSON(rawContent)
+    const validated = DecompositionResultSchema.safeParse(parsed)
+
+    if (validated.success) return validated.data.ingredients
+
+    // Retry once
+    const retryContent = await this.callAPI(this.mealModel, systemPrompt, `Decompor: ${foodName} (${grams}g)`, true)
+    const retryParsed = this.parseJSON(retryContent)
+    const retryValidated = DecompositionResultSchema.safeParse(retryParsed)
+
+    if (retryValidated.success) return retryValidated.data.ingredients
+
+    throw new Error('Decomposition validation failed after retry')
   }
 
   private parseJSON(content: string): unknown {
