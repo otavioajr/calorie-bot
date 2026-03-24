@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-export const CalorieModeSchema = z.enum(['approximate', 'taco', 'manual'])
+export const CalorieModeSchema = z.enum(['taco', 'manual'])
 export type CalorieMode = z.infer<typeof CalorieModeSchema>
 
 export const MealTypeSchema = z.enum(['breakfast', 'lunch', 'snack', 'dinner', 'supper'])
