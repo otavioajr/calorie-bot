@@ -108,3 +108,55 @@ export async function cacheFood(
 
   if (error) throw new Error(error.message)
 }
+
+export interface CachedDecomposition {
+  foodName: string
+  ingredients: { food: string; quantity_grams: number }[]
+}
+
+/**
+ * Lookup cached decomposition for a composite food.
+ * Returns null for now — full implementation requires JSONB column.
+ */
+export async function lookupDecomposition(
+  supabase: SupabaseClient,
+  foodName: string,
+): Promise<CachedDecomposition | null> {
+  const normalized = normalizeFoodName(foodName)
+
+  const { data, error } = await supabase
+    .from('food_cache')
+    .select('*')
+    .eq('food_name_normalized', normalized)
+    .eq('source', 'decomposition')
+    .single()
+
+  if (error || !data) return null
+
+  // Increment hit count fire-and-forget
+  supabase
+    .from('food_cache')
+    .update({ hit_count: ((data as Record<string, unknown>).hit_count as number) + 1 })
+    .eq('food_name_normalized', normalized)
+
+  // Full ingredient list storage requires schema change (deferred)
+  return null
+}
+
+/**
+ * Cache a decomposition result marker.
+ */
+export async function cacheDecomposition(
+  supabase: SupabaseClient,
+  foodName: string,
+): Promise<void> {
+  const normalized = normalizeFoodName(foodName)
+
+  await supabase
+    .from('food_cache')
+    .upsert({
+      food_name_normalized: normalized,
+      calories_per_100g: 0,
+      source: 'decomposition',
+    }, { onConflict: 'food_name_normalized' })
+}
