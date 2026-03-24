@@ -109,7 +109,7 @@ describe('handleQuery', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     supabase = buildSupabase()
-    mockAnalyzeMeal.mockResolvedValue(mockSingleItemAnalysis)
+    mockAnalyzeMeal.mockResolvedValue([mockSingleItemAnalysis])
     mockGetLLMProvider.mockReturnValue({
       analyzeMeal: mockAnalyzeMeal,
       classifyIntent: vi.fn(),
@@ -166,7 +166,7 @@ describe('handleQuery', () => {
     })
 
     it('handles multiple items in the analysis', async () => {
-      mockAnalyzeMeal.mockResolvedValue(mockMultiItemAnalysis)
+      mockAnalyzeMeal.mockResolvedValue([mockMultiItemAnalysis])
 
       const result = await handleQuery(supabase, USER_ID, 'quantas calorias tem arroz e feijão?')
 

@@ -68,6 +68,40 @@ export function formatMealBreakdown(
 }
 
 // ---------------------------------------------------------------------------
+// formatMultiMealBreakdown
+// ---------------------------------------------------------------------------
+export function formatMultiMealBreakdown(
+  meals: Array<{
+    mealType: string
+    items: MealItem[]
+    total: number
+  }>,
+  dailyConsumed: number,
+  dailyTarget: number,
+): string {
+  const sections = meals.map((meal) => {
+    const itemLines = meal.items
+      .map((item) => `• ${item.food} (${item.quantityGrams}g) — ${item.calories} kcal`)
+      .join('\n')
+
+    return `🍽️ ${translateMealType(meal.mealType)}:\n${itemLines}\nSubtotal: ${meal.total} kcal`
+  })
+
+  const grandTotal = meals.reduce((sum, meal) => sum + meal.total, 0)
+  const progressLine = formatProgress(dailyConsumed, dailyTarget)
+
+  return [
+    ...sections,
+    '',
+    `Total geral: ${grandTotal} kcal`,
+    '',
+    progressLine,
+    '',
+    'Tá certo? (sim / corrigir)',
+  ].join('\n')
+}
+
+// ---------------------------------------------------------------------------
 // formatDailySummary
 // ---------------------------------------------------------------------------
 export function formatDailySummary(

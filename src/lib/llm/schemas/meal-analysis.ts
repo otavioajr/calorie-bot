@@ -23,5 +23,9 @@ export const MealAnalysisSchema = z.object({
   clarification_question: z.string().nullable().optional(),
 })
 
+export const MultiMealAnalysisSchema = z.object({
+  meals: z.array(MealAnalysisSchema).min(1),
+})
+
 export type MealItem = z.infer<typeof MealItemSchema>
 export type MealAnalysis = z.infer<typeof MealAnalysisSchema>

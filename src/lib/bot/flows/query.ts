@@ -53,7 +53,11 @@ export async function handleQuery(
   message: string,
 ): Promise<string> {
   const llm = getLLMProvider()
-  const analysis: MealAnalysis = await llm.analyzeMeal(message, 'approximate', undefined)
+  const meals: MealAnalysis[] = await llm.analyzeMeal(message, 'approximate', undefined)
+
+  // Flatten all meals' items into one analysis for display
+  const allItems = meals.flatMap(m => m.items)
+  const analysis: MealAnalysis = { ...meals[0], items: allItems }
 
   // Format each item
   const itemLines = analysis.items.map(formatItem)

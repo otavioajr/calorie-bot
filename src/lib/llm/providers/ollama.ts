@@ -1,4 +1,4 @@
-import { MealAnalysis, MealAnalysisSchema } from '../schemas/meal-analysis'
+import { MealAnalysis, MealAnalysisSchema, MultiMealAnalysisSchema } from '../schemas/meal-analysis'
 import { ImageAnalysis, ImageAnalysisSchema } from '../schemas/image-analysis'
 import { IntentClassificationSchema } from '../schemas/intent'
 import { CalorieMode } from '../schemas/common'
@@ -52,7 +52,7 @@ export class OllamaProvider implements LLMProvider {
     this.visionModel = process.env.OLLAMA_MODEL_VISION || 'llava:13b'
   }
 
-  async analyzeMeal(message: string, mode: CalorieMode, context?: TacoFood[], history?: { role: string; content: string }[]): Promise<MealAnalysis> {
+  async analyzeMeal(message: string, mode: CalorieMode, context?: TacoFood[], history?: { role: string; content: string }[]): Promise<MealAnalysis[]> {
     const systemPrompt = mode === 'taco'
       ? buildTacoPrompt(context ?? [])
       : buildApproximatePrompt()
@@ -60,24 +60,40 @@ export class OllamaProvider implements LLMProvider {
     const rawContent = await this.callAPI(this.mealModel, systemPrompt, message, true, history)
 
     const parsed = this.parseJSON(rawContent)
-    const validated = MealAnalysisSchema.safeParse(parsed)
+    const result = this.parseMealResponse(parsed)
 
-    if (validated.success) {
-      return validated.data
+    if (result) {
+      return result
     }
 
     // Retry once on validation failure
     const retryContent = await this.callAPI(this.mealModel, systemPrompt, message, true, history)
     const retryParsed = this.parseJSON(retryContent)
-    const retryValidated = MealAnalysisSchema.safeParse(retryParsed)
+    const retryResult = this.parseMealResponse(retryParsed)
 
-    if (retryValidated.success) {
-      return retryValidated.data
+    if (retryResult) {
+      return retryResult
     }
 
     throw new Error(
-      `MealAnalysis validation failed after retry: ${retryValidated.error.message}`,
+      'MealAnalysis validation failed after retry',
     )
+  }
+
+  private parseMealResponse(parsed: unknown): MealAnalysis[] | null {
+    // Try multi-meal format first
+    const multi = MultiMealAnalysisSchema.safeParse(parsed)
+    if (multi.success) {
+      return multi.data.meals
+    }
+
+    // Fall back to single meal wrapped in array
+    const single = MealAnalysisSchema.safeParse(parsed)
+    if (single.success) {
+      return [single.data]
+    }
+
+    return null
   }
 
   async classifyIntent(message: string): Promise<IntentType> {

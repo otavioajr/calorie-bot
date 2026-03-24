@@ -49,10 +49,11 @@ describe('OpenRouterProvider', () => {
       const provider = new OpenRouterProvider()
       const result = await provider.analyzeMeal('almocei arroz', 'approximate')
 
-      expect(result.meal_type).toBe('lunch')
-      expect(result.confidence).toBe('high')
-      expect(result.items).toHaveLength(1)
-      expect(result.items[0].food).toBe('Arroz')
+      expect(result).toHaveLength(1)
+      expect(result[0].meal_type).toBe('lunch')
+      expect(result[0].confidence).toBe('high')
+      expect(result[0].items).toHaveLength(1)
+      expect(result[0].items[0].food).toBe('Arroz')
     })
 
     it('retries once on invalid JSON and succeeds on second attempt', async () => {
@@ -71,7 +72,7 @@ describe('OpenRouterProvider', () => {
       const result = await provider.analyzeMeal('almocei arroz', 'approximate')
 
       expect(callCount).toBe(2)
-      expect(result.meal_type).toBe('lunch')
+      expect(result[0].meal_type).toBe('lunch')
     })
 
     it('throws after retry fails when both attempts return invalid JSON', async () => {

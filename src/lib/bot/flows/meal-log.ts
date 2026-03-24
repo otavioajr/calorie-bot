@@ -4,7 +4,7 @@ import type { MealAnalysis } from '@/lib/llm/schemas/meal-analysis'
 import { setState, clearState } from '@/lib/bot/state'
 import type { ConversationContext } from '@/lib/bot/state'
 import { createMeal, getDailyCalories } from '@/lib/db/queries/meals'
-import { formatMealBreakdown, formatProgress } from '@/lib/utils/formatters'
+import { formatMealBreakdown, formatMultiMealBreakdown, formatProgress } from '@/lib/utils/formatters'
 import { getRecentMessages } from '@/lib/db/queries/message-history'
 
 // ---------------------------------------------------------------------------
@@ -32,29 +32,59 @@ function totalCalories(analysis: MealAnalysis): number {
 }
 
 /**
+ * Get meals from context data, with backward compatibility for image flow
+ * that stores a single `mealAnalysis` instead of the array `mealAnalyses`.
+ */
+function getMealsFromContext(contextData: Record<string, unknown>): MealAnalysis[] {
+  if (contextData.mealAnalyses) {
+    return contextData.mealAnalyses as MealAnalysis[]
+  }
+  if (contextData.mealAnalysis) {
+    return [contextData.mealAnalysis as MealAnalysis]
+  }
+  return []
+}
+
+/**
  * Format a confirmation message showing the meal breakdown and asking the user
  * to confirm or correct.
  */
 function buildConfirmationResponse(
-  analysis: MealAnalysis,
+  meals: MealAnalysis[],
   dailyConsumedSoFar: number,
   dailyTarget: number,
 ): string {
-  const items = analysis.items.map((item) => ({
-    food: item.food,
-    quantityGrams: item.quantity_grams,
-    calories: item.calories,
+  if (meals.length === 1) {
+    const analysis = meals[0]
+    const items = analysis.items.map((item) => ({
+      food: item.food,
+      quantityGrams: item.quantity_grams,
+      calories: item.calories,
+    }))
+
+    const total = totalCalories(analysis)
+
+    return formatMealBreakdown(
+      analysis.meal_type,
+      items,
+      total,
+      dailyConsumedSoFar,
+      dailyTarget,
+    )
+  }
+
+  // Multiple meals
+  const mealSections = meals.map((analysis) => ({
+    mealType: analysis.meal_type,
+    items: analysis.items.map((item) => ({
+      food: item.food,
+      quantityGrams: item.quantity_grams,
+      calories: item.calories,
+    })),
+    total: totalCalories(analysis),
   }))
 
-  const total = totalCalories(analysis)
-
-  return formatMealBreakdown(
-    analysis.meal_type,
-    items,
-    total,
-    dailyConsumedSoFar,
-    dailyTarget,
-  )
+  return formatMultiMealBreakdown(mealSections, dailyConsumedSoFar, dailyTarget)
 }
 
 // ---------------------------------------------------------------------------
@@ -110,27 +140,29 @@ async function handleConfirmation(
   context: ConversationContext,
   user: { calorieMode: string; dailyCalorieTarget: number | null },
 ): Promise<MealLogResult> {
-  const analysis = context.contextData.mealAnalysis as MealAnalysis
+  const meals = getMealsFromContext(context.contextData)
   const originalMessage = context.contextData.originalMessage as string
 
-  // Save to DB
-  await createMeal(supabase, {
-    userId,
-    mealType: analysis.meal_type,
-    totalCalories: totalCalories(analysis),
-    originalMessage,
-    llmResponse: analysis as unknown as Record<string, unknown>,
-    items: analysis.items.map((item) => ({
-      foodName: item.food,
-      quantityGrams: item.quantity_grams,
-      calories: item.calories,
-      proteinG: item.protein,
-      carbsG: item.carbs,
-      fatG: item.fat,
-      source: user.calorieMode ?? 'approximate',
-      tacoId: item.taco_id ?? undefined,
-    })),
-  })
+  // Save all meals to DB
+  for (const analysis of meals) {
+    await createMeal(supabase, {
+      userId,
+      mealType: analysis.meal_type,
+      totalCalories: totalCalories(analysis),
+      originalMessage,
+      llmResponse: analysis as unknown as Record<string, unknown>,
+      items: analysis.items.map((item) => ({
+        foodName: item.food,
+        quantityGrams: item.quantity_grams,
+        calories: item.calories,
+        proteinG: item.protein,
+        carbsG: item.carbs,
+        fatG: item.fat,
+        source: user.calorieMode ?? 'approximate',
+        tacoId: item.taco_id ?? undefined,
+      })),
+    })
+  }
 
   await clearState(userId)
 
@@ -140,8 +172,10 @@ async function handleConfirmation(
 
   const progressLine = formatProgress(dailyConsumed, target)
 
+  const label = meals.length > 1 ? 'Refeições registradas' : 'Refeição registrada'
+
   return {
-    response: `Refeição registrada! ✅\n\n${progressLine}`,
+    response: `${label}! ✅\n\n${progressLine}`,
     completed: true,
   }
 }
@@ -178,30 +212,31 @@ async function analyzeAndConfirm(
   // Fetch conversation history for context
   const history = await getRecentMessages(supabase, userId)
 
-  const result: MealAnalysis = await llm.analyzeMeal(messageToAnalyze, calorieMode, undefined, history)
+  const meals: MealAnalysis[] = await llm.analyzeMeal(messageToAnalyze, calorieMode, undefined, history)
 
-  // Clarification required
-  if (result.needs_clarification) {
-    await setState(userId, 'awaiting_clarification', {
-      originalMessage,
-    })
+  // Check clarification/unknown across all meals
+  for (const result of meals) {
+    if (result.needs_clarification) {
+      await setState(userId, 'awaiting_clarification', {
+        originalMessage,
+      })
 
-    return {
-      response: result.clarification_question ?? 'Pode me dar mais detalhes sobre a refeição?',
-      completed: false,
+      return {
+        response: result.clarification_question ?? 'Pode me dar mais detalhes sobre a refeição?',
+        completed: false,
+      }
     }
-  }
 
-  // Unknown items
-  if (result.unknown_items.length > 0) {
-    await setState(userId, 'awaiting_clarification', {
-      originalMessage,
-    })
+    if (result.unknown_items.length > 0) {
+      await setState(userId, 'awaiting_clarification', {
+        originalMessage,
+      })
 
-    const itemList = result.unknown_items.join(', ')
-    return {
-      response: `Não consegui identificar: ${itemList}. Pode me dizer as calorias ou quantas gramas?`,
-      completed: false,
+      const itemList = result.unknown_items.join(', ')
+      return {
+        response: `Não consegui identificar: ${itemList}. Pode me dizer as calorias ou quantas gramas?`,
+        completed: false,
+      }
     }
   }
 
@@ -209,10 +244,10 @@ async function analyzeAndConfirm(
   const dailyConsumed = await getDailyCalories(supabase, userId)
   const target = user.dailyCalorieTarget ?? 2000
 
-  const response = buildConfirmationResponse(result, dailyConsumed, target)
+  const response = buildConfirmationResponse(meals, dailyConsumed, target)
 
   await setState(userId, 'awaiting_confirmation', {
-    mealAnalysis: result as unknown as Record<string, unknown>,
+    mealAnalyses: meals as unknown as Record<string, unknown>,
     originalMessage,
   })
 

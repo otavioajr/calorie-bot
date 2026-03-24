@@ -14,6 +14,7 @@ const {
   mockCreateMeal,
   mockGetDailyCalories,
   mockFormatMealBreakdown,
+  mockFormatMultiMealBreakdown,
   mockFormatProgress,
   mockGetRecentMessages,
 } = vi.hoisted(() => {
@@ -30,6 +31,7 @@ const {
     mockCreateMeal: vi.fn().mockResolvedValue('meal-id-123'),
     mockGetDailyCalories: vi.fn().mockResolvedValue(800),
     mockFormatMealBreakdown: vi.fn().mockReturnValue('Breakdown message\nTá certo? (sim / corrigir)'),
+    mockFormatMultiMealBreakdown: vi.fn().mockReturnValue('Multi breakdown message\nTá certo? (sim / corrigir)'),
     mockFormatProgress: vi.fn().mockReturnValue('📊 Hoje: 800 / 2000 kcal (restam 1200)'),
     mockGetRecentMessages: vi.fn().mockResolvedValue([]),
   }
@@ -54,6 +56,7 @@ vi.mock('@/lib/db/queries/meals', () => ({
 
 vi.mock('@/lib/utils/formatters', () => ({
   formatMealBreakdown: mockFormatMealBreakdown,
+  formatMultiMealBreakdown: mockFormatMultiMealBreakdown,
   formatProgress: mockFormatProgress,
 }))
 
@@ -122,7 +125,7 @@ function buildConfirmationContext(mealAnalysis: MealAnalysis = mockMealAnalysis)
     userId: USER_ID,
     contextType: 'awaiting_confirmation',
     contextData: {
-      mealAnalysis: mealAnalysis as unknown as Record<string, unknown>,
+      mealAnalyses: [mealAnalysis] as unknown as Record<string, unknown>,
       originalMessage: 'almocei arroz e feijão',
     },
     expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
@@ -153,7 +156,7 @@ describe('handleMealLog', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     supabase = buildSupabase()
-    mockAnalyzeMeal.mockResolvedValue(mockMealAnalysis)
+    mockAnalyzeMeal.mockResolvedValue([mockMealAnalysis])
     mockGetLLMProvider.mockReturnValue({
       analyzeMeal: mockAnalyzeMeal,
       classifyIntent: vi.fn(),
@@ -202,7 +205,7 @@ describe('handleMealLog', () => {
         USER_ID,
         'awaiting_confirmation',
         expect.objectContaining({
-          mealAnalysis: expect.objectContaining({ meal_type: 'lunch' }),
+          mealAnalyses: expect.arrayContaining([expect.objectContaining({ meal_type: 'lunch' })]),
           originalMessage: 'almocei arroz e feijão',
         }),
       )
@@ -371,7 +374,7 @@ describe('handleMealLog', () => {
         needs_clarification: true,
         clarification_question: 'Qual o tamanho da porção de arroz?',
       }
-      mockAnalyzeMeal.mockResolvedValue(clarificationAnalysis)
+      mockAnalyzeMeal.mockResolvedValue([clarificationAnalysis])
 
       const result: MealLogResult = await handleMealLog(
         supabase,
@@ -391,7 +394,7 @@ describe('handleMealLog', () => {
         needs_clarification: true,
         clarification_question: 'Qual o tamanho da porção?',
       }
-      mockAnalyzeMeal.mockResolvedValue(clarificationAnalysis)
+      mockAnalyzeMeal.mockResolvedValue([clarificationAnalysis])
 
       await handleMealLog(supabase, USER_ID, 'comi arroz', mockUser, null)
 
@@ -410,7 +413,7 @@ describe('handleMealLog', () => {
         needs_clarification: true,
         clarification_question: 'Qual o tamanho?',
       }
-      mockAnalyzeMeal.mockResolvedValue(clarificationAnalysis)
+      mockAnalyzeMeal.mockResolvedValue([clarificationAnalysis])
 
       await handleMealLog(supabase, USER_ID, 'comi arroz', mockUser, null)
 
@@ -433,7 +436,7 @@ describe('handleMealLog', () => {
         unknown_items: ['brigadeiro artesanal'],
         needs_clarification: false,
       }
-      mockAnalyzeMeal.mockResolvedValue(unknownItemsAnalysis)
+      mockAnalyzeMeal.mockResolvedValue([unknownItemsAnalysis])
 
       const result: MealLogResult = await handleMealLog(
         supabase,
@@ -452,7 +455,7 @@ describe('handleMealLog', () => {
         ...mockMealAnalysis,
         unknown_items: ['bolo de fubá caseiro'],
       }
-      mockAnalyzeMeal.mockResolvedValue(unknownItemsAnalysis)
+      mockAnalyzeMeal.mockResolvedValue([unknownItemsAnalysis])
 
       await handleMealLog(supabase, USER_ID, 'comi bolo de fubá caseiro', mockUser, null)
 
@@ -500,7 +503,7 @@ describe('handleMealLog', () => {
         USER_ID,
         'awaiting_confirmation',
         expect.objectContaining({
-          mealAnalysis: expect.anything(),
+          mealAnalyses: expect.anything(),
         }),
       )
     })
