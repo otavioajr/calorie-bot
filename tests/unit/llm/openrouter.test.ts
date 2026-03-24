@@ -19,10 +19,10 @@ const validMealAnalysisContent = JSON.stringify({
       food: 'Arroz',
       quantity_grams: 150,
       quantity_source: 'estimated',
-      calories: 195,
-      protein: 4,
-      carbs: 42,
-      fat: 0.5,
+      calories: null,
+      protein: null,
+      carbs: null,
+      fat: null,
     },
   ],
   unknown_items: [],
@@ -47,7 +47,7 @@ describe('OpenRouterProvider', () => {
       )
 
       const provider = new OpenRouterProvider()
-      const result = await provider.analyzeMeal('almocei arroz', 'approximate')
+      const result = await provider.analyzeMeal('almocei arroz')
 
       expect(result).toHaveLength(1)
       expect(result[0].meal_type).toBe('lunch')
@@ -69,7 +69,7 @@ describe('OpenRouterProvider', () => {
       )
 
       const provider = new OpenRouterProvider()
-      const result = await provider.analyzeMeal('almocei arroz', 'approximate')
+      const result = await provider.analyzeMeal('almocei arroz')
 
       expect(callCount).toBe(2)
       expect(result[0].meal_type).toBe('lunch')
@@ -83,7 +83,7 @@ describe('OpenRouterProvider', () => {
       )
 
       const provider = new OpenRouterProvider()
-      await expect(provider.analyzeMeal('test', 'approximate')).rejects.toThrow()
+      await expect(provider.analyzeMeal('test')).rejects.toThrow()
     })
 
     it('sends correct headers: Authorization, HTTP-Referer, X-Title', async () => {
@@ -101,43 +101,11 @@ describe('OpenRouterProvider', () => {
       )
 
       const provider = new OpenRouterProvider()
-      await provider.analyzeMeal('almocei arroz', 'approximate')
+      await provider.analyzeMeal('almocei arroz')
 
       expect(capturedHeaders.authorization).toBe('Bearer test-key')
       expect(capturedHeaders.referer).toBe('https://caloriebot.vercel.app')
       expect(capturedHeaders.title).toBe('CalorieBot')
-    })
-
-    it('uses taco prompt when mode is taco', async () => {
-      let capturedBody: { model: string; messages: Array<{ role: string; content: string }> } | null =
-        null
-
-      server.use(
-        http.post('https://openrouter.ai/api/v1/chat/completions', async ({ request }) => {
-          capturedBody = (await request.json()) as {
-            model: string
-            messages: Array<{ role: string; content: string }>
-          }
-          return HttpResponse.json(makeOpenRouterResponse(validMealAnalysisContent))
-        }),
-      )
-
-      const provider = new OpenRouterProvider()
-      const tacoContext = [
-        {
-          id: 1,
-          foodName: 'Arroz branco cozido',
-          caloriesPer100g: 128,
-          proteinPer100g: 2.5,
-          carbsPer100g: 28.1,
-          fatPer100g: 0.2,
-        },
-      ]
-      await provider.analyzeMeal('arroz', 'taco', tacoContext)
-
-      expect(capturedBody).not.toBeNull()
-      const systemMessage = capturedBody!.messages.find((m) => m.role === 'system')
-      expect(systemMessage?.content).toContain('TACO')
     })
 
     it('sends response_format json_object for analyzeMeal', async () => {
@@ -151,10 +119,35 @@ describe('OpenRouterProvider', () => {
       )
 
       const provider = new OpenRouterProvider()
-      await provider.analyzeMeal('arroz', 'approximate')
+      await provider.analyzeMeal('arroz')
 
       const body = capturedBody as { response_format?: { type: string } } | null
       expect(body?.response_format).toEqual({ type: 'json_object' })
+    })
+
+    it('passes conversation history to the LLM', async () => {
+      let capturedBody: {
+        messages: Array<{ role: string; content: string }>
+      } | null = null
+
+      server.use(
+        http.post('https://openrouter.ai/api/v1/chat/completions', async ({ request }) => {
+          capturedBody = (await request.json()) as typeof capturedBody
+          return HttpResponse.json(makeOpenRouterResponse(validMealAnalysisContent))
+        }),
+      )
+
+      const provider = new OpenRouterProvider()
+      const history = [
+        { role: 'user', content: 'almocei arroz' },
+        { role: 'assistant', content: 'ok' },
+      ]
+      await provider.analyzeMeal('e feijão também', history)
+
+      expect(capturedBody).not.toBeNull()
+      // history messages should be in the request
+      const messages = capturedBody!.messages
+      expect(messages.length).toBeGreaterThan(2) // system + history + user
     })
   })
 
@@ -233,7 +226,7 @@ describe('OpenRouterProvider', () => {
       )
 
       const provider = new OpenRouterProvider()
-      const result = await provider.analyzeImage('data:image/jpeg;base64,abc123', 'meu almoço', 'approximate')
+      const result = await provider.analyzeImage('data:image/jpeg;base64,abc123', 'meu almoço')
 
       expect(result.image_type).toBe('food')
       expect(result.items).toHaveLength(1)
@@ -272,7 +265,7 @@ describe('OpenRouterProvider', () => {
       )
 
       const provider = new OpenRouterProvider()
-      const result = await provider.analyzeImage('data:image/jpeg;base64,abc123', undefined, 'approximate')
+      const result = await provider.analyzeImage('data:image/jpeg;base64,abc123', undefined)
 
       expect(result.needs_clarification).toBe(true)
 
@@ -280,6 +273,32 @@ describe('OpenRouterProvider', () => {
       const userMsg = capturedBody!.messages[1]
       const contentParts = userMsg.content as Array<{ type: string; text?: string }>
       expect(contentParts[1].text).toBe('Analise esta imagem.')
+    })
+  })
+
+  describe('decomposeMeal', () => {
+    it('decomposes a composite food into ingredients', async () => {
+      const mockDecomposition = JSON.stringify({
+        ingredients: [
+          { food: 'Farinha de trigo', quantity_grams: 40 },
+          { food: 'Frango desfiado', quantity_grams: 60 },
+        ],
+      })
+
+      server.use(
+        http.post('https://openrouter.ai/api/v1/chat/completions', () => {
+          return HttpResponse.json(makeOpenRouterResponse(mockDecomposition))
+        }),
+      )
+
+      const provider = new OpenRouterProvider()
+      const result = await provider.decomposeMeal('coxinha', 120)
+
+      expect(result).toHaveLength(2)
+      expect(result[0].food).toBe('Farinha de trigo')
+      expect(result[0].quantity_grams).toBe(40)
+      expect(result[1].food).toBe('Frango desfiado')
+      expect(result[1].quantity_grams).toBe(60)
     })
   })
 

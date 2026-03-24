@@ -19,10 +19,10 @@ const validMealAnalysisContent = JSON.stringify({
       food: 'Arroz',
       quantity_grams: 150,
       quantity_source: 'estimated',
-      calories: 195,
-      protein: 4,
-      carbs: 42,
-      fat: 0.5,
+      calories: null,
+      protein: null,
+      carbs: null,
+      fat: null,
     },
   ],
   unknown_items: [],
@@ -47,7 +47,7 @@ describe('OllamaProvider', () => {
       )
 
       const provider = new OllamaProvider()
-      const result = await provider.analyzeMeal('almocei arroz', 'approximate')
+      const result = await provider.analyzeMeal('almocei arroz')
 
       expect(result).toHaveLength(1)
       expect(result[0].meal_type).toBe('lunch')
@@ -69,7 +69,7 @@ describe('OllamaProvider', () => {
       )
 
       const provider = new OllamaProvider()
-      const result = await provider.analyzeMeal('almocei arroz', 'approximate')
+      const result = await provider.analyzeMeal('almocei arroz')
 
       expect(callCount).toBe(2)
       expect(result[0].meal_type).toBe('lunch')
@@ -83,7 +83,7 @@ describe('OllamaProvider', () => {
       )
 
       const provider = new OllamaProvider()
-      await expect(provider.analyzeMeal('test', 'approximate')).rejects.toThrow()
+      await expect(provider.analyzeMeal('test')).rejects.toThrow()
     })
 
     it('sends format: "json" and stream: false for analyzeMeal', async () => {
@@ -97,7 +97,7 @@ describe('OllamaProvider', () => {
       )
 
       const provider = new OllamaProvider()
-      await provider.analyzeMeal('arroz', 'approximate')
+      await provider.analyzeMeal('arroz')
 
       const body = capturedBody as { format?: string; stream?: boolean } | null
       expect(body?.format).toBe('json')
@@ -115,7 +115,7 @@ describe('OllamaProvider', () => {
       )
 
       const provider = new OllamaProvider()
-      await provider.analyzeMeal('arroz', 'approximate')
+      await provider.analyzeMeal('arroz')
 
       expect(capturedAuthHeader).toBeNull()
     })
@@ -179,7 +179,7 @@ describe('OllamaProvider', () => {
 
       try {
         const provider = new OllamaProvider()
-        const result = await provider.analyzeImage('data:image/jpeg;base64,abc123', 'tabela nutricional', 'approximate')
+        const result = await provider.analyzeImage('data:image/jpeg;base64,abc123', 'tabela nutricional')
 
         expect(result.image_type).toBe('nutrition_label')
         expect(result.items).toHaveLength(1)
@@ -192,6 +192,32 @@ describe('OllamaProvider', () => {
       } finally {
         vi.stubGlobal('fetch', originalFetch)
       }
+    })
+  })
+
+  describe('decomposeMeal', () => {
+    it('decomposes a composite food into ingredients', async () => {
+      const mockDecomposition = JSON.stringify({
+        ingredients: [
+          { food: 'Farinha de trigo', quantity_grams: 40 },
+          { food: 'Frango desfiado', quantity_grams: 60 },
+        ],
+      })
+
+      server.use(
+        http.post('http://localhost:11434/api/chat', () => {
+          return HttpResponse.json(makeOllamaResponse(mockDecomposition))
+        }),
+      )
+
+      const provider = new OllamaProvider()
+      const result = await provider.decomposeMeal('coxinha', 120)
+
+      expect(result).toHaveLength(2)
+      expect(result[0].food).toBe('Farinha de trigo')
+      expect(result[0].quantity_grams).toBe(40)
+      expect(result[1].food).toBe('Frango desfiado')
+      expect(result[1].quantity_grams).toBe(60)
     })
   })
 

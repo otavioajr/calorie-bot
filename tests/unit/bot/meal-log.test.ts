@@ -11,20 +11,29 @@ const {
   mockClearState,
   mockGetLLMProvider,
   mockAnalyzeMeal,
+  mockDecomposeMeal,
   mockCreateMeal,
   mockGetDailyCalories,
   mockFormatMealBreakdown,
   mockFormatMultiMealBreakdown,
   mockFormatProgress,
+  mockFormatDecompositionFeedback,
   mockGetRecentMessages,
+  mockFuzzyMatchTacoMultiple,
+  mockCalculateMacros,
+  mockSendTextMessage,
+  mockSearchMealHistory,
 } = vi.hoisted(() => {
   const mockAnalyzeMeal = vi.fn()
+  const mockDecomposeMeal = vi.fn()
   return {
     mockSetState: vi.fn().mockResolvedValue(undefined),
     mockClearState: vi.fn().mockResolvedValue(undefined),
     mockAnalyzeMeal,
+    mockDecomposeMeal,
     mockGetLLMProvider: vi.fn(() => ({
       analyzeMeal: mockAnalyzeMeal,
+      decomposeMeal: mockDecomposeMeal,
       classifyIntent: vi.fn(),
       chat: vi.fn(),
     })),
@@ -33,7 +42,20 @@ const {
     mockFormatMealBreakdown: vi.fn().mockReturnValue('Breakdown message\nTá certo? (sim / corrigir)'),
     mockFormatMultiMealBreakdown: vi.fn().mockReturnValue('Multi breakdown message\nTá certo? (sim / corrigir)'),
     mockFormatProgress: vi.fn().mockReturnValue('📊 Hoje: 800 / 2000 kcal (restam 1200)'),
+    mockFormatDecompositionFeedback: vi.fn().mockReturnValue('Decompondo...'),
     mockGetRecentMessages: vi.fn().mockResolvedValue([]),
+    mockFuzzyMatchTacoMultiple: vi.fn().mockResolvedValue(new Map([
+      ['arroz', { id: 3, foodName: 'Arroz, tipo 1, cozido', category: 'Cereais', caloriesPer100g: 128, proteinPer100g: 2.5, carbsPer100g: 28.1, fatPer100g: 0.2, fiberPer100g: 1.6 }],
+      ['feijão', { id: 5, foodName: 'Feijão, carioca, cozido', category: 'Leguminosas', caloriesPer100g: 76, proteinPer100g: 4.8, carbsPer100g: 13.6, fatPer100g: 0.5, fiberPer100g: 8.5 }],
+    ])),
+    mockCalculateMacros: vi.fn().mockImplementation((food: { caloriesPer100g: number; proteinPer100g: number; carbsPer100g: number; fatPer100g: number }, grams: number) => ({
+      calories: Math.round(food.caloriesPer100g * grams / 100),
+      protein: Math.round(food.proteinPer100g * grams / 100 * 10) / 10,
+      carbs: Math.round(food.carbsPer100g * grams / 100 * 10) / 10,
+      fat: Math.round(food.fatPer100g * grams / 100 * 10) / 10,
+    })),
+    mockSendTextMessage: vi.fn().mockResolvedValue(undefined),
+    mockSearchMealHistory: vi.fn().mockResolvedValue([]),
   }
 })
 
@@ -58,10 +80,24 @@ vi.mock('@/lib/utils/formatters', () => ({
   formatMealBreakdown: mockFormatMealBreakdown,
   formatMultiMealBreakdown: mockFormatMultiMealBreakdown,
   formatProgress: mockFormatProgress,
+  formatDecompositionFeedback: mockFormatDecompositionFeedback,
 }))
 
 vi.mock('@/lib/db/queries/message-history', () => ({
   getRecentMessages: mockGetRecentMessages,
+}))
+
+vi.mock('@/lib/db/queries/taco', () => ({
+  fuzzyMatchTacoMultiple: mockFuzzyMatchTacoMultiple,
+  calculateMacros: mockCalculateMacros,
+}))
+
+vi.mock('@/lib/whatsapp/client', () => ({
+  sendTextMessage: mockSendTextMessage,
+}))
+
+vi.mock('@/lib/db/queries/meal-history-search', () => ({
+  searchMealHistory: mockSearchMealHistory,
 }))
 
 // ---------------------------------------------------------------------------
@@ -77,36 +113,34 @@ import type { MealLogResult } from '@/lib/bot/flows/meal-log'
 const USER_ID = 'user-meal-log-123'
 
 const mockUser = {
-  calorieMode: 'approximate',
+  calorieMode: 'taco',
   dailyCalorieTarget: 2000,
 }
 
 const mockMealAnalysis: MealAnalysis = {
   meal_type: 'lunch',
   confidence: 'high',
+  references_previous: false,
+  reference_query: null,
   items: [
     {
       food: 'Arroz',
       quantity_grams: 200,
       quantity_source: 'estimated',
-      calories: 260,
-      protein: 4,
-      carbs: 57,
-      fat: 0.4,
-      taco_match: false,
-      taco_id: null,
+      calories: null,
+      protein: null,
+      carbs: null,
+      fat: null,
       confidence: 'high',
     },
     {
       food: 'Feijão',
       quantity_grams: 150,
       quantity_source: 'estimated',
-      calories: 180,
-      protein: 9,
-      carbs: 30,
-      fat: 1,
-      taco_match: false,
-      taco_id: null,
+      calories: null,
+      protein: null,
+      carbs: null,
+      fat: null,
       confidence: 'medium',
     },
   ],
@@ -120,12 +154,45 @@ function buildSupabase(): SupabaseClient {
 }
 
 function buildConfirmationContext(mealAnalysis: MealAnalysis = mockMealAnalysis): ConversationContext {
+  // Enriched items as they would be stored in context after TACO enrichment
+  const enrichedMeals = [
+    mealAnalysis.items.map(item => {
+      const tacoMap: Record<string, { caloriesPer100g: number; proteinPer100g: number; carbsPer100g: number; fatPer100g: number; id: number }> = {
+        'arroz': { id: 3, caloriesPer100g: 128, proteinPer100g: 2.5, carbsPer100g: 28.1, fatPer100g: 0.2 },
+        'feijão': { id: 5, caloriesPer100g: 76, proteinPer100g: 4.8, carbsPer100g: 13.6, fatPer100g: 0.5 },
+      }
+      const taco = tacoMap[item.food.toLowerCase()]
+      if (taco) {
+        return {
+          food: item.food,
+          quantityGrams: item.quantity_grams,
+          calories: Math.round(taco.caloriesPer100g * item.quantity_grams / 100),
+          protein: Math.round(taco.proteinPer100g * item.quantity_grams / 100 * 10) / 10,
+          carbs: Math.round(taco.carbsPer100g * item.quantity_grams / 100 * 10) / 10,
+          fat: Math.round(taco.fatPer100g * item.quantity_grams / 100 * 10) / 10,
+          source: 'taco',
+          tacoId: taco.id,
+        }
+      }
+      return {
+        food: item.food,
+        quantityGrams: item.quantity_grams,
+        calories: 0,
+        protein: 0,
+        carbs: 0,
+        fat: 0,
+        source: 'approximate',
+      }
+    }),
+  ]
+
   return {
     id: 'ctx-1',
     userId: USER_ID,
     contextType: 'awaiting_confirmation',
     contextData: {
       mealAnalyses: [mealAnalysis] as unknown as Record<string, unknown>,
+      enrichedMeals: enrichedMeals as unknown as Record<string, unknown>,
       originalMessage: 'almocei arroz e feijão',
     },
     expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
@@ -157,8 +224,10 @@ describe('handleMealLog', () => {
     vi.clearAllMocks()
     supabase = buildSupabase()
     mockAnalyzeMeal.mockResolvedValue([mockMealAnalysis])
+    mockDecomposeMeal.mockResolvedValue([])
     mockGetLLMProvider.mockReturnValue({
       analyzeMeal: mockAnalyzeMeal,
+      decomposeMeal: mockDecomposeMeal,
       classifyIntent: vi.fn(),
       chat: vi.fn(),
     })
@@ -166,6 +235,12 @@ describe('handleMealLog', () => {
     mockGetDailyCalories.mockResolvedValue(800)
     mockFormatMealBreakdown.mockReturnValue('Breakdown message\nTá certo? (sim / corrigir)')
     mockFormatProgress.mockReturnValue('📊 Hoje: 800 / 2000 kcal (restam 1200)')
+    // Reset TACO mocks to default
+    mockFuzzyMatchTacoMultiple.mockResolvedValue(new Map([
+      ['arroz', { id: 3, foodName: 'Arroz, tipo 1, cozido', category: 'Cereais', caloriesPer100g: 128, proteinPer100g: 2.5, carbsPer100g: 28.1, fatPer100g: 0.2, fiberPer100g: 1.6 }],
+      ['feijão', { id: 5, foodName: 'Feijão, carioca, cozido', category: 'Leguminosas', caloriesPer100g: 76, proteinPer100g: 4.8, carbsPer100g: 13.6, fatPer100g: 0.5, fiberPer100g: 8.5 }],
+    ]))
+    mockSearchMealHistory.mockResolvedValue([])
   })
 
   // -------------------------------------------------------------------------
@@ -184,8 +259,6 @@ describe('handleMealLog', () => {
 
       expect(mockAnalyzeMeal).toHaveBeenCalledWith(
         'almocei arroz e feijão',
-        'approximate',
-        undefined,
         [],
       )
       expect(result.response).toContain('Tá certo?')
@@ -198,7 +271,7 @@ describe('handleMealLog', () => {
       expect(mockGetLLMProvider).toHaveBeenCalled()
     })
 
-    it('sets state to awaiting_confirmation with meal analysis', async () => {
+    it('sets state to awaiting_confirmation with meal analysis and enriched meals', async () => {
       await handleMealLog(supabase, USER_ID, 'almocei arroz e feijão', mockUser, null)
 
       expect(mockSetState).toHaveBeenCalledWith(
@@ -206,22 +279,18 @@ describe('handleMealLog', () => {
         'awaiting_confirmation',
         expect.objectContaining({
           mealAnalyses: expect.arrayContaining([expect.objectContaining({ meal_type: 'lunch' })]),
+          enrichedMeals: expect.any(Array),
           originalMessage: 'almocei arroz e feijão',
         }),
       )
     })
 
-    it('calls formatMealBreakdown with correct args', async () => {
+    it('enriches meal items via TACO fuzzy match', async () => {
       await handleMealLog(supabase, USER_ID, 'almocei arroz e feijão', mockUser, null)
 
-      expect(mockFormatMealBreakdown).toHaveBeenCalledWith(
-        'lunch',
-        expect.arrayContaining([
-          expect.objectContaining({ food: 'Arroz' }),
-        ]),
-        expect.any(Number),
-        expect.any(Number),
-        2000,
+      expect(mockFuzzyMatchTacoMultiple).toHaveBeenCalledWith(
+        supabase,
+        ['Arroz', 'Feijão'],
       )
     })
 
@@ -297,7 +366,7 @@ describe('handleMealLog', () => {
       expect(result.response).toContain('📊')
     })
 
-    it('createMeal receives userId and meal data', async () => {
+    it('createMeal receives userId, meal data, and enriched items with source', async () => {
       const context = buildConfirmationContext()
       await handleMealLog(supabase, USER_ID, 'sim', mockUser, context)
 
@@ -306,6 +375,11 @@ describe('handleMealLog', () => {
         expect.objectContaining({
           userId: USER_ID,
           mealType: 'lunch',
+          items: expect.arrayContaining([
+            expect.objectContaining({
+              source: 'taco',
+            }),
+          ]),
         }),
       )
     })
@@ -504,6 +578,7 @@ describe('handleMealLog', () => {
         'awaiting_confirmation',
         expect.objectContaining({
           mealAnalyses: expect.anything(),
+          enrichedMeals: expect.anything(),
         }),
       )
     })
