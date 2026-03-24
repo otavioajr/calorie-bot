@@ -222,7 +222,7 @@ export async function handleMealLog(
       return handleConfirmation(supabase, userId, context, user)
     }
     if (REJECT_PATTERN.test(trimmed)) {
-      return handleRejection(userId)
+      return handleRejection(userId, context)
     }
   }
 
@@ -335,8 +335,9 @@ async function handleHistorySelection(
 // Rejection handler
 // ---------------------------------------------------------------------------
 
-async function handleRejection(userId: string): Promise<MealLogResult> {
-  await clearState(userId)
+async function handleRejection(userId: string, context: ConversationContext): Promise<MealLogResult> {
+  const originalMessage = context.contextData.originalMessage as string
+  await setState(userId, 'awaiting_clarification', { originalMessage })
   return {
     response: 'Ok! O que quer corrigir? Pode me mandar a refeição novamente com as correções.',
     completed: false,

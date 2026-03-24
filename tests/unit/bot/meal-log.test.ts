@@ -390,7 +390,7 @@ describe('handleMealLog', () => {
   // -------------------------------------------------------------------------
 
   describe('correction request (awaiting_confirmation context)', () => {
-    it('handles "corrigir" — asks what to correct', async () => {
+    it('handles "corrigir" — sets awaiting_clarification and asks what to correct', async () => {
       const context = buildConfirmationContext()
       const result: MealLogResult = await handleMealLog(
         supabase,
@@ -400,32 +400,48 @@ describe('handleMealLog', () => {
         context,
       )
 
-      expect(mockClearState).toHaveBeenCalledWith(USER_ID)
+      expect(mockSetState).toHaveBeenCalledWith(
+        USER_ID,
+        'awaiting_clarification',
+        expect.objectContaining({ originalMessage: 'almocei arroz e feijão' }),
+      )
       expect(result.response).toMatch(/corrigir|corrij|o que/i)
       expect(result.completed).toBe(false)
     })
 
-    it('handles "não" — asks what to correct', async () => {
+    it('handles "não" — sets awaiting_clarification', async () => {
       const context = buildConfirmationContext()
       const result = await handleMealLog(supabase, USER_ID, 'não', mockUser, context)
 
-      expect(mockClearState).toHaveBeenCalledWith(USER_ID)
+      expect(mockSetState).toHaveBeenCalledWith(
+        USER_ID,
+        'awaiting_clarification',
+        expect.objectContaining({ originalMessage: 'almocei arroz e feijão' }),
+      )
       expect(result.completed).toBe(false)
     })
 
-    it('handles "nao" — asks what to correct', async () => {
+    it('handles "nao" — sets awaiting_clarification', async () => {
       const context = buildConfirmationContext()
       const result = await handleMealLog(supabase, USER_ID, 'nao', mockUser, context)
 
-      expect(mockClearState).toHaveBeenCalledWith(USER_ID)
+      expect(mockSetState).toHaveBeenCalledWith(
+        USER_ID,
+        'awaiting_clarification',
+        expect.objectContaining({ originalMessage: 'almocei arroz e feijão' }),
+      )
       expect(result.completed).toBe(false)
     })
 
-    it('handles "n" — asks what to correct', async () => {
+    it('handles "n" — sets awaiting_clarification', async () => {
       const context = buildConfirmationContext()
       const result = await handleMealLog(supabase, USER_ID, 'n', mockUser, context)
 
-      expect(mockClearState).toHaveBeenCalledWith(USER_ID)
+      expect(mockSetState).toHaveBeenCalledWith(
+        USER_ID,
+        'awaiting_clarification',
+        expect.objectContaining({ originalMessage: 'almocei arroz e feijão' }),
+      )
       expect(result.completed).toBe(false)
     })
 
