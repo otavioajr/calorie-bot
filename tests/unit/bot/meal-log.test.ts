@@ -15,6 +15,7 @@ const {
   mockGetDailyCalories,
   mockFormatMealBreakdown,
   mockFormatProgress,
+  mockGetRecentMessages,
 } = vi.hoisted(() => {
   const mockAnalyzeMeal = vi.fn()
   return {
@@ -30,6 +31,7 @@ const {
     mockGetDailyCalories: vi.fn().mockResolvedValue(800),
     mockFormatMealBreakdown: vi.fn().mockReturnValue('Breakdown message\nTá certo? (sim / corrigir)'),
     mockFormatProgress: vi.fn().mockReturnValue('📊 Hoje: 800 / 2000 kcal (restam 1200)'),
+    mockGetRecentMessages: vi.fn().mockResolvedValue([]),
   }
 })
 
@@ -53,6 +55,10 @@ vi.mock('@/lib/db/queries/meals', () => ({
 vi.mock('@/lib/utils/formatters', () => ({
   formatMealBreakdown: mockFormatMealBreakdown,
   formatProgress: mockFormatProgress,
+}))
+
+vi.mock('@/lib/db/queries/message-history', () => ({
+  getRecentMessages: mockGetRecentMessages,
 }))
 
 // ---------------------------------------------------------------------------
@@ -177,6 +183,7 @@ describe('handleMealLog', () => {
         'almocei arroz e feijão',
         'approximate',
         undefined,
+        [],
       )
       expect(result.response).toContain('Tá certo?')
       expect(result.completed).toBe(false)

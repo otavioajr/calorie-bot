@@ -5,6 +5,7 @@ import { setState, clearState } from '@/lib/bot/state'
 import type { ConversationContext } from '@/lib/bot/state'
 import { createMeal, getDailyCalories } from '@/lib/db/queries/meals'
 import { formatMealBreakdown, formatProgress } from '@/lib/utils/formatters'
+import { getRecentMessages } from '@/lib/db/queries/message-history'
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -174,7 +175,10 @@ async function analyzeAndConfirm(
   // Pass mode as CalorieMode — the LLM provider accepts string-typed CalorieMode
   const calorieMode = user.calorieMode as Parameters<typeof llm.analyzeMeal>[1]
 
-  const result: MealAnalysis = await llm.analyzeMeal(messageToAnalyze, calorieMode, undefined)
+  // Fetch conversation history for context
+  const history = await getRecentMessages(supabase, userId)
+
+  const result: MealAnalysis = await llm.analyzeMeal(messageToAnalyze, calorieMode, undefined, history)
 
   // Clarification required
   if (result.needs_clarification) {
