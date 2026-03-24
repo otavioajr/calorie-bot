@@ -315,12 +315,11 @@ async function processAutoConfirm(
         items: analysis.items.map((item) => ({
           foodName: item.food,
           quantityGrams: item.quantity_grams,
-          calories: item.calories,
-          proteinG: item.protein,
-          carbsG: item.carbs,
-          fatG: item.fat,
+          calories: item.calories ?? 0,
+          proteinG: item.protein ?? 0,
+          carbsG: item.carbs ?? 0,
+          fatG: item.fat ?? 0,
           source: item.quantity_source,
-          tacoId: item.taco_id ?? undefined,
         })),
       })
 

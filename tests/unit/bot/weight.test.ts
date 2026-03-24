@@ -56,7 +56,7 @@ const mockUserBase = {
   heightCm: 175,
   activityLevel: 'moderate' as const,
   goal: 'lose' as const,
-  calorieMode: 'approximate' as const,
+  calorieMode: 'taco' as const,
   dailyCalorieTarget: 2000,
   calorieTargetManual: false,
   tmb: 1750,

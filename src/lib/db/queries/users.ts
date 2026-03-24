@@ -12,7 +12,7 @@ export interface User {
   heightCm: number | null
   activityLevel: 'sedentary' | 'light' | 'moderate' | 'intense' | null
   goal: 'lose' | 'maintain' | 'gain' | null
-  calorieMode: 'approximate' | 'taco' | 'manual'
+  calorieMode: 'taco' | 'manual'
   dailyCalorieTarget: number | null
   calorieTargetManual: boolean
   tmb: number | null

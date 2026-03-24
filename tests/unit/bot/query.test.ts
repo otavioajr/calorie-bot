@@ -15,6 +15,7 @@ const {
     mockAnalyzeMeal,
     mockGetLLMProvider: vi.fn(() => ({
       analyzeMeal: mockAnalyzeMeal,
+      decomposeMeal: vi.fn(),
       classifyIntent: vi.fn(),
       chat: vi.fn(),
     })),
@@ -31,6 +32,11 @@ vi.mock('@/lib/bot/state', () => ({
   clearState: vi.fn().mockResolvedValue(undefined),
 }))
 
+vi.mock('@/lib/db/queries/taco', () => ({
+  fuzzyMatchTacoMultiple: vi.fn().mockResolvedValue(new Map()),
+  calculateMacros: vi.fn(),
+}))
+
 import { handleQuery } from '@/lib/bot/flows/query'
 
 // ---------------------------------------------------------------------------
@@ -42,6 +48,8 @@ const USER_ID = 'user-query-123'
 const mockSingleItemAnalysis: MealAnalysis = {
   meal_type: 'snack',
   confidence: 'high',
+  references_previous: false,
+  reference_query: null,
   items: [
     {
       food: 'coxinha',
@@ -51,8 +59,6 @@ const mockSingleItemAnalysis: MealAnalysis = {
       protein: 13,
       carbs: 22,
       fat: 17,
-      taco_match: false,
-      taco_id: null,
       confidence: 'high',
     },
   ],
@@ -64,6 +70,8 @@ const mockSingleItemAnalysis: MealAnalysis = {
 const mockMultiItemAnalysis: MealAnalysis = {
   meal_type: 'lunch',
   confidence: 'high',
+  references_previous: false,
+  reference_query: null,
   items: [
     {
       food: 'Arroz',
@@ -73,8 +81,6 @@ const mockMultiItemAnalysis: MealAnalysis = {
       protein: 4,
       carbs: 57,
       fat: 0.4,
-      taco_match: false,
-      taco_id: null,
       confidence: 'high',
     },
     {
@@ -85,8 +91,6 @@ const mockMultiItemAnalysis: MealAnalysis = {
       protein: 9,
       carbs: 30,
       fat: 1,
-      taco_match: false,
-      taco_id: null,
       confidence: 'medium',
     },
   ],
@@ -112,6 +116,7 @@ describe('handleQuery', () => {
     mockAnalyzeMeal.mockResolvedValue([mockSingleItemAnalysis])
     mockGetLLMProvider.mockReturnValue({
       analyzeMeal: mockAnalyzeMeal,
+      decomposeMeal: vi.fn(),
       classifyIntent: vi.fn(),
       chat: vi.fn(),
     })
@@ -127,8 +132,6 @@ describe('handleQuery', () => {
 
       expect(mockAnalyzeMeal).toHaveBeenCalledWith(
         'quantas calorias tem uma coxinha?',
-        'approximate',
-        undefined,
       )
     })
 

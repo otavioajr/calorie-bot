@@ -16,6 +16,7 @@ function makeMockProvider(overrides: Partial<LLMProvider> = {}): LLMProvider {
   return {
     analyzeMeal: vi.fn().mockResolvedValue([{ items: [] }]),
     analyzeImage: vi.fn().mockResolvedValue({ image_type: 'food', items: [] }),
+    decomposeMeal: vi.fn().mockResolvedValue([]),
     classifyIntent: vi.fn().mockResolvedValue('meal_log'),
     chat: vi.fn().mockResolvedValue('response'),
     ...overrides,
@@ -32,6 +33,7 @@ function setupConstructorMock(
     class {
       analyzeMeal = instance.analyzeMeal
       analyzeImage = instance.analyzeImage
+      decomposeMeal = instance.decomposeMeal
       classifyIntent = instance.classifyIntent
       chat = instance.chat
     },

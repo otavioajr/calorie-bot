@@ -202,7 +202,7 @@ const newUser = {
   heightCm: null,
   activityLevel: null,
   goal: null,
-  calorieMode: 'approximate' as const,
+  calorieMode: 'taco' as const,
   dailyCalorieTarget: null,
   calorieTargetManual: false,
   tmb: null,
@@ -497,7 +497,7 @@ describe('handleIncomingMessage — completed user, intent routing', () => {
       mockSupabase,
       completedUser.id,
       'almocei arroz',
-      { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget },
+      { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget, phone: FROM },
       null
     )
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal log response')
@@ -542,7 +542,7 @@ describe('handleIncomingMessage — LLM classification fallback', () => {
       mockSupabase,
       completedUser.id,
       'almocei frango grelhado',
-      { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget },
+      { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget, phone: FROM },
       null
     )
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal log response')
@@ -558,7 +558,7 @@ describe('handleIncomingMessage — LLM classification fallback', () => {
       mockSupabase,
       completedUser.id,
       'comi pizza',
-      { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget },
+      { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget, phone: FROM },
       null
     )
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal log response')
@@ -597,7 +597,7 @@ describe('handleIncomingMessage — context-based routing', () => {
       mockSupabase,
       completedUser.id,
       'sim',
-      { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget },
+      { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget, phone: FROM },
       mockContext
     )
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'confirmed!')
@@ -617,7 +617,7 @@ describe('handleIncomingMessage — context-based routing', () => {
       mockSupabase,
       completedUser.id,
       '200g de frango',
-      { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget },
+      { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget, phone: FROM },
       mockContext
     )
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'clarification received')
@@ -932,7 +932,6 @@ describe('handleIncomingImage', () => {
     expect(mockAnalyzeImage).toHaveBeenCalledWith(
       expect.stringContaining('data:image/jpeg;base64,'),
       'meu almoço',
-      'approximate',
     )
     expect(mockSetState).toHaveBeenCalledWith(
       completedUser.id,

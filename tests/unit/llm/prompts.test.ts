@@ -1,89 +1,42 @@
 import { describe, it, expect } from 'vitest'
-import { buildApproximatePrompt } from '@/lib/llm/prompts/approximate'
-import { buildTacoPrompt, type TacoFood } from '@/lib/llm/prompts/taco'
+import { buildAnalyzePrompt } from '@/lib/llm/prompts/analyze'
 import { buildManualPrompt } from '@/lib/llm/prompts/manual'
 import { buildClassifyPrompt } from '@/lib/llm/prompts/classify'
+import { buildDecomposePrompt } from '@/lib/llm/prompts/decompose'
+import { buildVisionPrompt } from '@/lib/llm/prompts/vision'
 
-describe('buildApproximatePrompt', () => {
+describe('buildAnalyzePrompt', () => {
   it('contains key constraints', () => {
-    const prompt = buildApproximatePrompt()
+    const prompt = buildAnalyzePrompt()
     expect(prompt).toContain('APENAS em JSON')
     expect(prompt).toContain('NUNCA dê conselhos')
     expect(prompt).toContain('unknown_items')
     expect(prompt).toContain('needs_clarification')
   })
 
-  it('does NOT contain TACO references', () => {
-    const prompt = buildApproximatePrompt()
-    expect(prompt).not.toContain('TACO')
-    expect(prompt).not.toContain('Tabela TACO')
-  })
-
   it('contains JSON format specification', () => {
-    const prompt = buildApproximatePrompt()
+    const prompt = buildAnalyzePrompt()
     expect(prompt).toContain('meal_type')
     expect(prompt).toContain('confidence')
     expect(prompt).toContain('items')
   })
 
   it('contains all meal type options', () => {
-    const prompt = buildApproximatePrompt()
+    const prompt = buildAnalyzePrompt()
     expect(prompt).toContain('breakfast')
     expect(prompt).toContain('lunch')
     expect(prompt).toContain('dinner')
   })
-})
 
-describe('buildTacoPrompt', () => {
-  it('contains TACO instruction', () => {
-    const prompt = buildTacoPrompt([])
-    expect(prompt).toContain('Tabela TACO')
+  it('contains multiple meals instruction', () => {
+    const prompt = buildAnalyzePrompt()
+    expect(prompt).toContain('meals')
   })
 
-  it('includes TACO data in prompt', () => {
-    const tacoData: TacoFood[] = [
-      {
-        id: 1,
-        foodName: 'Arroz branco',
-        caloriesPer100g: 128,
-        proteinPer100g: 2.5,
-        carbsPer100g: 28.1,
-        fatPer100g: 0.2,
-      },
-    ]
-    const prompt = buildTacoPrompt(tacoData)
-    expect(prompt).toContain('Arroz branco')
-    expect(prompt).toContain('128')
-  })
-
-  it('contains all base constraints too', () => {
-    const prompt = buildTacoPrompt([])
-    expect(prompt).toContain('APENAS em JSON')
-    expect(prompt).toContain('NUNCA dê conselhos')
-    expect(prompt).toContain('unknown_items')
-    expect(prompt).toContain('needs_clarification')
-  })
-
-  it('instructs to prefer TACO data when available', () => {
-    const prompt = buildTacoPrompt([])
-    expect(prompt).toContain('Use APENAS dados da Tabela TACO')
-  })
-
-  it('handles empty TACO data gracefully', () => {
-    const prompt = buildTacoPrompt([])
-    expect(typeof prompt).toBe('string')
-    expect(prompt.length).toBeGreaterThan(0)
-  })
-
-  it('includes multiple TACO items when provided', () => {
-    const tacoData: TacoFood[] = [
-      { id: 1, foodName: 'Arroz branco', caloriesPer100g: 128, proteinPer100g: 2.5, carbsPer100g: 28.1, fatPer100g: 0.2 },
-      { id: 2, foodName: 'Feijão preto', caloriesPer100g: 77, proteinPer100g: 4.5, carbsPer100g: 14.0, fatPer100g: 0.5 },
-    ]
-    const prompt = buildTacoPrompt(tacoData)
-    expect(prompt).toContain('Arroz branco')
-    expect(prompt).toContain('Feijão preto')
-    expect(prompt).toContain('77')
+  it('contains reference to previous meals instruction', () => {
+    const prompt = buildAnalyzePrompt()
+    expect(prompt).toContain('references_previous')
+    expect(prompt).toContain('reference_query')
   })
 })
 
@@ -146,5 +99,40 @@ describe('buildClassifyPrompt', () => {
     const prompt = buildClassifyPrompt()
     expect(prompt).toContain('comeu')
     expect(prompt).toContain('resumo')
+  })
+})
+
+describe('buildDecomposePrompt', () => {
+  it('includes food name and grams', () => {
+    const prompt = buildDecomposePrompt('Coxinha', 130)
+    expect(prompt).toContain('Coxinha')
+    expect(prompt).toContain('130')
+  })
+
+  it('instructs to decompose into basic ingredients', () => {
+    const prompt = buildDecomposePrompt('Lasanha', 300)
+    expect(prompt).toContain('ingredientes')
+    expect(prompt).toContain('JSON')
+  })
+
+  it('returns a non-empty string', () => {
+    const prompt = buildDecomposePrompt('Pizza', 200)
+    expect(typeof prompt).toBe('string')
+    expect(prompt.length).toBeGreaterThan(0)
+  })
+})
+
+describe('buildVisionPrompt', () => {
+  it('returns base prompt with vision instructions', () => {
+    const prompt = buildVisionPrompt()
+    expect(prompt).toContain('analisador nutricional visual')
+    expect(prompt).toContain('"food"')
+    expect(prompt).toContain('"nutrition_label"')
+  })
+
+  it('contains JSON format specification', () => {
+    const prompt = buildVisionPrompt()
+    expect(prompt).toContain('JSON')
+    expect(prompt).toContain('image_type')
   })
 })

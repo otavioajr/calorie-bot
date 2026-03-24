@@ -31,8 +31,6 @@ FORMATO DE RESPOSTA (JSON):
       "protein": 10.0,
       "carbs": 25.0,
       "fat": 5.0,
-      "taco_match": false,
-      "taco_id": null,
       "confidence": "high"
     }
   ],

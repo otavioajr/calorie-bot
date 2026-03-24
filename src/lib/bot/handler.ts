@@ -261,10 +261,9 @@ export async function handleIncomingImage(
     await processingPromise
 
     const llm = getLLMProvider()
-    const calorieMode = user.calorieMode as Parameters<typeof llm.analyzeMeal>[1]
 
     const startTime = Date.now()
-    const imageResult: ImageAnalysis = await llm.analyzeImage(dataUrl, caption, calorieMode)
+    const imageResult: ImageAnalysis = await llm.analyzeImage(dataUrl, caption)
     const latencyMs = Date.now() - startTime
 
     logLLMUsage(supabase, {
@@ -286,6 +285,8 @@ export async function handleIncomingImage(
     const mealAnalysis: MealAnalysis = {
       meal_type: imageResult.meal_type ?? 'snack',
       confidence: imageResult.confidence,
+      references_previous: false,
+      reference_query: null,
       items: imageResult.items,
       unknown_items: imageResult.unknown_items,
       needs_clarification: false,
@@ -296,8 +297,8 @@ export async function handleIncomingImage(
       const labelMsg = [
         '📋 Tabela nutricional detectada!',
         '',
-        `• ${item.food} (porção ${item.quantity_grams}g) — ${Math.round(item.calories)} kcal`,
-        `  P: ${item.protein}g | C: ${item.carbs}g | G: ${item.fat}g`,
+        `• ${item.food} (porção ${item.quantity_grams}g) — ${Math.round(item.calories ?? 0)} kcal`,
+        `  P: ${item.protein ?? 0}g | C: ${item.carbs ?? 0}g | G: ${item.fat ?? 0}g`,
         '',
         'Quantas porções você comeu? Responda com o número para eu registrar.',
       ].join('\n')
@@ -320,9 +321,9 @@ export async function handleIncomingImage(
       mealAnalysis.items.map((item) => ({
         food: item.food,
         quantityGrams: item.quantity_grams,
-        calories: item.calories,
+        calories: item.calories ?? 0,
       })),
-      Math.round(mealAnalysis.items.reduce((sum, item) => sum + item.calories, 0)),
+      Math.round(mealAnalysis.items.reduce((sum, item) => sum + (item.calories ?? 0), 0)),
       dailyConsumed,
       target,
     )
@@ -360,10 +361,10 @@ async function handleLabelPortions(
   const multipliedItems = mealAnalysis.items.map((item) => ({
     ...item,
     quantity_grams: Math.round(item.quantity_grams * portions),
-    calories: Math.round(item.calories * portions),
-    protein: Math.round(item.protein * portions * 10) / 10,
-    carbs: Math.round(item.carbs * portions * 10) / 10,
-    fat: Math.round(item.fat * portions * 10) / 10,
+    calories: Math.round((item.calories ?? 0) * portions),
+    protein: Math.round((item.protein ?? 0) * portions * 10) / 10,
+    carbs: Math.round((item.carbs ?? 0) * portions * 10) / 10,
+    fat: Math.round((item.fat ?? 0) * portions * 10) / 10,
   }))
 
   const multipliedAnalysis: MealAnalysis = {

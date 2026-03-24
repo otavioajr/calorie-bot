@@ -60,7 +60,7 @@ const mockUser = {
   heightCm: 175,
   activityLevel: 'moderate' as const,
   goal: 'maintain' as const,
-  calorieMode: 'approximate' as const,
+  calorieMode: 'taco' as const,
   dailyCalorieTarget: 2000,
   calorieTargetManual: false,
   tmb: 1750,
@@ -275,25 +275,25 @@ describe('handleSettings', () => {
       )
     })
 
-    it('updates calorieMode to "approximate" on "1"', async () => {
+    it('updates calorieMode to "taco" on "1"', async () => {
       const context = buildSettingsChangeContext(2, 'calorieMode')
       await handleSettings(supabase, USER_ID, '1', mockUser, mockSettings, context)
 
       expect(mockUpdateUser).toHaveBeenCalledWith(
         supabase,
         USER_ID,
-        expect.objectContaining({ calorieMode: 'approximate' }),
+        expect.objectContaining({ calorieMode: 'taco' }),
       )
     })
 
-    it('updates calorieMode to "taco" on "2"', async () => {
+    it('updates calorieMode to "manual" on "2"', async () => {
       const context = buildSettingsChangeContext(2, 'calorieMode')
       await handleSettings(supabase, USER_ID, '2', mockUser, mockSettings, context)
 
       expect(mockUpdateUser).toHaveBeenCalledWith(
         supabase,
         USER_ID,
-        expect.objectContaining({ calorieMode: 'taco' }),
+        expect.objectContaining({ calorieMode: 'manual' }),
       )
     })
 

@@ -11,8 +11,6 @@ const validItem = {
   protein: 4.0,
   carbs: 42.0,
   fat: 0.5,
-  taco_match: true,
-  taco_id: 123,
 }
 
 const validMealAnalysis = {
@@ -52,8 +50,6 @@ describe('MealAnalysisSchema', () => {
     const result = MealAnalysisSchema.parse(minimal)
     expect(result.unknown_items).toEqual([])
     expect(result.needs_clarification).toBe(false)
-    expect(result.items[0].taco_match).toBe(false)
-    expect(result.items[0].taco_id).toBeNull()
     expect(result.items[0].confidence).toBe('medium')
   })
 
@@ -122,12 +118,6 @@ describe('MealItemSchema', () => {
     expect(() => MealItemSchema.parse(invalid)).toThrow()
   })
 
-  it('accepts quantity_source taco', () => {
-    const item = { ...validItem, quantity_source: 'taco' }
-    const result = MealItemSchema.parse(item)
-    expect(result.quantity_source).toBe('taco')
-  })
-
   it('accepts quantity_source user_provided', () => {
     const item = { ...validItem, quantity_source: 'user_provided' }
     const result = MealItemSchema.parse(item)
@@ -175,13 +165,13 @@ describe('IntentClassificationSchema', () => {
 
 describe('Common schemas', () => {
   it('CalorieModeSchema accepts valid modes', () => {
-    expect(CalorieModeSchema.parse('approximate')).toBe('approximate')
     expect(CalorieModeSchema.parse('taco')).toBe('taco')
     expect(CalorieModeSchema.parse('manual')).toBe('manual')
   })
 
   it('CalorieModeSchema rejects invalid mode', () => {
     expect(() => CalorieModeSchema.parse('auto')).toThrow()
+    expect(() => CalorieModeSchema.parse('approximate')).toThrow()
   })
 
   it('MealTypeSchema accepts valid types', () => {

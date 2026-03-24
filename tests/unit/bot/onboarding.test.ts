@@ -581,8 +581,8 @@ describe('handleOnboarding — step 8 (calorie mode + finalization)', () => {
     expect(result.response).toContain('João')
   })
 
-  it('valid mode "2" (taco): updateUser called with calorieMode: "taco"', async () => {
-    await handleOnboarding(supabase, USER_ID, '2', 8)
+  it('valid mode "1" (taco): updateUser called with calorieMode: "taco"', async () => {
+    await handleOnboarding(supabase, USER_ID, '1', 8)
 
     expect(mockUpdateUser).toHaveBeenCalledWith(
       supabase,
@@ -658,7 +658,7 @@ describe('handleOnboarding — step 8 (calorie mode + finalization)', () => {
     const result = await handleOnboarding(supabase, USER_ID, '5', 8)
 
     expect(result.completed).toBe(false)
-    expect(result.response).toContain('aproximado')
+    expect(result.response).toContain('TACO')
   })
 
   it('invalid mode: does NOT call createDefaultSettings', async () => {
@@ -673,8 +673,8 @@ describe('handleOnboarding — step 8 (calorie mode + finalization)', () => {
     expect(mockClearState).not.toHaveBeenCalled()
   })
 
-  it('valid mode "3" (manual): completed true', async () => {
-    const result = await handleOnboarding(supabase, USER_ID, '3', 8)
+  it('valid mode "2" (manual): completed true', async () => {
+    const result = await handleOnboarding(supabase, USER_ID, '2', 8)
 
     expect(result.completed).toBe(true)
   })

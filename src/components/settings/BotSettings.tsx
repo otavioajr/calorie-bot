@@ -68,12 +68,11 @@ export function BotSettings({ settings, calorieMode: initialCalorieMode }: BotSe
       {/* Calorie Mode */}
       <div className="space-y-2">
         <Label htmlFor="calorieMode">Modo de cálculo de calorias</Label>
-        <Select value={calorieMode} onValueChange={handleSelectChange(setCalorieMode, "approximate")}>
+        <Select value={calorieMode} onValueChange={handleSelectChange(setCalorieMode, "taco")}>
           <SelectTrigger id="calorieMode">
             <SelectValue placeholder="Selecionar" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="approximate">Aproximado (IA)</SelectItem>
             <SelectItem value="taco">Tabela TACO</SelectItem>
             <SelectItem value="manual">Manual</SelectItem>
           </SelectContent>

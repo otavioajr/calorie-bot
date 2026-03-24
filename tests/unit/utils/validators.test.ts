@@ -346,24 +346,24 @@ describe('validateGoal', () => {
 // validateCalorieMode
 // ---------------------------------------------------------------------------
 describe('validateCalorieMode', () => {
-  it('returns approximate for "1"', () => {
+  it('returns taco for "1"', () => {
     const result = validateCalorieMode('1')
-    expect(result).toEqual({ valid: true, value: 'approximate' })
-  })
-
-  it('returns taco for "2"', () => {
-    const result = validateCalorieMode('2')
     expect(result).toEqual({ valid: true, value: 'taco' })
   })
 
-  it('returns manual for "3"', () => {
-    const result = validateCalorieMode('3')
+  it('returns manual for "2"', () => {
+    const result = validateCalorieMode('2')
     expect(result).toEqual({ valid: true, value: 'manual' })
   })
 
-  it('returns approximate for "aproximado" (case insensitive)', () => {
+  it('rejects "3" as invalid', () => {
+    const result = validateCalorieMode('3')
+    expect(result.valid).toBe(false)
+  })
+
+  it('rejects "aproximado" as invalid', () => {
     const result = validateCalorieMode('APROXIMADO')
-    expect(result).toEqual({ valid: true, value: 'approximate' })
+    expect(result.valid).toBe(false)
   })
 
   it('returns taco for "taco"', () => {

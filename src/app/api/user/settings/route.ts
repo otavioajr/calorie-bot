@@ -26,7 +26,7 @@ export async function PUT(request: Request): Promise<NextResponse> {
 
     // Update calorie mode on the user record
     if (calorieMode !== undefined) {
-      await updateUser(supabase, userId, { calorieMode: calorieMode as 'approximate' | 'taco' | 'manual' })
+      await updateUser(supabase, userId, { calorieMode: calorieMode as 'taco' | 'manual' })
     }
 
     // Update user_settings

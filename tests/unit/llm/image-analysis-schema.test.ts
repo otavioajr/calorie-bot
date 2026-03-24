@@ -70,18 +70,16 @@ describe('ImageAnalysisSchema', () => {
 })
 
 describe('buildVisionPrompt', () => {
-  it('returns base prompt for approximate mode', () => {
-    const prompt = buildVisionPrompt('approximate')
+  it('returns base prompt with vision instructions', () => {
+    const prompt = buildVisionPrompt()
     expect(prompt).toContain('analisador nutricional visual')
     expect(prompt).toContain('"food"')
     expect(prompt).toContain('"nutrition_label"')
-    expect(prompt).not.toContain('Tabela TACO')
   })
 
-  it('appends TACO data for taco mode', () => {
-    const context = [{ name: 'Arroz branco', calories: 128 }]
-    const prompt = buildVisionPrompt('taco', context as any)
-    expect(prompt).toContain('Tabela TACO')
-    expect(prompt).toContain('Arroz branco')
+  it('contains JSON response format', () => {
+    const prompt = buildVisionPrompt()
+    expect(prompt).toContain('JSON')
+    expect(prompt).toContain('image_type')
   })
 })
