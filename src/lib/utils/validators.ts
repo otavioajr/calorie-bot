@@ -181,24 +181,20 @@ export function validateGoal(input: string): ValidationResult<Goal> {
 // ---------------------------------------------------------------------------
 export function validateCalorieMode(
   input: string,
-): ValidationResult<'approximate' | 'taco' | 'manual'> {
+): ValidationResult<'taco' | 'manual'> {
   const key = normalize(input)
 
-  if (key === '1' || key === 'aproximado') {
-    return { valid: true, value: 'approximate' }
-  }
-
-  if (key === '2' || key === 'taco') {
+  if (key === '1' || key === 'taco') {
     return { valid: true, value: 'taco' }
   }
 
-  if (key === '3' || key === 'manual') {
+  if (key === '2' || key === 'manual') {
     return { valid: true, value: 'manual' }
   }
 
   return {
     valid: false,
-    error: 'Opção inválida. Digite 1 (aproximado), 2 (taco) ou 3 (manual).',
+    error: 'Opção inválida. Digite 1 (TACO) ou 2 (manual).',
   }
 }
 

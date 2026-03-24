@@ -13,7 +13,7 @@ import type { Sex, ActivityLevel, Goal } from '@/lib/calc/tdee'
 // ---------------------------------------------------------------------------
 
 type GoalValue = 'lose' | 'maintain' | 'gain'
-type CalorieModeValue = 'approximate' | 'taco' | 'manual'
+type CalorieModeValue = 'taco' | 'manual'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -28,8 +28,7 @@ const GOAL_LABELS: Record<GoalValue, string> = {
 }
 
 const MODE_LABELS: Record<CalorieModeValue, string> = {
-  approximate: 'Aproximado',
-  taco: 'TACO',
+  taco: 'TACO (tabela nutricional brasileira)',
   manual: 'Manual',
 }
 
@@ -85,7 +84,7 @@ async function showSettingsMenu(
   settings: UserSettings | null,
 ): Promise<string> {
   const goal = user.goal ?? 'maintain'
-  const calorieMode = user.calorieMode ?? 'approximate'
+  const calorieMode = user.calorieMode ?? 'taco'
   const dailyTarget = user.dailyCalorieTarget ?? 2000
   const remindersEnabled = settings?.remindersEnabled ?? false
   const detailLevel = settings?.detailLevel ?? 'brief'
@@ -260,18 +259,16 @@ async function applyCalorieModeChange(
   user: User,
 ): Promise<string> {
   const modeMap: Record<string, CalorieModeValue> = {
-    '1': 'approximate',
-    aproximado: 'approximate',
-    '2': 'taco',
+    '1': 'taco',
     taco: 'taco',
-    '3': 'manual',
+    '2': 'manual',
     manual: 'manual',
   }
 
   const newMode = modeMap[message.toLowerCase()]
 
   if (!newMode) {
-    return 'Modo inválido. Digite 1 (aproximado), 2 (TACO) ou 3 (manual).'
+    return 'Modo inválido. Digite 1 (TACO) ou 2 (manual).'
   }
 
   await updateUser(supabase, userId, { calorieMode: newMode })
@@ -400,8 +397,7 @@ function buildCalorieModeSubMenu(currentMode: string): string {
   return [
     `⚙️ Qual modo de cálculo? (atual: ${current})`,
     '',
-    '1️⃣ Aproximado (estimativas rápidas)',
-    '2️⃣ TACO (tabela nutricional brasileira)',
-    '3️⃣ Manual (você define tudo)',
+    '1️⃣ TACO (tabela nutricional brasileira)',
+    '2️⃣ Manual (você define tudo)',
   ].join('\n')
 }
