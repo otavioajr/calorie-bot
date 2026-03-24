@@ -67,7 +67,7 @@ export async function findUserByPhone(
 export async function createUser(supabase: SupabaseClient, phone: string): Promise<User> {
   const { data, error } = await supabase
     .from('users')
-    .insert({ phone, name: '', onboarding_step: 0, onboarding_complete: false })
+    .insert({ phone, name: '', calorie_mode: 'taco', onboarding_step: 0, onboarding_complete: false })
     .select('*')
     .single()
 
