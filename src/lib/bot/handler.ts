@@ -60,6 +60,7 @@ export async function handleIncomingMessage(
     const userSettings = {
       calorieMode: user.calorieMode,
       dailyCalorieTarget: user.dailyCalorieTarget,
+      phone: from,
     }
 
     // 3. Check for active conversation context

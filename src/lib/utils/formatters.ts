@@ -260,3 +260,14 @@ export function formatOutOfScope(): string {
 export function formatError(): string {
   return 'Ops, tive um probleminha aqui 😅 Tenta de novo em alguns segundos?'
 }
+
+// ---------------------------------------------------------------------------
+// formatDecompositionFeedback
+// ---------------------------------------------------------------------------
+export function formatDecompositionFeedback(foodNames: string[]): string {
+  if (foodNames.length === 1) {
+    return `Não encontrei "${foodNames[0]}" na Tabela TACO. Vou decompor nos ingredientes, um momento... 🔍`
+  }
+  const list = foodNames.join(', ')
+  return `Não encontrei ${list} na Tabela TACO. Vou decompor nos ingredientes, um momento... 🔍`
+}
