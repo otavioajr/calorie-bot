@@ -8,6 +8,7 @@ import { formatMealBreakdown, formatMultiMealBreakdown, formatProgress, formatDe
 import { getRecentMessages } from '@/lib/db/queries/message-history'
 import { fuzzyMatchTacoMultiple, calculateMacros } from '@/lib/db/queries/taco'
 import { sendTextMessage } from '@/lib/whatsapp/client'
+import { searchMealHistory, HistoryMatch } from '@/lib/db/queries/meal-history-search'
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -225,6 +226,11 @@ export async function handleMealLog(
     }
   }
 
+  // Branch: user is selecting from history matches
+  if (context?.contextType === 'awaiting_history_selection') {
+    return handleHistorySelection(supabase, userId, trimmed, context, user)
+  }
+
   if (context?.contextType === 'awaiting_clarification') {
     const originalMessage = context.contextData.originalMessage as string
     const combined = `${originalMessage}\n${trimmed}`
@@ -281,6 +287,51 @@ async function handleConfirmation(
 }
 
 // ---------------------------------------------------------------------------
+// History selection handler
+// ---------------------------------------------------------------------------
+
+async function handleHistorySelection(
+  supabase: SupabaseClient,
+  userId: string,
+  message: string,
+  context: ConversationContext,
+  user: { calorieMode: string; dailyCalorieTarget: number | null },
+): Promise<MealLogResult> {
+  const matches = context.contextData.matches as HistoryMatch[]
+  const meals = context.contextData.meals as MealAnalysis[]
+  const originalMessage = context.contextData.originalMessage as string
+
+  const choice = parseInt(message.trim(), 10)
+  if (isNaN(choice) || choice < 1 || choice > matches.length) {
+    return { response: `Opção inválida. Digite um número de 1 a ${matches.length}.`, completed: false }
+  }
+
+  const match = matches[choice - 1]
+  const enrichedMeals: EnrichedItem[][] = [[{
+    food: match.foodName,
+    quantityGrams: match.quantityGrams,
+    calories: match.calories,
+    protein: match.protein,
+    carbs: match.carbs,
+    fat: match.fat,
+    source: 'user_history',
+    tacoId: match.tacoId ?? undefined,
+  }]]
+
+  const dailyConsumed = await getDailyCalories(supabase, userId)
+  const target = user.dailyCalorieTarget ?? 2000
+  const response = buildConfirmationResponse(meals, enrichedMeals, dailyConsumed, target)
+
+  await setState(userId, 'awaiting_confirmation', {
+    mealAnalyses: meals as unknown as Record<string, unknown>,
+    enrichedMeals: enrichedMeals as unknown as Record<string, unknown>,
+    originalMessage,
+  })
+
+  return { response, completed: false }
+}
+
+// ---------------------------------------------------------------------------
 // Rejection handler
 // ---------------------------------------------------------------------------
 
@@ -322,6 +373,54 @@ async function analyzeAndConfirm(
       const itemList = result.unknown_items.join(', ')
       return {
         response: `Não consegui identificar: ${itemList}. Pode me dizer as calorias ou quantas gramas?`,
+        completed: false,
+      }
+    }
+  }
+
+  // Check for history references
+  for (const meal of meals) {
+    if (meal.references_previous && meal.reference_query) {
+      const matches = await searchMealHistory(supabase, userId, meal.reference_query)
+      if (matches.length === 0) {
+        // No history found — fall through to normal TACO pipeline
+        continue
+      }
+      if (matches.length === 1) {
+        // Single match — use it directly
+        const match = matches[0]
+        const enrichedMeals: EnrichedItem[][] = [[{
+          food: match.foodName,
+          quantityGrams: match.quantityGrams,
+          calories: match.calories,
+          protein: match.protein,
+          carbs: match.carbs,
+          fat: match.fat,
+          source: 'user_history',
+          tacoId: match.tacoId ?? undefined,
+        }]]
+        const dailyConsumed = await getDailyCalories(supabase, userId)
+        const target = user.dailyCalorieTarget ?? 2000
+        const response = buildConfirmationResponse(meals, enrichedMeals, dailyConsumed, target)
+        await setState(userId, 'awaiting_confirmation', {
+          mealAnalyses: meals as unknown as Record<string, unknown>,
+          enrichedMeals: enrichedMeals as unknown as Record<string, unknown>,
+          originalMessage,
+        })
+        return { response, completed: false }
+      }
+      // Multiple matches — present options
+      const options = matches.map((m, i) => {
+        const date = new Date(m.registeredAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+        return `${i + 1}️⃣ ${m.foodName} — ${m.calories}kcal (${date})`
+      })
+      await setState(userId, 'awaiting_history_selection', {
+        matches: matches as unknown as Record<string, unknown>,
+        meals: meals as unknown as Record<string, unknown>,
+        originalMessage,
+      })
+      return {
+        response: `Encontrei esses registros de ${meal.reference_query}:\n${options.join('\n')}\nQual deles?`,
         completed: false,
       }
     }
