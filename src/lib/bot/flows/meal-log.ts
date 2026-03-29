@@ -3,7 +3,7 @@ import { getLLMProvider } from '@/lib/llm/index'
 import type { MealAnalysis, MealItem } from '@/lib/llm/schemas/meal-analysis'
 import { setState, clearState } from '@/lib/bot/state'
 import type { ConversationContext } from '@/lib/bot/state'
-import { createMeal, getDailyCalories } from '@/lib/db/queries/meals'
+import { createMeal, getDailyCalories, getDailyMacros } from '@/lib/db/queries/meals'
 import { formatMealBreakdown, formatMultiMealBreakdown, formatProgress, formatDecompositionFeedback } from '@/lib/utils/formatters'
 import { getRecentMessages } from '@/lib/db/queries/message-history'
 import { fuzzyMatchTacoMultiple, calculateMacros } from '@/lib/db/queries/taco'
@@ -212,7 +212,14 @@ export async function handleMealLog(
   supabase: SupabaseClient,
   userId: string,
   message: string,
-  user: { calorieMode: string; dailyCalorieTarget: number | null; phone?: string },
+  user: {
+    calorieMode: string
+    dailyCalorieTarget: number | null
+    dailyProteinG?: number | null
+    dailyFatG?: number | null
+    dailyCarbsG?: number | null
+    phone?: string
+  },
   context: ConversationContext | null,
 ): Promise<MealLogResult> {
   const trimmed = message.trim()
@@ -248,7 +255,13 @@ async function handleConfirmation(
   supabase: SupabaseClient,
   userId: string,
   context: ConversationContext,
-  user: { calorieMode: string; dailyCalorieTarget: number | null },
+  user: {
+    calorieMode: string
+    dailyCalorieTarget: number | null
+    dailyProteinG?: number | null
+    dailyFatG?: number | null
+    dailyCarbsG?: number | null
+  },
 ): Promise<MealLogResult> {
   const { meals, enrichedMeals } = getMealsFromContext(context.contextData)
   const originalMessage = context.contextData.originalMessage as string
@@ -278,9 +291,21 @@ async function handleConfirmation(
 
   await clearState(userId)
 
-  const dailyConsumed = await getDailyCalories(supabase, userId)
   const target = user.dailyCalorieTarget ?? 2000
-  const progressLine = formatProgress(dailyConsumed, target)
+  const hasMacroTargets = user.dailyProteinG && user.dailyFatG && user.dailyCarbsG
+
+  let progressLine: string
+  if (hasMacroTargets) {
+    const dailyMacros = await getDailyMacros(supabase, userId)
+    progressLine = formatProgress(dailyMacros.calories, target, {
+      consumed: { proteinG: dailyMacros.proteinG, fatG: dailyMacros.fatG, carbsG: dailyMacros.carbsG },
+      target: { proteinG: user.dailyProteinG!, fatG: user.dailyFatG!, carbsG: user.dailyCarbsG! },
+    })
+  } else {
+    const dailyConsumed = await getDailyCalories(supabase, userId)
+    progressLine = formatProgress(dailyConsumed, target)
+  }
+
   const label = meals.length > 1 ? 'Refeições registradas' : 'Refeição registrada'
 
   return { response: `${label}! ✅\n\n${progressLine}`, completed: true }
@@ -353,7 +378,14 @@ async function analyzeAndConfirm(
   userId: string,
   messageToAnalyze: string,
   originalMessage: string,
-  user: { calorieMode: string; dailyCalorieTarget: number | null; phone?: string },
+  user: {
+    calorieMode: string
+    dailyCalorieTarget: number | null
+    dailyProteinG?: number | null
+    dailyFatG?: number | null
+    dailyCarbsG?: number | null
+    phone?: string
+  },
 ): Promise<MealLogResult> {
   const llm = getLLMProvider()
   const history = await getRecentMessages(supabase, userId)

@@ -10,10 +10,14 @@ export interface User {
   age: number | null
   weightKg: number | null
   heightCm: number | null
-  activityLevel: 'sedentary' | 'light' | 'moderate' | 'intense' | null
+  activityLevel: 'sedentary' | 'light' | 'moderate' | 'intense' | 'athlete' | null
   goal: 'lose' | 'maintain' | 'gain' | null
   calorieMode: 'taco' | 'manual'
   dailyCalorieTarget: number | null
+  dailyProteinG: number | null
+  dailyFatG: number | null
+  dailyCarbsG: number | null
+  maxWeightKg: number | null
   calorieTargetManual: boolean
   tmb: number | null
   tdee: number | null

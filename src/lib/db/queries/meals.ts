@@ -127,6 +127,58 @@ export async function getDailyCalories(
 }
 
 // ---------------------------------------------------------------------------
+// getDailyMacros
+// ---------------------------------------------------------------------------
+
+export interface DailyMacros {
+  calories: number
+  proteinG: number
+  carbsG: number
+  fatG: number
+}
+
+/**
+ * Returns the total calories and macros consumed by a user on the given date.
+ * Sums from meal_items via a join on meals.
+ */
+export async function getDailyMacros(
+  supabase: SupabaseClient,
+  userId: string,
+  date?: Date,
+): Promise<DailyMacros> {
+  const targetDate = date ?? new Date()
+
+  const startOfDay = new Date(targetDate)
+  startOfDay.setUTCHours(0, 0, 0, 0)
+
+  const endOfDay = new Date(targetDate)
+  endOfDay.setUTCHours(23, 59, 59, 999)
+
+  const { data, error } = await supabase
+    .from('meal_items')
+    .select('calories, protein_g, carbs_g, fat_g, meal:meals!inner(user_id, registered_at)')
+    .eq('meal.user_id', userId)
+    .gte('meal.registered_at', startOfDay.toISOString())
+    .lte('meal.registered_at', endOfDay.toISOString())
+
+  if (error) {
+    throw new Error(`Failed to get daily macros: ${error.message}`)
+  }
+
+  if (!data || data.length === 0) {
+    return { calories: 0, proteinG: 0, carbsG: 0, fatG: 0 }
+  }
+
+  const rows = data as Array<Record<string, unknown>>
+  return {
+    calories: Math.round(rows.reduce((sum, r) => sum + (r.calories as number || 0), 0)),
+    proteinG: Math.round(rows.reduce((sum, r) => sum + (r.protein_g as number || 0), 0)),
+    carbsG: Math.round(rows.reduce((sum, r) => sum + (r.carbs_g as number || 0), 0)),
+    fatG: Math.round(rows.reduce((sum, r) => sum + (r.fat_g as number || 0), 0)),
+  }
+}
+
+// ---------------------------------------------------------------------------
 // deleteMeal
 // ---------------------------------------------------------------------------
 
