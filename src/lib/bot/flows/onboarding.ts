@@ -36,7 +36,7 @@ const MSG_ASK_WEIGHT = `Qual seu peso atual em kg? (ex: 72.5)`
 
 const MSG_ASK_HEIGHT = `E sua altura em cm? (ex: 175)`
 
-const MSG_ASK_ACTIVITY = `Qual seu nível de atividade física?\n1️⃣ Sedentário (pouco ou nenhum exercício)\n2️⃣ Leve (1-3 dias/semana)\n3️⃣ Moderado (3-5 dias/semana)\n4️⃣ Intenso (6-7 dias/semana)`
+const MSG_ASK_ACTIVITY = `Qual seu nível de atividade física?\n1️⃣ Sedentário (pouco ou nenhum exercício)\n2️⃣ Leve (1-3 dias/semana)\n3️⃣ Moderado (3-5 dias/semana)\n4️⃣ Intenso (6-7 dias/semana)\n5️⃣ Atleta (treino intenso 2x/dia)`
 
 const MSG_ASK_GOAL = `Qual seu objetivo?\n1️⃣ Perder peso\n2️⃣ Manter peso\n3️⃣ Ganhar massa`
 
@@ -185,8 +185,8 @@ export async function handleOnboarding(
     // Fetch full user data from DB for TMB/TDEE calculation
     const { user } = await getUserWithSettings(supabase, userId)
 
-    // Calculate TMB, TDEE and daily target
-    const { tmb, tdee, dailyTarget } = calculateAll({
+    // Calculate TMB, TDEE, daily target, and macros
+    const calcResult = calculateAll({
       sex: user.sex!,
       weightKg: user.weightKg!,
       heightCm: user.heightCm!,
@@ -197,9 +197,13 @@ export async function handleOnboarding(
 
     // Persist calculations and mark onboarding complete
     await updateUser(supabase, userId, {
-      tmb,
-      tdee,
-      dailyCalorieTarget: Math.round(dailyTarget),
+      tmb: calcResult.tmb,
+      tdee: calcResult.tdee,
+      dailyCalorieTarget: Math.round(calcResult.dailyTarget),
+      maxWeightKg: calcResult.maxWeightKg,
+      dailyProteinG: calcResult.proteinG,
+      dailyFatG: calcResult.fatG,
+      dailyCarbsG: calcResult.carbsG,
       onboardingComplete: true,
       onboardingStep: 8,
     })
@@ -211,7 +215,11 @@ export async function handleOnboarding(
     await clearState(userId)
 
     return {
-      response: formatOnboardingComplete(user.name, dailyTarget),
+      response: formatOnboardingComplete(user.name, calcResult.dailyTarget, {
+        proteinG: calcResult.proteinG,
+        fatG: calcResult.fatG,
+        carbsG: calcResult.carbsG,
+      }),
       completed: true,
     }
   }

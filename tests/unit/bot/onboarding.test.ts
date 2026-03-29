@@ -504,6 +504,14 @@ describe('handleOnboarding — step 6 (activity level)', () => {
     )
   })
 
+  it('valid activity "5" (athlete): calls updateUser with activityLevel: "athlete"', async () => {
+    await handleOnboarding(supabase, USER_ID, '5', 6)
+    expect(mockUpdateUser).toHaveBeenCalledWith(
+      supabase, USER_ID,
+      expect.objectContaining({ activityLevel: 'athlete', onboardingStep: 7 }),
+    )
+  })
+
   it('invalid activity: returns error, completed false', async () => {
     const result = await handleOnboarding(supabase, USER_ID, '6', 6)
 
@@ -652,6 +660,26 @@ describe('handleOnboarding — step 8 (calorie mode + finalization)', () => {
         dailyCalorieTarget: 2194,
       }),
     )
+  })
+
+  it('valid mode: updateUser called with macros', async () => {
+    await handleOnboarding(supabase, USER_ID, '1', 8)
+    expect(mockUpdateUser).toHaveBeenCalledWith(
+      supabase, USER_ID,
+      expect.objectContaining({
+        maxWeightKg: expect.any(Number),
+        dailyProteinG: expect.any(Number),
+        dailyFatG: expect.any(Number),
+        dailyCarbsG: expect.any(Number),
+      }),
+    )
+  })
+
+  it('valid mode "1": response contains macros breakdown', async () => {
+    const result = await handleOnboarding(supabase, USER_ID, '1', 8)
+    expect(result.response).toContain('Proteína:')
+    expect(result.response).toContain('Gordura:')
+    expect(result.response).toContain('Carbs:')
   })
 
   it('invalid mode: returns error, completed false', async () => {
