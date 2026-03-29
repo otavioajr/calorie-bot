@@ -20,7 +20,10 @@ export async function PUT(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  const { name, age, sex, weightKg, heightCm, activityLevel, goal } = body
+  const {
+    name, age, sex, weightKg, heightCm, activityLevel, goal,
+    dailyProteinG, dailyFatG, dailyCarbsG,
+  } = body
 
   try {
     const supabase = createServiceRoleClient()
@@ -34,8 +37,13 @@ export async function PUT(request: Request): Promise<NextResponse> {
     if (activityLevel !== undefined) updateData.activityLevel = activityLevel
     if (goal !== undefined) updateData.goal = goal
 
+    // Handle manual macro overrides
+    if (dailyProteinG !== undefined) updateData.dailyProteinG = dailyProteinG
+    if (dailyFatG !== undefined) updateData.dailyFatG = dailyFatG
+    if (dailyCarbsG !== undefined) updateData.dailyCarbsG = dailyCarbsG
+
     // Recalculate TDEE if enough data
-    let calcResult: { tmb: number; tdee: number; dailyTarget: number } | null = null
+    let calcResult: ReturnType<typeof calculateAll> | null = null
     const effectiveSex = (sex as Sex | null) ?? null
     const effectiveWeight = (weightKg as number | null) ?? null
     const effectiveHeight = (heightCm as number | null) ?? null
@@ -61,7 +69,15 @@ export async function PUT(request: Request): Promise<NextResponse> {
       })
       updateData.tmb = calcResult.tmb
       updateData.tdee = calcResult.tdee
-      updateData.dailyCalorieTarget = calcResult.dailyTarget
+      updateData.dailyCalorieTarget = Math.round(calcResult.dailyTarget)
+      updateData.maxWeightKg = calcResult.maxWeightKg
+
+      // Only set calculated macros if not manually overriding
+      if (dailyProteinG === undefined && dailyFatG === undefined && dailyCarbsG === undefined) {
+        updateData.dailyProteinG = calcResult.proteinG
+        updateData.dailyFatG = calcResult.fatG
+        updateData.dailyCarbsG = calcResult.carbsG
+      }
     }
 
     await updateUser(supabase, userId, updateData as Parameters<typeof updateUser>[2])
@@ -70,7 +86,11 @@ export async function PUT(request: Request): Promise<NextResponse> {
       success: true,
       tmb: calcResult?.tmb,
       tdee: calcResult?.tdee,
-      dailyTarget: calcResult?.dailyTarget,
+      dailyTarget: calcResult ? Math.round(calcResult.dailyTarget) : undefined,
+      maxWeightKg: calcResult?.maxWeightKg,
+      proteinG: (updateData.dailyProteinG as number | undefined) ?? calcResult?.proteinG,
+      fatG: (updateData.dailyFatG as number | undefined) ?? calcResult?.fatG,
+      carbsG: (updateData.dailyCarbsG as number | undefined) ?? calcResult?.carbsG,
     })
   } catch (err) {
     console.error('[profile update] error:', err)
