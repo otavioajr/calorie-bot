@@ -14,6 +14,7 @@ const {
   mockDecomposeMeal,
   mockCreateMeal,
   mockGetDailyCalories,
+  mockGetDailyMacros,
   mockFormatMealBreakdown,
   mockFormatMultiMealBreakdown,
   mockFormatProgress,
@@ -39,6 +40,7 @@ const {
     })),
     mockCreateMeal: vi.fn().mockResolvedValue('meal-id-123'),
     mockGetDailyCalories: vi.fn().mockResolvedValue(800),
+    mockGetDailyMacros: vi.fn().mockResolvedValue({ calories: 800, proteinG: 40, carbsG: 100, fatG: 20 }),
     mockFormatMealBreakdown: vi.fn().mockReturnValue('Breakdown message\nTá certo? (sim / corrigir)'),
     mockFormatMultiMealBreakdown: vi.fn().mockReturnValue('Multi breakdown message\nTá certo? (sim / corrigir)'),
     mockFormatProgress: vi.fn().mockReturnValue('📊 Hoje: 800 / 2000 kcal (restam 1200)'),
@@ -74,6 +76,7 @@ vi.mock('@/lib/llm/index', () => ({
 vi.mock('@/lib/db/queries/meals', () => ({
   createMeal: mockCreateMeal,
   getDailyCalories: mockGetDailyCalories,
+  getDailyMacros: mockGetDailyMacros,
 }))
 
 vi.mock('@/lib/utils/formatters', () => ({

@@ -61,6 +61,9 @@ export async function handleIncomingMessage(
     const userSettings = {
       calorieMode: user.calorieMode,
       dailyCalorieTarget: user.dailyCalorieTarget,
+      dailyProteinG: user.dailyProteinG,
+      dailyFatG: user.dailyFatG,
+      dailyCarbsG: user.dailyCarbsG,
       phone: from,
     }
 

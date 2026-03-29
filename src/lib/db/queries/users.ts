@@ -14,6 +14,10 @@ export interface User {
   goal: 'lose' | 'maintain' | 'gain' | null
   calorieMode: 'taco' | 'manual'
   dailyCalorieTarget: number | null
+  dailyProteinG: number | null
+  dailyFatG: number | null
+  dailyCarbsG: number | null
+  maxWeightKg: number | null
   calorieTargetManual: boolean
   tmb: number | null
   tdee: number | null

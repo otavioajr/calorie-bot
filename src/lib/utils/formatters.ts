@@ -194,15 +194,30 @@ export function formatWeightUpdate(
 // ---------------------------------------------------------------------------
 // formatProgress
 // ---------------------------------------------------------------------------
-export function formatProgress(consumed: number, target: number): string {
+export function formatProgress(
+  consumed: number,
+  target: number,
+  macros?: {
+    consumed: { proteinG: number; fatG: number; carbsG: number }
+    target: { proteinG: number; fatG: number; carbsG: number }
+  },
+): string {
   const remaining = target - consumed
 
+  let calorieLine: string
   if (remaining < 0) {
     const over = Math.abs(remaining)
-    return `📊 Hoje: ${consumed} / ${target} kcal (excedeu ${over} ⚠️)`
+    calorieLine = `📊 Hoje: ${consumed} / ${target} kcal (excedeu ${over} ⚠️)`
+  } else {
+    calorieLine = `📊 Hoje: ${consumed} / ${target} kcal (restam ${remaining})`
   }
 
-  return `📊 Hoje: ${consumed} / ${target} kcal (restam ${remaining})`
+  if (!macros) {
+    return calorieLine
+  }
+
+  const macroLine = `P: ${macros.consumed.proteinG}/${macros.target.proteinG}g | G: ${macros.consumed.fatG}/${macros.target.fatG}g | C: ${macros.consumed.carbsG}/${macros.target.carbsG}g`
+  return `${calorieLine}\n${macroLine}`
 }
 
 // ---------------------------------------------------------------------------
