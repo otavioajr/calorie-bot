@@ -505,7 +505,7 @@ describe('handleOnboarding — step 6 (activity level)', () => {
   })
 
   it('invalid activity: returns error, completed false', async () => {
-    const result = await handleOnboarding(supabase, USER_ID, '5', 6)
+    const result = await handleOnboarding(supabase, USER_ID, '6', 6)
 
     expect(result.completed).toBe(false)
     expect(result.response).toContain('sedentário')

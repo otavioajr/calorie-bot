@@ -286,8 +286,23 @@ describe('validateActivityLevel', () => {
     expect(result).toEqual({ valid: true, value: 'intense' })
   })
 
-  it('returns invalid for "5"', () => {
+  it('returns athlete for "5"', () => {
     const result = validateActivityLevel('5')
+    expect(result).toEqual({ valid: true, value: 'athlete' })
+  })
+
+  it('returns athlete for "atleta"', () => {
+    const result = validateActivityLevel('atleta')
+    expect(result).toEqual({ valid: true, value: 'athlete' })
+  })
+
+  it('returns athlete for "athlete"', () => {
+    const result = validateActivityLevel('athlete')
+    expect(result).toEqual({ valid: true, value: 'athlete' })
+  })
+
+  it('returns invalid for "6"', () => {
+    const result = validateActivityLevel('6')
     expect(result.valid).toBe(false)
   })
 
