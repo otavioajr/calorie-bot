@@ -196,6 +196,25 @@ describe('classifyByRules', () => {
     })
   })
 
+  // --- RECALCULATE ---
+  describe('recalculate intent', () => {
+    it('returns recalculate for "recalcular"', () => {
+      expect(classifyByRules('recalcular')).toBe<IntentType>('recalculate')
+    })
+
+    it('returns recalculate for "/recalcular"', () => {
+      expect(classifyByRules('/recalcular')).toBe<IntentType>('recalculate')
+    })
+
+    it('returns recalculate for "recalcula"', () => {
+      expect(classifyByRules('recalcula')).toBe<IntentType>('recalculate')
+    })
+
+    it('returns recalculate for "Recalcular" (case insensitive)', () => {
+      expect(classifyByRules('Recalcular')).toBe<IntentType>('recalculate')
+    })
+  })
+
   // --- NULL (LLM fallback) ---
   describe('returns null when no rule matches (LLM fallback)', () => {
     it('returns null for "almocei arroz e feijão"', () => {
