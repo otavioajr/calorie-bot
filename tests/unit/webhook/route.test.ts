@@ -304,6 +304,41 @@ describe('POST /api/webhook/whatsapp', () => {
     const text = await response.text()
     expect(text).toBe('OK')
   })
+
+  it('processes message when insert fails with non-duplicate error (e.g. connection error)', async () => {
+    mockSingle.mockResolvedValue({
+      data: null,
+      error: { code: '500', message: 'connection refused' },
+    })
+
+    const request = makePostRequest(makeTextPayload())
+    const response = await POST(request)
+
+    expect(response.status).toBe(200)
+    // Message should still be processed despite dedup insert failure
+    expect(mockHandleIncomingMessage).toHaveBeenCalledWith(
+      '5511999887766',
+      'wamid.abc123',
+      'almocei arroz e feijão',
+    )
+  })
+
+  it('logs error when dedup insert fails with non-duplicate error', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockSingle.mockResolvedValue({
+      data: null,
+      error: { code: '500', message: 'connection refused' },
+    })
+
+    const request = makePostRequest(makeTextPayload())
+    await POST(request)
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[webhook] Dedup insert failed'),
+      expect.stringContaining('connection refused'),
+    )
+    consoleSpy.mockRestore()
+  })
 })
 
 // ---------------------------------------------------------------------------

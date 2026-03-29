@@ -27,18 +27,21 @@ export async function POST(request: Request) {
     // Deduplicate by message_id
     const supabase = createServiceRoleClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any)
+    const { error: dedupError } = await (supabase as any)
       .from('processed_messages')
       .insert({ message_id: event.messageId })
       .select()
       .single()
 
-    if (error) {
-      // Duplicate — already processed
+    if (dedupError?.code === '23505') {
+      // Genuine duplicate — already processed
       return new Response('OK', { status: 200 })
     }
 
-    void data // suppress unused variable warning
+    if (dedupError) {
+      // Non-duplicate DB error — log but continue processing
+      console.error('[webhook] Dedup insert failed (processing anyway):', dedupError.message)
+    }
 
     if (event.type === 'text' && event.text) {
       await handleIncomingMessage(event.from, event.messageId, event.text)

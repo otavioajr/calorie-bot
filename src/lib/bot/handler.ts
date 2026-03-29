@@ -161,7 +161,9 @@ export async function handleIncomingMessage(
     saveHistory(supabase, user.id, text, response)
   } catch (err) {
     console.error('[handler] Error:', err)
-    await sendTextMessage(from, formatError()).catch(() => {})
+    await sendTextMessage(from, formatError()).catch((sendErr) => {
+      console.error('[handler] Failed to send error message (send error):', sendErr)
+    })
   }
 }
 
@@ -216,7 +218,9 @@ export async function handleIncomingAudio(
     await handleIncomingMessage(from, messageId, transcription)
   } catch (err) {
     console.error('[handler] Audio error:', err)
-    await sendTextMessage(from, formatError()).catch(() => {})
+    await sendTextMessage(from, formatError()).catch((sendErr) => {
+      console.error('[handler] Failed to send error message (send error):', sendErr)
+    })
   }
 }
 
@@ -337,7 +341,9 @@ export async function handleIncomingImage(
     saveHistory(supabase, user.id, caption || '[imagem de alimento]', response)
   } catch (err) {
     console.error('[handler] Image error:', err)
-    await sendTextMessage(from, formatError()).catch(() => {})
+    await sendTextMessage(from, formatError()).catch((sendErr) => {
+      console.error('[handler] Failed to send error message (send error):', sendErr)
+    })
   }
 }
 

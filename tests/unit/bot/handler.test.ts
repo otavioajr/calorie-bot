@@ -815,6 +815,25 @@ describe('handleIncomingMessage — error handling', () => {
     // Should resolve without throwing
     await expect(handleIncomingMessage(FROM, MESSAGE_ID, TEXT)).resolves.toBeUndefined()
   })
+
+  it('logs error when sendTextMessage fails in error handler', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockFindUserByPhone.mockRejectedValue(new Error('DB connection failed'))
+    mockSendTextMessage.mockRejectedValue(new Error('WhatsApp API error: HTTP 401 — Unauthorized'))
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, TEXT)
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[handler]'),
+      expect.any(Error)
+    )
+    // Should have been called twice: once for original error, once for send failure
+    const sendFailCalls = consoleSpy.mock.calls.filter(
+      call => typeof call[0] === 'string' && call[0].includes('send error')
+    )
+    expect(sendFailCalls.length).toBe(1)
+    consoleSpy.mockRestore()
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -906,6 +925,21 @@ describe('handleIncomingAudio', () => {
     await handleIncomingAudio(FROM, MESSAGE_ID, AUDIO_ID)
 
     expect(mockFindUserByPhone).toHaveBeenCalledWith(mockSupabase, FROM)
+  })
+
+  it('logs error when sendTextMessage fails in audio error handler', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockDownloadAudioMedia.mockRejectedValue(new Error('network error'))
+    mockSendTextMessage.mockRejectedValue(new Error('WhatsApp API error: HTTP 401'))
+
+    await handleIncomingAudio(FROM, MESSAGE_ID, 'audio-id')
+
+    const sendFailCalls = consoleSpy.mock.calls.filter(
+      call => typeof call[0] === 'string' && call[0].includes('send error')
+    )
+    expect(sendFailCalls.length).toBe(1)
+    mockSendTextMessage.mockResolvedValue('msg-id-123')
+    consoleSpy.mockRestore()
   })
 })
 
@@ -1051,6 +1085,22 @@ describe('handleIncomingImage', () => {
         success: true,
       }),
     )
+  })
+
+  it('logs error when sendTextMessage fails in image error handler', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockFindUserByPhone.mockRejectedValue(new Error('DB error'))
+    mockSendTextMessage.mockRejectedValue(new Error('WhatsApp API error: HTTP 401'))
+
+    await handleIncomingImage(FROM, MESSAGE_ID, 'image-id')
+
+    const sendFailCalls = consoleSpy.mock.calls.filter(
+      call => typeof call[0] === 'string' && call[0].includes('send error')
+    )
+    expect(sendFailCalls.length).toBe(1)
+    mockFindUserByPhone.mockResolvedValue(completedUser)
+    mockSendTextMessage.mockResolvedValue('msg-id-123')
+    consoleSpy.mockRestore()
   })
 })
 

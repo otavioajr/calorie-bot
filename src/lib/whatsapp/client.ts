@@ -6,6 +6,13 @@ export async function sendTextMessage(to: string, text: string): Promise<string>
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID
   const accessToken = process.env.WHATSAPP_ACCESS_TOKEN
 
+  if (!accessToken) {
+    throw new Error('WHATSAPP_ACCESS_TOKEN is not configured')
+  }
+  if (!phoneNumberId) {
+    throw new Error('WHATSAPP_PHONE_NUMBER_ID is not configured')
+  }
+
   const url = `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`
 
   const response = await fetch(url, {
