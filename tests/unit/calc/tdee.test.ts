@@ -4,16 +4,17 @@ import {
   calculateTDEE,
   calculateDailyTarget,
   calculateAll,
+  calculateMaxWeight,
+  calculateMacros,
+  recalcMacrosFromTarget,
 } from '@/lib/calc/tdee'
 
 describe('calculateTMB', () => {
   it('returns correct TMB for a male', () => {
-    // 10*80 + 6.25*175 - 5*30 + 5 = 800 + 1093.75 - 150 + 5 = 1748.75
     expect(calculateTMB('male', 80, 175, 30)).toBe(1748.75)
   })
 
   it('returns correct TMB for a female', () => {
-    // 10*60 + 6.25*165 - 5*25 - 161 = 600 + 1031.25 - 125 - 161 = 1345.25
     expect(calculateTMB('female', 60, 165, 25)).toBe(1345.25)
   })
 })
@@ -22,23 +23,23 @@ describe('calculateTDEE', () => {
   const tmb = 1748.75
 
   it('returns correct TDEE for sedentary', () => {
-    // 1748.75 * 1.2 = 2098.5
-    expect(calculateTDEE(tmb, 'sedentary')).toBe(2098.5)
+    expect(calculateTDEE(tmb, 'sedentary')).toBe(2448.25)
   })
 
   it('returns correct TDEE for light', () => {
-    // 1748.75 * 1.375 = 2404.53125 → 2404.53
-    expect(calculateTDEE(tmb, 'light')).toBe(2404.53)
+    expect(calculateTDEE(tmb, 'light')).toBe(2623.13)
   })
 
   it('returns correct TDEE for moderate', () => {
-    // 1748.75 * 1.55 = 2710.5625 → 2710.56
-    expect(calculateTDEE(tmb, 'moderate')).toBe(2710.56)
+    expect(calculateTDEE(tmb, 'moderate')).toBe(2798)
   })
 
   it('returns correct TDEE for intense', () => {
-    // 1748.75 * 1.725 = 3016.59375 → 3016.59
-    expect(calculateTDEE(tmb, 'intense')).toBe(3016.59)
+    expect(calculateTDEE(tmb, 'intense')).toBe(2972.88)
+  })
+
+  it('returns correct TDEE for athlete', () => {
+    expect(calculateTDEE(tmb, 'athlete')).toBe(3147.75)
   })
 })
 
@@ -58,21 +59,78 @@ describe('calculateDailyTarget', () => {
   })
 })
 
-describe('calculateAll', () => {
-  it('returns correct tmb, tdee, and dailyTarget for integration case', () => {
-    // Male, 80kg, 175cm, 30yo, moderate, lose
-    // tmb: 1748.75, tdee: 2710.56, dailyTarget: 2210.56
-    const result = calculateAll({
-      sex: 'male',
-      weightKg: 80,
-      heightCm: 175,
-      age: 30,
-      activityLevel: 'moderate',
-      goal: 'lose',
-    })
+describe('calculateMaxWeight', () => {
+  it('returns correct max weight for 175cm', () => {
+    expect(calculateMaxWeight(175)).toBe(76.26)
+  })
 
+  it('returns correct max weight for 160cm', () => {
+    expect(calculateMaxWeight(160)).toBe(63.74)
+  })
+
+  it('returns correct max weight for 190cm', () => {
+    expect(calculateMaxWeight(190)).toBe(89.89)
+  })
+})
+
+describe('calculateMacros', () => {
+  it('returns correct macros for male with 76kg max weight and 2298 target', () => {
+    const result = calculateMacros({ sex: 'male', maxWeightKg: 76, dailyTarget: 2298 })
+    expect(result.proteinG).toBe(152)
+    expect(result.fatG).toBe(76)
+    expect(result.carbsG).toBe(252)
+  })
+
+  it('returns correct macros for female with 64kg max weight and 1800 target', () => {
+    const result = calculateMacros({ sex: 'female', maxWeightKg: 64, dailyTarget: 1800 })
+    expect(result.proteinG).toBe(102)
+    expect(result.fatG).toBe(64)
+    expect(result.carbsG).toBe(204)
+  })
+
+  it('returns 0 carbs when protein + fat exceed target', () => {
+    const result = calculateMacros({ sex: 'male', maxWeightKg: 100, dailyTarget: 1000 })
+    expect(result.proteinG).toBe(200)
+    expect(result.fatG).toBe(100)
+    expect(result.carbsG).toBe(0)
+  })
+})
+
+describe('recalcMacrosFromTarget', () => {
+  it('scales all macros proportionally when target increases', () => {
+    const result = recalcMacrosFromTarget({ proteinG: 150, fatG: 80, carbsG: 200 }, 2000, 2200)
+    expect(result.proteinG).toBe(165)
+    expect(result.fatG).toBe(88)
+    expect(result.carbsG).toBe(220)
+  })
+
+  it('scales all macros proportionally when target decreases', () => {
+    const result = recalcMacrosFromTarget({ proteinG: 150, fatG: 80, carbsG: 200 }, 2000, 1800)
+    expect(result.proteinG).toBe(135)
+    expect(result.fatG).toBe(72)
+    expect(result.carbsG).toBe(180)
+  })
+
+  it('returns zeros when old target is 0', () => {
+    const result = recalcMacrosFromTarget({ proteinG: 150, fatG: 80, carbsG: 200 }, 0, 2000)
+    expect(result.proteinG).toBe(0)
+    expect(result.fatG).toBe(0)
+    expect(result.carbsG).toBe(0)
+  })
+})
+
+describe('calculateAll', () => {
+  it('returns tmb, tdee, dailyTarget, maxWeightKg, and macros', () => {
+    const result = calculateAll({
+      sex: 'male', weightKg: 80, heightCm: 175, age: 30,
+      activityLevel: 'moderate', goal: 'lose',
+    })
     expect(result.tmb).toBe(1748.75)
-    expect(result.tdee).toBe(2710.56)
-    expect(result.dailyTarget).toBe(2210.56)
+    expect(result.tdee).toBe(2798)
+    expect(result.dailyTarget).toBe(2298)
+    expect(result.maxWeightKg).toBe(76.26)
+    expect(result.proteinG).toBe(153)
+    expect(result.fatG).toBe(76)
+    expect(result.carbsG).toBe(251)
   })
 })
