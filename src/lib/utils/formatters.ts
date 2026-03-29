@@ -208,8 +208,16 @@ export function formatProgress(consumed: number, target: number): string {
 // ---------------------------------------------------------------------------
 // formatOnboardingComplete
 // ---------------------------------------------------------------------------
-export function formatOnboardingComplete(name: string, target: number): string {
-  return `Tudo pronto, ${name}! 🎉\nSua meta diária é de ${target} kcal.\n\nAgora é só me mandar o que comeu! Exemplos:\n• 'almocei arroz, feijão e frango'\n• 'comi um pão com ovo no café'\n• 'lanche: 1 banana e granola'\n\nDica: manda 'menu' a qualquer momento pra ver o que posso fazer.`
+export function formatOnboardingComplete(
+  name: string,
+  target: number,
+  macros?: { proteinG: number; fatG: number; carbsG: number },
+): string {
+  const macroLine = macros
+    ? `\nProteína: ${macros.proteinG}g | Gordura: ${macros.fatG}g | Carbs: ${macros.carbsG}g`
+    : ''
+
+  return `Tudo pronto, ${name}! 🎉\nSua meta diária é de ${target} kcal.${macroLine}\n\nAgora é só me mandar o que comeu! Exemplos:\n• 'almocei arroz, feijão e frango'\n• 'comi um pão com ovo no café'\n• 'lanche: 1 banana e granola'\n\nDica: manda 'menu' a qualquer momento pra ver o que posso fazer.`
 }
 
 // ---------------------------------------------------------------------------

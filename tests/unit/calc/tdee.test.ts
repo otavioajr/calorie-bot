@@ -22,23 +22,28 @@ describe('calculateTDEE', () => {
   const tmb = 1748.75
 
   it('returns correct TDEE for sedentary', () => {
-    // 1748.75 * 1.2 = 2098.5
-    expect(calculateTDEE(tmb, 'sedentary')).toBe(2098.5)
+    // 1748.75 * 1.4 = 2448.25
+    expect(calculateTDEE(tmb, 'sedentary')).toBe(2448.25)
   })
 
   it('returns correct TDEE for light', () => {
-    // 1748.75 * 1.375 = 2404.53125 → 2404.53
-    expect(calculateTDEE(tmb, 'light')).toBe(2404.53)
+    // 1748.75 * 1.5 = 2623.13 (round2)
+    expect(calculateTDEE(tmb, 'light')).toBe(2623.13)
   })
 
   it('returns correct TDEE for moderate', () => {
-    // 1748.75 * 1.55 = 2710.5625 → 2710.56
-    expect(calculateTDEE(tmb, 'moderate')).toBe(2710.56)
+    // 1748.75 * 1.6 = 2798
+    expect(calculateTDEE(tmb, 'moderate')).toBe(2798)
   })
 
   it('returns correct TDEE for intense', () => {
-    // 1748.75 * 1.725 = 3016.59375 → 3016.59
-    expect(calculateTDEE(tmb, 'intense')).toBe(3016.59)
+    // 1748.75 * 1.7 = 2972.88 (round2)
+    expect(calculateTDEE(tmb, 'intense')).toBe(2972.88)
+  })
+
+  it('returns correct TDEE for athlete', () => {
+    // 1748.75 * 1.8 = 3147.75
+    expect(calculateTDEE(tmb, 'athlete')).toBe(3147.75)
   })
 })
 
@@ -61,7 +66,7 @@ describe('calculateDailyTarget', () => {
 describe('calculateAll', () => {
   it('returns correct tmb, tdee, and dailyTarget for integration case', () => {
     // Male, 80kg, 175cm, 30yo, moderate, lose
-    // tmb: 1748.75, tdee: 2710.56, dailyTarget: 2210.56
+    // tmb: 1748.75, tdee: 1748.75 * 1.6 = 2798, dailyTarget: 2798 - 500 = 2298
     const result = calculateAll({
       sex: 'male',
       weightKg: 80,
@@ -72,7 +77,23 @@ describe('calculateAll', () => {
     })
 
     expect(result.tmb).toBe(1748.75)
-    expect(result.tdee).toBe(2710.56)
-    expect(result.dailyTarget).toBe(2210.56)
+    expect(result.tdee).toBe(2798)
+    expect(result.dailyTarget).toBe(2298)
+  })
+
+  it('returns maxWeightKg, proteinG, fatG, carbsG for integration case', () => {
+    const result = calculateAll({
+      sex: 'male',
+      weightKg: 80,
+      heightCm: 175,
+      age: 30,
+      activityLevel: 'moderate',
+      goal: 'lose',
+    })
+
+    expect(result.maxWeightKg).toBeGreaterThan(0)
+    expect(result.proteinG).toBeGreaterThan(0)
+    expect(result.fatG).toBeGreaterThan(0)
+    expect(result.carbsG).toBeGreaterThan(0)
   })
 })

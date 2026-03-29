@@ -504,8 +504,16 @@ describe('handleOnboarding — step 6 (activity level)', () => {
     )
   })
 
+  it('valid activity "5" (athlete): calls updateUser with activityLevel: "athlete"', async () => {
+    await handleOnboarding(supabase, USER_ID, '5', 6)
+    expect(mockUpdateUser).toHaveBeenCalledWith(
+      supabase, USER_ID,
+      expect.objectContaining({ activityLevel: 'athlete', onboardingStep: 7 }),
+    )
+  })
+
   it('invalid activity: returns error, completed false', async () => {
-    const result = await handleOnboarding(supabase, USER_ID, '5', 6)
+    const result = await handleOnboarding(supabase, USER_ID, '6', 6)
 
     expect(result.completed).toBe(false)
     expect(result.response).toContain('sedentário')
@@ -639,8 +647,8 @@ describe('handleOnboarding — step 8 (calorie mode + finalization)', () => {
   it('tmb/tdee values are calculated correctly from mock user data', async () => {
     // For João: male, 72.5kg, 175cm, age 28, moderate, lose
     // TMB = 10*72.5 + 6.25*175 - 5*28 + 5 = 725 + 1093.75 - 140 + 5 = 1683.75
-    // TDEE = 1683.75 * 1.55 = 2609.81
-    // dailyTarget = 2609.81 - 500 = 2109.81
+    // TDEE = 1683.75 * 1.6 = 2694
+    // dailyTarget = 2694 - 500 = 2194
     await handleOnboarding(supabase, USER_ID, '1', 8)
 
     expect(mockUpdateUser).toHaveBeenCalledWith(
@@ -648,10 +656,30 @@ describe('handleOnboarding — step 8 (calorie mode + finalization)', () => {
       USER_ID,
       expect.objectContaining({
         tmb: 1683.75,
-        tdee: 2609.81,
-        dailyCalorieTarget: 2110,
+        tdee: 2694,
+        dailyCalorieTarget: 2194,
       }),
     )
+  })
+
+  it('valid mode: updateUser called with macros', async () => {
+    await handleOnboarding(supabase, USER_ID, '1', 8)
+    expect(mockUpdateUser).toHaveBeenCalledWith(
+      supabase, USER_ID,
+      expect.objectContaining({
+        maxWeightKg: expect.any(Number),
+        dailyProteinG: expect.any(Number),
+        dailyFatG: expect.any(Number),
+        dailyCarbsG: expect.any(Number),
+      }),
+    )
+  })
+
+  it('valid mode "1": response contains macros breakdown', async () => {
+    const result = await handleOnboarding(supabase, USER_ID, '1', 8)
+    expect(result.response).toContain('Proteína:')
+    expect(result.response).toContain('Gordura:')
+    expect(result.response).toContain('Carbs:')
   })
 
   it('invalid mode: returns error, completed false', async () => {
