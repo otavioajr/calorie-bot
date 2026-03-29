@@ -1,12 +1,13 @@
 export type Sex = 'male' | 'female'
-export type ActivityLevel = 'sedentary' | 'light' | 'moderate' | 'intense'
+export type ActivityLevel = 'sedentary' | 'light' | 'moderate' | 'intense' | 'athlete'
 export type Goal = 'lose' | 'maintain' | 'gain'
 
 const ACTIVITY_FACTORS: Record<ActivityLevel, number> = {
-  sedentary: 1.2,
-  light: 1.375,
-  moderate: 1.55,
-  intense: 1.725,
+  sedentary: 1.4,
+  light: 1.5,
+  moderate: 1.6,
+  intense: 1.7,
+  athlete: 1.8,
 }
 
 const GOAL_ADJUSTMENTS: Record<Goal, number> = {
@@ -38,6 +39,27 @@ export function calculateDailyTarget(tdee: number, goal: Goal): number {
   return round2(tdee + GOAL_ADJUSTMENTS[goal])
 }
 
+export function calculateMaxWeight(heightCm: number): number {
+  const heightM = heightCm / 100
+  return round2(24.9 * heightM * heightM)
+}
+
+export function calculateMacros(params: {
+  sex: Sex
+  maxWeightKg: number
+  dailyTarget: number
+}): { proteinG: number; fatG: number; carbsG: number } {
+  // Protein: 2g per kg of max weight
+  const proteinG = Math.round(params.maxWeightKg * 2)
+  // Fat: 25% of daily target
+  const fatG = Math.round((params.dailyTarget * 0.25) / 9)
+  // Carbs: remaining calories
+  const proteinCals = proteinG * 4
+  const fatCals = fatG * 9
+  const carbsG = Math.round(Math.max(0, params.dailyTarget - proteinCals - fatCals) / 4)
+  return { proteinG, fatG, carbsG }
+}
+
 export function calculateAll(params: {
   sex: Sex
   weightKg: number
@@ -45,9 +67,19 @@ export function calculateAll(params: {
   age: number
   activityLevel: ActivityLevel
   goal: Goal
-}): { tmb: number; tdee: number; dailyTarget: number } {
+}): {
+  tmb: number
+  tdee: number
+  dailyTarget: number
+  maxWeightKg: number
+  proteinG: number
+  fatG: number
+  carbsG: number
+} {
   const tmb = calculateTMB(params.sex, params.weightKg, params.heightCm, params.age)
   const tdee = calculateTDEE(tmb, params.activityLevel)
   const dailyTarget = calculateDailyTarget(tdee, params.goal)
-  return { tmb, tdee, dailyTarget }
+  const maxWeightKg = calculateMaxWeight(params.heightCm)
+  const { proteinG, fatG, carbsG } = calculateMacros({ sex: params.sex, maxWeightKg, dailyTarget })
+  return { tmb, tdee, dailyTarget, maxWeightKg, proteinG, fatG, carbsG }
 }

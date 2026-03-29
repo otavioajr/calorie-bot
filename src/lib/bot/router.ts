@@ -7,6 +7,7 @@ export type IntentType =
   | 'help'
   | 'settings'
   | 'user_data'
+  | 'recalculate'
   | 'out_of_scope'
 
 /**
@@ -69,6 +70,12 @@ const QUERY_KEYWORDS: readonly string[] = [
   'quanto tem uma',
 ]
 
+const RECALCULATE_KEYWORDS: readonly string[] = [
+  'recalcular',
+  '/recalcular',
+  'recalcula',
+]
+
 const USER_DATA_KEYWORDS: readonly string[] = [
   'meus dados',
   'meu perfil',
@@ -80,14 +87,15 @@ const USER_DATA_KEYWORDS: readonly string[] = [
  * Returns null when no rule matches (LLM fallback will classify).
  *
  * Priority order:
- * 1. help    — exact match
+ * 1. help       — exact match
  * 2. settings
  * 3. summary
  * 4. edit
  * 5. weight
+ * 5.5. recalculate
  * 6. query
  * 7. user_data
- * 8. null    — no rule matched
+ * 8. null       — no rule matched
  */
 export function classifyByRules(message: string): IntentType | null {
   const normalized = normalize(message)
@@ -115,6 +123,11 @@ export function classifyByRules(message: string): IntentType | null {
   // 5. weight
   for (const kw of WEIGHT_KEYWORDS) {
     if (normalized.includes(kw)) return 'weight'
+  }
+
+  // 5.5. recalculate
+  for (const kw of RECALCULATE_KEYWORDS) {
+    if (normalized.includes(kw)) return 'recalculate'
   }
 
   // 6. query

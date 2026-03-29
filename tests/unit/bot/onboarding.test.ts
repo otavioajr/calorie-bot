@@ -639,8 +639,8 @@ describe('handleOnboarding — step 8 (calorie mode + finalization)', () => {
   it('tmb/tdee values are calculated correctly from mock user data', async () => {
     // For João: male, 72.5kg, 175cm, age 28, moderate, lose
     // TMB = 10*72.5 + 6.25*175 - 5*28 + 5 = 725 + 1093.75 - 140 + 5 = 1683.75
-    // TDEE = 1683.75 * 1.55 = 2609.81
-    // dailyTarget = 2609.81 - 500 = 2109.81
+    // TDEE = 1683.75 * 1.6 = 2694.0
+    // dailyTarget = 2694 - 500 = 2194
     await handleOnboarding(supabase, USER_ID, '1', 8)
 
     expect(mockUpdateUser).toHaveBeenCalledWith(
@@ -648,8 +648,8 @@ describe('handleOnboarding — step 8 (calorie mode + finalization)', () => {
       USER_ID,
       expect.objectContaining({
         tmb: 1683.75,
-        tdee: 2609.81,
-        dailyCalorieTarget: 2110,
+        tdee: 2694,
+        dailyCalorieTarget: 2194,
       }),
     )
   })

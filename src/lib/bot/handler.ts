@@ -10,6 +10,7 @@ import { handleEdit } from '@/lib/bot/flows/edit'
 import { handleWeight } from '@/lib/bot/flows/weight'
 import { handleSettings } from '@/lib/bot/flows/settings'
 import { handleHelp, handleUserData } from '@/lib/bot/flows/help'
+import { handleRecalculate } from '@/lib/bot/flows/recalculate'
 import { getLLMProvider } from '@/lib/llm/index'
 import { sendTextMessage } from '@/lib/whatsapp/client'
 import { formatOutOfScope, formatError, formatMealBreakdown } from '@/lib/utils/formatters'
@@ -137,6 +138,9 @@ export async function handleIncomingMessage(
         break
       case 'weight':
         response = await handleWeight(supabase, user.id, text, user)
+        break
+      case 'recalculate':
+        response = await handleRecalculate(supabase, user.id)
         break
       case 'settings': {
         const data = await getUserWithSettings(supabase, user.id)
