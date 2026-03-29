@@ -145,10 +145,14 @@ export function validateActivityLevel(input: string): ValidationResult<ActivityL
     return { valid: true, value: 'intense' }
   }
 
+  if (key === '5' || key === 'atleta' || key === 'athlete') {
+    return { valid: true, value: 'athlete' as ActivityLevel }
+  }
+
   return {
     valid: false,
     error:
-      'Opção inválida. Digite 1 (sedentário), 2 (leve), 3 (moderado) ou 4 (intenso).',
+      'Opção inválida. Digite 1 (sedentário), 2 (leve), 3 (moderado), 4 (intenso) ou 5 (atleta).',
   }
 }
 
