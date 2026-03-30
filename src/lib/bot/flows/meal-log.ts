@@ -21,13 +21,6 @@ export interface MealLogResult {
 }
 
 // ---------------------------------------------------------------------------
-// Confirmation keywords
-// ---------------------------------------------------------------------------
-
-const CONFIRM_PATTERN = /^(sim|s|ok|confirma)$/i
-const REJECT_PATTERN = /^(corrigir|não|nao|n)$/i
-
-// ---------------------------------------------------------------------------
 // Types for enriched items
 // ---------------------------------------------------------------------------
 
@@ -85,13 +78,7 @@ async function resolveByBase(
   return { match: variants[0], usedDefault: true }
 }
 
-function getMealsFromContext(contextData: Record<string, unknown>): { meals: MealAnalysis[]; enrichedMeals: EnrichedItem[][] } {
-  const meals = (contextData.mealAnalyses ?? (contextData.mealAnalysis ? [contextData.mealAnalysis] : [])) as MealAnalysis[]
-  const enrichedMeals = (contextData.enrichedMeals ?? []) as EnrichedItem[][]
-  return { meals, enrichedMeals }
-}
-
-function buildConfirmationResponse(
+function buildReceiptResponse(
   meals: MealAnalysis[],
   enrichedMeals: EnrichedItem[][],
   dailyConsumedSoFar: number,
@@ -118,7 +105,7 @@ function buildConfirmationResponse(
       dailyTarget,
     )
 
-    return defaultNotice ? breakdown.replace('Tá certo?', `${defaultNotice}\n\nTá certo?`) : breakdown
+    return defaultNotice ? breakdown.replace('Algo errado?', `${defaultNotice}\nAlgo errado?`) : breakdown
   }
 
   const mealSections = meals.map((analysis, idx) => ({
@@ -129,7 +116,7 @@ function buildConfirmationResponse(
 
   const multiBreakdown = formatMultiMealBreakdown(mealSections, dailyConsumedSoFar, dailyTarget)
 
-  return defaultNotice ? multiBreakdown.replace('Tá certo?', `${defaultNotice}\n\nTá certo?`) : multiBreakdown
+  return defaultNotice ? multiBreakdown.replace('Algo errado?', `${defaultNotice}\nAlgo errado?`) : multiBreakdown
 }
 
 // ---------------------------------------------------------------------------
@@ -318,20 +305,6 @@ export async function handleMealLog(
 ): Promise<MealLogResult> {
   const trimmed = message.trim()
 
-  if (context?.contextType === 'awaiting_confirmation') {
-    if (CONFIRM_PATTERN.test(trimmed)) {
-      return handleConfirmation(supabase, userId, context, user)
-    }
-    if (REJECT_PATTERN.test(trimmed)) {
-      return handleRejection(userId, context)
-    }
-    // User sent something else while awaiting confirmation — treat as correction
-    // Combine the original meal with the new input for re-analysis
-    const originalMessage = context.contextData.originalMessage as string
-    const combined = `${originalMessage}\n${trimmed}`
-    return analyzeAndConfirm(supabase, userId, combined, originalMessage, user)
-  }
-
   // Branch: user is selecting from history matches
   if (context?.contextType === 'awaiting_history_selection') {
     return handleHistorySelection(supabase, userId, trimmed, context, user)
@@ -340,84 +313,10 @@ export async function handleMealLog(
   if (context?.contextType === 'awaiting_clarification') {
     const originalMessage = context.contextData.originalMessage as string
     const combined = `${originalMessage}\n${trimmed}`
-    return analyzeAndConfirm(supabase, userId, combined, trimmed, user)
+    return analyzeAndRegister(supabase, userId, combined, trimmed, user)
   }
 
-  return analyzeAndConfirm(supabase, userId, trimmed, trimmed, user)
-}
-
-// ---------------------------------------------------------------------------
-// Confirmation handler
-// ---------------------------------------------------------------------------
-
-async function handleConfirmation(
-  supabase: SupabaseClient,
-  userId: string,
-  context: ConversationContext,
-  user: {
-    calorieMode: string
-    dailyCalorieTarget: number | null
-    dailyProteinG?: number | null
-    dailyFatG?: number | null
-    dailyCarbsG?: number | null
-  },
-): Promise<MealLogResult> {
-  const { meals, enrichedMeals } = getMealsFromContext(context.contextData)
-  const originalMessage = context.contextData.originalMessage as string
-
-  for (let i = 0; i < meals.length; i++) {
-    const analysis = meals[i]
-    const items = enrichedMeals[i] ?? []
-
-    await createMeal(supabase, {
-      userId,
-      mealType: analysis.meal_type,
-      totalCalories: totalCaloriesFromEnriched(items),
-      originalMessage,
-      llmResponse: analysis as unknown as Record<string, unknown>,
-      items: items.map((item) => ({
-        foodName: item.food,
-        quantityGrams: item.quantityGrams,
-        calories: item.calories,
-        proteinG: item.protein,
-        carbsG: item.carbs,
-        fatG: item.fat,
-        source: item.source,
-        tacoId: item.tacoId,
-      })),
-    })
-  }
-
-  // Record TACO usage for default learning
-  for (const items of enrichedMeals) {
-    for (const item of items) {
-      if (item.tacoId && item.source === 'taco') {
-        const foodBase = item.defaultFoodBase ?? item.food
-        await recordTacoUsage(supabase, foodBase, item.tacoId, userId)
-      }
-    }
-  }
-
-  await clearState(userId)
-
-  const target = user.dailyCalorieTarget ?? 2000
-  const hasMacroTargets = user.dailyProteinG && user.dailyFatG && user.dailyCarbsG
-
-  let progressLine: string
-  if (hasMacroTargets) {
-    const dailyMacros = await getDailyMacros(supabase, userId)
-    progressLine = formatProgress(dailyMacros.calories, target, {
-      consumed: { proteinG: dailyMacros.proteinG, fatG: dailyMacros.fatG, carbsG: dailyMacros.carbsG },
-      target: { proteinG: user.dailyProteinG!, fatG: user.dailyFatG!, carbsG: user.dailyCarbsG! },
-    })
-  } else {
-    const dailyConsumed = await getDailyCalories(supabase, userId)
-    progressLine = formatProgress(dailyConsumed, target)
-  }
-
-  const label = meals.length > 1 ? 'Refeições registradas' : 'Refeição registrada'
-
-  return { response: `${label}! ✅\n\n${progressLine}`, completed: true }
+  return analyzeAndRegister(supabase, userId, trimmed, trimmed, user)
 }
 
 // ---------------------------------------------------------------------------
@@ -452,37 +351,67 @@ async function handleHistorySelection(
     tacoId: match.tacoId ?? undefined,
   }]]
 
+  // Register directly
+  await saveMeals(supabase, userId, meals, enrichedMeals, originalMessage)
+  await clearState(userId)
+
   const dailyConsumed = await getDailyCalories(supabase, userId)
   const target = user.dailyCalorieTarget ?? 2000
-  const response = buildConfirmationResponse(meals, enrichedMeals, dailyConsumed, target)
+  const response = buildReceiptResponse(meals, enrichedMeals, dailyConsumed, target)
 
-  await setState(userId, 'awaiting_confirmation', {
-    mealAnalyses: meals as unknown as Record<string, unknown>,
-    enrichedMeals: enrichedMeals as unknown as Record<string, unknown>,
-    originalMessage,
-  })
-
-  return { response, completed: false }
+  return { response, completed: true }
 }
 
 // ---------------------------------------------------------------------------
-// Rejection handler
+// Save meals to database
 // ---------------------------------------------------------------------------
 
-async function handleRejection(userId: string, context: ConversationContext): Promise<MealLogResult> {
-  const originalMessage = context.contextData.originalMessage as string
-  await setState(userId, 'awaiting_clarification', { originalMessage })
-  return {
-    response: 'Ok! O que quer corrigir? Pode me mandar a refeição novamente com as correções.',
-    completed: false,
+async function saveMeals(
+  supabase: SupabaseClient,
+  userId: string,
+  meals: MealAnalysis[],
+  enrichedMeals: EnrichedItem[][],
+  originalMessage: string,
+): Promise<void> {
+  for (let i = 0; i < meals.length; i++) {
+    const analysis = meals[i]
+    const items = enrichedMeals[i] ?? []
+
+    await createMeal(supabase, {
+      userId,
+      mealType: analysis.meal_type,
+      totalCalories: totalCaloriesFromEnriched(items),
+      originalMessage,
+      llmResponse: analysis as unknown as Record<string, unknown>,
+      items: items.map((item) => ({
+        foodName: item.food,
+        quantityGrams: item.quantityGrams,
+        calories: item.calories,
+        proteinG: item.protein,
+        carbsG: item.carbs,
+        fatG: item.fat,
+        source: item.source,
+        tacoId: item.tacoId,
+      })),
+    })
+  }
+
+  // Record TACO usage for default learning
+  for (const items of enrichedMeals) {
+    for (const item of items) {
+      if (item.tacoId && item.source === 'taco') {
+        const foodBase = item.defaultFoodBase ?? item.food
+        await recordTacoUsage(supabase, foodBase, item.tacoId, userId)
+      }
+    }
   }
 }
 
 // ---------------------------------------------------------------------------
-// Analyze meal with LLM, enrich with TACO, show confirmation
+// Analyze meal with LLM, enrich with TACO, register immediately
 // ---------------------------------------------------------------------------
 
-async function analyzeAndConfirm(
+async function analyzeAndRegister(
   supabase: SupabaseClient,
   userId: string,
   messageToAnalyze: string,
@@ -529,7 +458,7 @@ async function analyzeAndConfirm(
         continue
       }
       if (matches.length === 1) {
-        // Single match — use it directly
+        // Single match — register directly
         const match = matches[0]
         const enrichedMeals: EnrichedItem[][] = [[{
           food: match.foodName,
@@ -541,15 +470,11 @@ async function analyzeAndConfirm(
           source: 'user_history',
           tacoId: match.tacoId ?? undefined,
         }]]
+        await saveMeals(supabase, userId, meals, enrichedMeals, originalMessage)
         const dailyConsumed = await getDailyCalories(supabase, userId)
         const target = user.dailyCalorieTarget ?? 2000
-        const response = buildConfirmationResponse(meals, enrichedMeals, dailyConsumed, target)
-        await setState(userId, 'awaiting_confirmation', {
-          mealAnalyses: meals as unknown as Record<string, unknown>,
-          enrichedMeals: enrichedMeals as unknown as Record<string, unknown>,
-          originalMessage,
-        })
-        return { response, completed: false }
+        const response = buildReceiptResponse(meals, enrichedMeals, dailyConsumed, target)
+        return { response, completed: true }
       }
       // Multiple matches — present options
       const options = matches.map((m, i) => {
@@ -575,17 +500,13 @@ async function analyzeAndConfirm(
     enrichedMeals.push(enriched)
   }
 
-  // Show breakdown and ask for confirmation
+  // Register immediately
+  await saveMeals(supabase, userId, meals, enrichedMeals, originalMessage)
+
   const dailyConsumed = await getDailyCalories(supabase, userId)
   const target = user.dailyCalorieTarget ?? 2000
 
-  const response = buildConfirmationResponse(meals, enrichedMeals, dailyConsumed, target)
+  const response = buildReceiptResponse(meals, enrichedMeals, dailyConsumed, target)
 
-  await setState(userId, 'awaiting_confirmation', {
-    mealAnalyses: meals as unknown as Record<string, unknown>,
-    enrichedMeals: enrichedMeals as unknown as Record<string, unknown>,
-    originalMessage,
-  })
-
-  return { response, completed: false }
+  return { response, completed: true }
 }

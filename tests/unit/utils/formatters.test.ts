@@ -53,10 +53,9 @@ describe('formatMealBreakdown', () => {
     expect(result).toContain('770')
   })
 
-  it('ends with confirmation prompt', () => {
+  it('ends with correction hint', () => {
     const result = formatMealBreakdown('Almoço', items, 470, 1230, 2000)
-    expect(result).toContain('sim')
-    expect(result).toContain('corrigir')
+    expect(result).toContain('Algo errado? Manda "corrigir"')
   })
 
   it('includes the 🍽️ emoji in header', () => {

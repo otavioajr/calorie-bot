@@ -583,24 +583,17 @@ describe('handleIncomingMessage — context-based routing', () => {
     mockFindUserByPhone.mockResolvedValue(completedUser)
   })
 
-  it('routes to handleMealLog when context is awaiting_confirmation', async () => {
+  it('does not route to handleMealLog when context is awaiting_confirmation', async () => {
     const mockContext = {
       contextType: 'awaiting_confirmation',
       contextData: { mealAnalysis: {}, originalMessage: 'arroz e feijão' },
     }
     mockGetState.mockResolvedValue(mockContext)
-    mockHandleMealLog.mockResolvedValue({ response: 'confirmed!', completed: true })
+    mockClassifyByRules.mockReturnValue('out_of_scope')
 
     await handleIncomingMessage(FROM, MESSAGE_ID, 'sim')
 
-    expect(mockHandleMealLog).toHaveBeenCalledWith(
-      mockSupabase,
-      completedUser.id,
-      'sim',
-      { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget, phone: FROM },
-      mockContext
-    )
-    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'confirmed!')
+    expect(mockHandleMealLog).not.toHaveBeenCalled()
   })
 
   it('routes to handleMealLog when context is awaiting_clarification', async () => {
@@ -642,28 +635,28 @@ describe('handleIncomingMessage — context-based routing', () => {
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'correction received')
   })
 
-  it('does not call classifyByRules when an active meal context is present', async () => {
+  it('does not call classifyByRules when context is awaiting_clarification', async () => {
     const mockContext = {
-      contextType: 'awaiting_confirmation',
-      contextData: { mealAnalysis: {}, originalMessage: 'pizza' },
+      contextType: 'awaiting_clarification',
+      contextData: { originalMessage: 'pizza' },
     }
     mockGetState.mockResolvedValue(mockContext)
     mockHandleMealLog.mockResolvedValue({ response: 'done', completed: true })
 
-    await handleIncomingMessage(FROM, MESSAGE_ID, 'sim')
+    await handleIncomingMessage(FROM, MESSAGE_ID, '200g de frango')
 
     expect(mockClassifyByRules).not.toHaveBeenCalled()
   })
 
   it('returns early (does not call sendTextMessage twice) when context routes to handleMealLog', async () => {
     const mockContext = {
-      contextType: 'awaiting_confirmation',
-      contextData: { mealAnalysis: {}, originalMessage: 'pizza' },
+      contextType: 'awaiting_clarification',
+      contextData: { originalMessage: 'pizza' },
     }
     mockGetState.mockResolvedValue(mockContext)
     mockHandleMealLog.mockResolvedValue({ response: 'done', completed: true })
 
-    await handleIncomingMessage(FROM, MESSAGE_ID, 'sim')
+    await handleIncomingMessage(FROM, MESSAGE_ID, '200g de frango')
 
     expect(mockSendTextMessage).toHaveBeenCalledTimes(1)
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'done')

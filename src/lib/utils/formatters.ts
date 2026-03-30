@@ -63,7 +63,7 @@ export function formatMealBreakdown(
     '',
     progressLine,
     '',
-    'Tá certo? (sim / corrigir)',
+    'Algo errado? Manda "corrigir"',
   ].join('\n')
 }
 
@@ -97,7 +97,7 @@ export function formatMultiMealBreakdown(
     '',
     progressLine,
     '',
-    'Tá certo? (sim / corrigir)',
+    'Algo errado? Manda "corrigir"',
   ].join('\n')
 }
 

@@ -88,28 +88,28 @@ describe('CONTEXT_TTLS', () => {
     expect(CONTEXT_TTLS.onboarding).toBe(1440)
   })
 
-  it('awaiting_confirmation TTL is 1440 minutes', () => {
-    expect(CONTEXT_TTLS.awaiting_confirmation).toBe(1440)
+  it('awaiting_confirmation TTL is 5 minutes', () => {
+    expect(CONTEXT_TTLS.awaiting_confirmation).toBe(5)
   })
 
-  it('awaiting_clarification TTL is 60 minutes', () => {
-    expect(CONTEXT_TTLS.awaiting_clarification).toBe(60)
+  it('awaiting_clarification TTL is 10 minutes', () => {
+    expect(CONTEXT_TTLS.awaiting_clarification).toBe(10)
   })
 
-  it('awaiting_correction TTL is 60 minutes', () => {
-    expect(CONTEXT_TTLS.awaiting_correction).toBe(60)
+  it('awaiting_correction TTL is 10 minutes', () => {
+    expect(CONTEXT_TTLS.awaiting_correction).toBe(10)
   })
 
-  it('awaiting_weight TTL is 60 minutes', () => {
-    expect(CONTEXT_TTLS.awaiting_weight).toBe(60)
+  it('awaiting_weight TTL is 5 minutes', () => {
+    expect(CONTEXT_TTLS.awaiting_weight).toBe(5)
   })
 
-  it('settings_menu TTL is 30 minutes', () => {
-    expect(CONTEXT_TTLS.settings_menu).toBe(30)
+  it('settings_menu TTL is 5 minutes', () => {
+    expect(CONTEXT_TTLS.settings_menu).toBe(5)
   })
 
-  it('settings_change TTL is 30 minutes', () => {
-    expect(CONTEXT_TTLS.settings_change).toBe(30)
+  it('settings_change TTL is 5 minutes', () => {
+    expect(CONTEXT_TTLS.settings_change).toBe(5)
   })
 })
 
@@ -273,10 +273,10 @@ describe('setState', () => {
     )
   })
 
-  it('calculates expiresAt correctly for awaiting_confirmation (1440 min)', async () => {
+  it('calculates expiresAt correctly for awaiting_confirmation (5 min)', async () => {
     await setState('user-123', 'awaiting_confirmation', {})
 
-    const expectedExpiry = new Date(NOW.getTime() + 1440 * 60 * 1000).toISOString()
+    const expectedExpiry = new Date(NOW.getTime() + 5 * 60 * 1000).toISOString()
     expect(mockInsertFn).toHaveBeenCalledWith(
       expect.objectContaining({ expires_at: expectedExpiry })
     )
@@ -291,19 +291,19 @@ describe('setState', () => {
     )
   })
 
-  it('calculates expiresAt correctly for awaiting_clarification (60 min)', async () => {
+  it('calculates expiresAt correctly for awaiting_clarification (10 min)', async () => {
     await setState('user-789', 'awaiting_clarification', {})
 
-    const expectedExpiry = new Date(NOW.getTime() + 60 * 60 * 1000).toISOString()
+    const expectedExpiry = new Date(NOW.getTime() + 10 * 60 * 1000).toISOString()
     expect(mockInsertFn).toHaveBeenCalledWith(
       expect.objectContaining({ expires_at: expectedExpiry })
     )
   })
 
-  it('calculates expiresAt correctly for settings_menu (30 min)', async () => {
+  it('calculates expiresAt correctly for settings_menu (5 min)', async () => {
     await setState('user-000', 'settings_menu', {})
 
-    const expectedExpiry = new Date(NOW.getTime() + 30 * 60 * 1000).toISOString()
+    const expectedExpiry = new Date(NOW.getTime() + 5 * 60 * 1000).toISOString()
     expect(mockInsertFn).toHaveBeenCalledWith(
       expect.objectContaining({ expires_at: expectedExpiry })
     )

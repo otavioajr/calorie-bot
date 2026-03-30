@@ -45,8 +45,8 @@ const {
     mockCreateMeal: vi.fn().mockResolvedValue('meal-id-123'),
     mockGetDailyCalories: vi.fn().mockResolvedValue(800),
     mockGetDailyMacros: vi.fn().mockResolvedValue({ calories: 800, proteinG: 40, carbsG: 100, fatG: 20 }),
-    mockFormatMealBreakdown: vi.fn().mockReturnValue('Breakdown message\nTá certo? (sim / corrigir)'),
-    mockFormatMultiMealBreakdown: vi.fn().mockReturnValue('Multi breakdown message\nTá certo? (sim / corrigir)'),
+    mockFormatMealBreakdown: vi.fn().mockReturnValue('Breakdown message\nAlgo errado? Manda "corrigir"'),
+    mockFormatMultiMealBreakdown: vi.fn().mockReturnValue('Multi breakdown message\nAlgo errado? Manda "corrigir"'),
     mockFormatProgress: vi.fn().mockReturnValue('📊 Hoje: 800 / 2000 kcal (restam 1200)'),
     mockFormatDecompositionFeedback: vi.fn().mockReturnValue('Decompondo...'),
     mockGetRecentMessages: vi.fn().mockResolvedValue([]),
@@ -248,7 +248,7 @@ describe('handleMealLog', () => {
     })
     mockCreateMeal.mockResolvedValue('meal-id-123')
     mockGetDailyCalories.mockResolvedValue(800)
-    mockFormatMealBreakdown.mockReturnValue('Breakdown message\nTá certo? (sim / corrigir)')
+    mockFormatMealBreakdown.mockReturnValue('Breakdown message\nAlgo errado? Manda "corrigir"')
     mockFormatProgress.mockReturnValue('📊 Hoje: 800 / 2000 kcal (restam 1200)')
     // Reset TACO mocks to default
     mockFuzzyMatchTacoMultiple.mockResolvedValue(new Map([
@@ -263,11 +263,11 @@ describe('handleMealLog', () => {
   })
 
   // -------------------------------------------------------------------------
-  // New meal — calls LLM, returns breakdown for confirmation
+  // New meal — calls LLM, registers immediately
   // -------------------------------------------------------------------------
 
   describe('new meal (no context)', () => {
-    it('analyzes new meal and asks for confirmation', async () => {
+    it('analyzes new meal and registers immediately', async () => {
       const result: MealLogResult = await handleMealLog(
         supabase,
         USER_ID,
@@ -280,8 +280,8 @@ describe('handleMealLog', () => {
         'almocei arroz e feijão',
         [],
       )
-      expect(result.response).toContain('Tá certo?')
-      expect(result.completed).toBe(false)
+      expect(mockCreateMeal).toHaveBeenCalled()
+      expect(result.completed).toBe(true)
     })
 
     it('calls getLLMProvider to get the LLM', async () => {
@@ -290,17 +290,13 @@ describe('handleMealLog', () => {
       expect(mockGetLLMProvider).toHaveBeenCalled()
     })
 
-    it('sets state to awaiting_confirmation with meal analysis and enriched meals', async () => {
+    it('does NOT set state to awaiting_confirmation', async () => {
       await handleMealLog(supabase, USER_ID, 'almocei arroz e feijão', mockUser, null)
 
-      expect(mockSetState).toHaveBeenCalledWith(
+      expect(mockSetState).not.toHaveBeenCalledWith(
         USER_ID,
         'awaiting_confirmation',
-        expect.objectContaining({
-          mealAnalyses: expect.arrayContaining([expect.objectContaining({ meal_type: 'lunch' })]),
-          enrichedMeals: expect.any(Array),
-          originalMessage: 'almocei arroz e feijão',
-        }),
+        expect.anything(),
       )
     })
 
@@ -313,164 +309,13 @@ describe('handleMealLog', () => {
       )
     })
 
-    it('completed is false when waiting for confirmation', async () => {
+    it('completed is true after immediate registration', async () => {
       const result = await handleMealLog(supabase, USER_ID, 'almocei', mockUser, null)
 
-      expect(result.completed).toBe(false)
-    })
-  })
-
-  // -------------------------------------------------------------------------
-  // Confirmation — "sim"
-  // -------------------------------------------------------------------------
-
-  describe('confirmation (awaiting_confirmation context)', () => {
-    it('saves meal on "sim" confirmation', async () => {
-      const context = buildConfirmationContext()
-      const result: MealLogResult = await handleMealLog(
-        supabase,
-        USER_ID,
-        'sim',
-        mockUser,
-        context,
-      )
-
-      expect(mockCreateMeal).toHaveBeenCalled()
       expect(result.completed).toBe(true)
     })
-
-    it('saves meal on "s" confirmation', async () => {
-      const context = buildConfirmationContext()
-      await handleMealLog(supabase, USER_ID, 's', mockUser, context)
-
-      expect(mockCreateMeal).toHaveBeenCalled()
-    })
-
-    it('saves meal on "ok" confirmation', async () => {
-      const context = buildConfirmationContext()
-      await handleMealLog(supabase, USER_ID, 'ok', mockUser, context)
-
-      expect(mockCreateMeal).toHaveBeenCalled()
-    })
-
-    it('saves meal on "confirma" confirmation', async () => {
-      const context = buildConfirmationContext()
-      await handleMealLog(supabase, USER_ID, 'confirma', mockUser, context)
-
-      expect(mockCreateMeal).toHaveBeenCalled()
-    })
-
-    it('saves meal with case-insensitive "SIM"', async () => {
-      const context = buildConfirmationContext()
-      await handleMealLog(supabase, USER_ID, 'SIM', mockUser, context)
-
-      expect(mockCreateMeal).toHaveBeenCalled()
-    })
-
-    it('calls clearState after saving', async () => {
-      const context = buildConfirmationContext()
-      await handleMealLog(supabase, USER_ID, 'sim', mockUser, context)
-
-      expect(mockClearState).toHaveBeenCalledWith(USER_ID)
-    })
-
-    it('includes daily progress in response after saving', async () => {
-      const context = buildConfirmationContext()
-      mockGetDailyCalories.mockResolvedValue(1060)
-      mockFormatProgress.mockReturnValue('📊 Hoje: 1060 / 2000 kcal (restam 940)')
-
-      const result = await handleMealLog(supabase, USER_ID, 'sim', mockUser, context)
-
-      expect(mockGetDailyCalories).toHaveBeenCalled()
-      expect(result.response).toContain('📊')
-    })
-
-    it('createMeal receives userId, meal data, and enriched items with source', async () => {
-      const context = buildConfirmationContext()
-      await handleMealLog(supabase, USER_ID, 'sim', mockUser, context)
-
-      expect(mockCreateMeal).toHaveBeenCalledWith(
-        supabase,
-        expect.objectContaining({
-          userId: USER_ID,
-          mealType: 'lunch',
-          items: expect.arrayContaining([
-            expect.objectContaining({
-              source: 'taco',
-            }),
-          ]),
-        }),
-      )
-    })
   })
 
-  // -------------------------------------------------------------------------
-  // Rejection — "corrigir" / "não"
-  // -------------------------------------------------------------------------
-
-  describe('correction request (awaiting_confirmation context)', () => {
-    it('handles "corrigir" — sets awaiting_clarification and asks what to correct', async () => {
-      const context = buildConfirmationContext()
-      const result: MealLogResult = await handleMealLog(
-        supabase,
-        USER_ID,
-        'corrigir',
-        mockUser,
-        context,
-      )
-
-      expect(mockSetState).toHaveBeenCalledWith(
-        USER_ID,
-        'awaiting_clarification',
-        expect.objectContaining({ originalMessage: 'almocei arroz e feijão' }),
-      )
-      expect(result.response).toMatch(/corrigir|corrij|o que/i)
-      expect(result.completed).toBe(false)
-    })
-
-    it('handles "não" — sets awaiting_clarification', async () => {
-      const context = buildConfirmationContext()
-      const result = await handleMealLog(supabase, USER_ID, 'não', mockUser, context)
-
-      expect(mockSetState).toHaveBeenCalledWith(
-        USER_ID,
-        'awaiting_clarification',
-        expect.objectContaining({ originalMessage: 'almocei arroz e feijão' }),
-      )
-      expect(result.completed).toBe(false)
-    })
-
-    it('handles "nao" — sets awaiting_clarification', async () => {
-      const context = buildConfirmationContext()
-      const result = await handleMealLog(supabase, USER_ID, 'nao', mockUser, context)
-
-      expect(mockSetState).toHaveBeenCalledWith(
-        USER_ID,
-        'awaiting_clarification',
-        expect.objectContaining({ originalMessage: 'almocei arroz e feijão' }),
-      )
-      expect(result.completed).toBe(false)
-    })
-
-    it('handles "n" — sets awaiting_clarification', async () => {
-      const context = buildConfirmationContext()
-      const result = await handleMealLog(supabase, USER_ID, 'n', mockUser, context)
-
-      expect(mockSetState).toHaveBeenCalledWith(
-        USER_ID,
-        'awaiting_clarification',
-        expect.objectContaining({ originalMessage: 'almocei arroz e feijão' }),
-      )
-      expect(result.completed).toBe(false)
-    })
-
-    it('does NOT call createMeal on rejection', async () => {
-      const context = buildConfirmationContext()
-      await handleMealLog(supabase, USER_ID, 'corrigir', mockUser, context)
-
-      expect(mockCreateMeal).not.toHaveBeenCalled()
-    })
-  })
 
   // -------------------------------------------------------------------------
   // Clarification needed
@@ -597,10 +442,10 @@ describe('handleMealLog', () => {
       expect(mockAnalyzeMeal).toHaveBeenCalled()
     })
 
-    it('moves to awaiting_confirmation after clarification', async () => {
+    it('registers meal immediately after clarification', async () => {
       const context = buildClarificationContext()
 
-      await handleMealLog(
+      const result = await handleMealLog(
         supabase,
         USER_ID,
         'era uma tigela média de arroz',
@@ -608,20 +453,14 @@ describe('handleMealLog', () => {
         context,
       )
 
-      expect(mockSetState).toHaveBeenCalledWith(
-        USER_ID,
-        'awaiting_confirmation',
-        expect.objectContaining({
-          mealAnalyses: expect.anything(),
-          enrichedMeals: expect.anything(),
-        }),
-      )
+      expect(mockCreateMeal).toHaveBeenCalled()
+      expect(result.completed).toBe(true)
     })
 
-    it('returns breakdown response after successful clarification', async () => {
+    it('does not set awaiting_confirmation after clarification', async () => {
       const context = buildClarificationContext()
 
-      const result = await handleMealLog(
+      await handleMealLog(
         supabase,
         USER_ID,
         'era uma tigela média',
@@ -629,8 +468,11 @@ describe('handleMealLog', () => {
         context,
       )
 
-      expect(result.response).toContain('Tá certo?')
-      expect(result.completed).toBe(false)
+      expect(mockSetState).not.toHaveBeenCalledWith(
+        USER_ID,
+        'awaiting_confirmation',
+        expect.anything(),
+      )
     })
   })
 
@@ -669,7 +511,7 @@ describe('handleMealLog', () => {
         null,
       )
 
-      expect(result.completed).toBe(false)
+      expect(result.completed).toBe(true)
       expect(mockMatchTacoByBase).toHaveBeenCalledWith(supabase, 'banana')
     })
   })

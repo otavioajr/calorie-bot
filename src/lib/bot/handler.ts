@@ -71,7 +71,6 @@ export async function handleIncomingMessage(
     const context = await getState(user.id)
     if (context) {
       switch (context.contextType) {
-        case 'awaiting_confirmation':
         case 'awaiting_clarification': {
           const mealResult = await handleMealLog(supabase, user.id, text, userSettings, context)
           await sendTextMessage(from, mealResult.response)
