@@ -529,17 +529,17 @@ describe('handleMealLog', () => {
   // USDA fallback
   // -------------------------------------------------------------------------
 
-  describe('USDA fallback', () => {
-    it('uses USDA when TACO base and fuzzy both miss', async () => {
+  describe('OFF fallback', () => {
+    it('uses OFF when TACO base and fuzzy both miss', async () => {
       // Setup: whey protein not in TACO
       mockMatchTacoByBase.mockResolvedValue([])
       mockFuzzyMatchTacoMultiple.mockResolvedValue(new Map())
 
-      // USDA returns a match
+      // OFF returns a match
       mockSearchOFFFood.mockResolvedValue({
         food: 'Proteína de soro de leite',
-        usdaFoodName: 'Whey protein powder',
-        fdcId: 456789,
+        offFoodName: 'Whey Protein Powder',
+        offId: 'abc123',
         calories: 120,
         protein: 24,
         carbs: 3,
@@ -582,7 +582,7 @@ describe('handleMealLog', () => {
       expect(mockDecomposeMeal).not.toHaveBeenCalled()
     })
 
-    it('falls through to decomposition when USDA returns null', async () => {
+    it('falls through to decomposition when OFF returns null', async () => {
       mockMatchTacoByBase.mockResolvedValue([])
       mockFuzzyMatchTacoMultiple.mockResolvedValue(new Map())
       mockSearchOFFFood.mockResolvedValue(null)

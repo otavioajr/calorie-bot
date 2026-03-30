@@ -177,7 +177,7 @@ async function enrichItemsWithTaco(
   }
 
   // Step 2: Fuzzy match for items that didn't match any base
-  const needsUSDA: { item: MealItem; index: number }[] = []
+  const needsOFF: { item: MealItem; index: number }[] = []
 
   if (needsFuzzy.length > 0) {
     const fuzzyNames = needsFuzzy.map(d => d.item.food)
@@ -199,7 +199,7 @@ async function enrichItemsWithTaco(
           tacoId: tacoMatch.id,
         }
       } else {
-        needsUSDA.push({ item, index })
+        needsOFF.push({ item, index })
       }
     }
   }
@@ -207,7 +207,7 @@ async function enrichItemsWithTaco(
   // Step 3: Try OFF for items that didn't match TACO
   const needsDecomposition: { item: MealItem; index: number }[] = []
 
-  for (const { item, index } of needsUSDA) {
+  for (const { item, index } of needsOFF) {
     const offResult = await searchOFFFood(item.food, item.quantity_grams)
     if (offResult) {
       enriched[index] = {
