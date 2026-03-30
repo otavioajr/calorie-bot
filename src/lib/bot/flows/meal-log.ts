@@ -4,9 +4,10 @@ import type { MealAnalysis, MealItem } from '@/lib/llm/schemas/meal-analysis'
 import { setState, clearState } from '@/lib/bot/state'
 import type { ConversationContext } from '@/lib/bot/state'
 import { createMeal, getDailyCalories, getDailyMacros } from '@/lib/db/queries/meals'
-import { formatMealBreakdown, formatMultiMealBreakdown, formatProgress, formatDecompositionFeedback } from '@/lib/utils/formatters'
+import { formatMealBreakdown, formatMultiMealBreakdown, formatProgress, formatDecompositionFeedback, formatDefaultNotice } from '@/lib/utils/formatters'
 import { getRecentMessages } from '@/lib/db/queries/message-history'
-import { fuzzyMatchTacoMultiple, calculateMacros } from '@/lib/db/queries/taco'
+import { fuzzyMatchTacoMultiple, calculateMacros, matchTacoByBase, getLearnedDefault, recordTacoUsage } from '@/lib/db/queries/taco'
+import type { TacoFood } from '@/lib/db/queries/taco'
 import { sendTextMessage } from '@/lib/whatsapp/client'
 import { searchMealHistory, HistoryMatch } from '@/lib/db/queries/meal-history-search'
 
@@ -39,6 +40,9 @@ interface EnrichedItem {
   fat: number
   source: string
   tacoId?: number
+  usedDefault?: boolean
+  defaultFoodBase?: string
+  defaultFoodVariant?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -47,6 +51,38 @@ interface EnrichedItem {
 
 function totalCaloriesFromEnriched(items: EnrichedItem[]): number {
   return Math.round(items.reduce((sum, item) => sum + item.calories, 0))
+}
+
+async function resolveByBase(
+  supabase: SupabaseClient,
+  foodName: string,
+): Promise<{ match: TacoFood; usedDefault: boolean } | null> {
+  // Try matching the food name as a base (e.g., "banana" → all banana variants)
+  const variants = await matchTacoByBase(supabase, foodName)
+  if (variants.length === 0) return null
+
+  // Single variant — no ambiguity
+  if (variants.length === 1) {
+    return { match: variants[0], usedDefault: false }
+  }
+
+  // Check for learned default first (community preference)
+  const learned = await getLearnedDefault(supabase, foodName)
+  if (learned) {
+    const learnedFood = variants.find(v => v.id === learned.tacoId)
+    if (learnedFood) {
+      return { match: learnedFood, usedDefault: true }
+    }
+  }
+
+  // Fall back to manual default (is_default = true)
+  const manualDefault = variants.find(v => v.isDefault)
+  if (manualDefault) {
+    return { match: manualDefault, usedDefault: true }
+  }
+
+  // No default set — use first result
+  return { match: variants[0], usedDefault: true }
 }
 
 function getMealsFromContext(contextData: Record<string, unknown>): { meals: MealAnalysis[]; enrichedMeals: EnrichedItem[][] } {
@@ -61,18 +97,28 @@ function buildConfirmationResponse(
   dailyConsumedSoFar: number,
   dailyTarget: number,
 ): string {
+  // Collect all items that used a default
+  const defaults = enrichedMeals
+    .flat()
+    .filter(i => i.usedDefault && i.defaultFoodBase && i.defaultFoodVariant)
+    .map(i => ({ foodBase: i.defaultFoodBase!, foodVariant: i.defaultFoodVariant! }))
+
+  const defaultNotice = formatDefaultNotice(defaults)
+
   if (meals.length === 1 && enrichedMeals.length === 1) {
     const analysis = meals[0]
     const items = enrichedMeals[0]
     const total = totalCaloriesFromEnriched(items)
 
-    return formatMealBreakdown(
+    const breakdown = formatMealBreakdown(
       analysis.meal_type,
       items.map(i => ({ food: i.food, quantityGrams: i.quantityGrams, calories: i.calories })),
       total,
       dailyConsumedSoFar,
       dailyTarget,
     )
+
+    return defaultNotice ? breakdown.replace('Tá certo?', `${defaultNotice}\n\nTá certo?`) : breakdown
   }
 
   const mealSections = meals.map((analysis, idx) => ({
@@ -81,7 +127,9 @@ function buildConfirmationResponse(
     total: totalCaloriesFromEnriched(enrichedMeals[idx]),
   }))
 
-  return formatMultiMealBreakdown(mealSections, dailyConsumedSoFar, dailyTarget)
+  const multiBreakdown = formatMultiMealBreakdown(mealSections, dailyConsumedSoFar, dailyTarget)
+
+  return defaultNotice ? multiBreakdown.replace('Tá certo?', `${defaultNotice}\n\nTá certo?`) : multiBreakdown
 }
 
 // ---------------------------------------------------------------------------
@@ -95,19 +143,19 @@ async function enrichItemsWithTaco(
   userId: string,
   phone?: string,
 ): Promise<EnrichedItem[]> {
-  // Step 1: Batch fuzzy match all items against TACO
+  // Step 1: Batch fuzzy match all items against TACO (exact name matching)
   const foodNames = items.map(i => i.food)
   const tacoMatches = await fuzzyMatchTacoMultiple(supabase, foodNames)
 
   const enriched: EnrichedItem[] = []
-  const needsDecomposition: { item: MealItem; index: number }[] = []
+  const needsBaseMatch: { item: MealItem; index: number }[] = []
 
   for (let i = 0; i < items.length; i++) {
     const item = items[i]
     const tacoMatch = tacoMatches.get(item.food.toLowerCase())
 
     if (tacoMatch) {
-      // Direct TACO match
+      // Direct fuzzy match found
       const macros = calculateMacros(tacoMatch, item.quantity_grams)
       enriched.push({
         food: item.food,
@@ -131,12 +179,37 @@ async function enrichItemsWithTaco(
         source: 'user_provided',
       })
     } else {
-      needsDecomposition.push({ item, index: i })
+      needsBaseMatch.push({ item, index: i })
       enriched.push(null as unknown as EnrichedItem) // placeholder
     }
   }
 
-  // Step 2: Decompose items that didn't match TACO
+  // Step 2: Try base-name matching for unmatched items
+  const needsDecomposition: { item: MealItem; index: number }[] = []
+
+  for (const { item, index } of needsBaseMatch) {
+    const baseResult = await resolveByBase(supabase, item.food)
+    if (baseResult) {
+      const macros = calculateMacros(baseResult.match, item.quantity_grams)
+      enriched[index] = {
+        food: item.food,
+        quantityGrams: item.quantity_grams,
+        calories: macros.calories,
+        protein: macros.protein,
+        carbs: macros.carbs,
+        fat: macros.fat,
+        source: 'taco',
+        tacoId: baseResult.match.id,
+        usedDefault: baseResult.usedDefault,
+        defaultFoodBase: baseResult.usedDefault ? baseResult.match.foodBase : undefined,
+        defaultFoodVariant: baseResult.usedDefault ? baseResult.match.foodVariant : undefined,
+      }
+    } else {
+      needsDecomposition.push({ item, index })
+    }
+  }
+
+  // Step 3: Decompose composite foods that didn't match
   if (needsDecomposition.length > 0 && phone) {
     const feedbackNames = needsDecomposition.map(d => d.item.food)
     const feedbackMsg = formatDecompositionFeedback(feedbackNames)
@@ -147,14 +220,21 @@ async function enrichItemsWithTaco(
     try {
       const ingredients = await llm.decomposeMeal(item.food, item.quantity_grams)
 
-      // Match each ingredient against TACO
+      // Match each ingredient via fuzzy + base pipeline
       const ingredientNames = ingredients.map(ig => ig.food)
       const ingredientMatches = await fuzzyMatchTacoMultiple(supabase, ingredientNames)
 
       let totalCal = 0, totalProt = 0, totalCarbs = 0, totalFat = 0
 
       for (const ig of ingredients) {
-        const match = ingredientMatches.get(ig.food.toLowerCase())
+        let match = ingredientMatches.get(ig.food.toLowerCase())
+
+        // If fuzzy didn't work, try base matching for the ingredient
+        if (!match) {
+          const baseResult = await resolveByBase(supabase, ig.food)
+          if (baseResult) match = baseResult.match
+        }
+
         if (match) {
           const macros = calculateMacros(match, ig.quantity_grams)
           totalCal += macros.calories
@@ -162,7 +242,7 @@ async function enrichItemsWithTaco(
           totalCarbs += macros.carbs
           totalFat += macros.fat
         } else {
-          // Ingredient not in TACO — ask LLM for estimate
+          // Step 4: LLM fallback for ingredient not in TACO
           try {
             const fallbackMeals = await llm.analyzeMeal(`${ig.quantity_grams}g de ${ig.food}`)
             const fallbackItem = fallbackMeals[0]?.items[0]
@@ -188,7 +268,6 @@ async function enrichItemsWithTaco(
         source: totalCal > 0 ? 'taco_decomposed' : 'approximate',
       }
     } catch {
-      // Decomposition failed
       enriched[index] = {
         food: item.food,
         quantityGrams: item.quantity_grams,
@@ -287,6 +366,16 @@ async function handleConfirmation(
         tacoId: item.tacoId,
       })),
     })
+  }
+
+  // Record TACO usage for default learning
+  for (const items of enrichedMeals) {
+    for (const item of items) {
+      if (item.tacoId && item.source === 'taco') {
+        const foodBase = item.defaultFoodBase ?? item.food
+        await recordTacoUsage(supabase, foodBase, item.tacoId, userId)
+      }
+    }
   }
 
   await clearState(userId)

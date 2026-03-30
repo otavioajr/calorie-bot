@@ -21,6 +21,10 @@ const {
   mockFormatDecompositionFeedback,
   mockGetRecentMessages,
   mockFuzzyMatchTacoMultiple,
+  mockMatchTacoByBase,
+  mockGetLearnedDefault,
+  mockRecordTacoUsage,
+  mockFormatDefaultNotice,
   mockCalculateMacros,
   mockSendTextMessage,
   mockSearchMealHistory,
@@ -47,9 +51,13 @@ const {
     mockFormatDecompositionFeedback: vi.fn().mockReturnValue('Decompondo...'),
     mockGetRecentMessages: vi.fn().mockResolvedValue([]),
     mockFuzzyMatchTacoMultiple: vi.fn().mockResolvedValue(new Map([
-      ['arroz', { id: 3, foodName: 'Arroz, tipo 1, cozido', category: 'Cereais', caloriesPer100g: 128, proteinPer100g: 2.5, carbsPer100g: 28.1, fatPer100g: 0.2, fiberPer100g: 1.6 }],
-      ['feijão', { id: 5, foodName: 'Feijão, carioca, cozido', category: 'Leguminosas', caloriesPer100g: 76, proteinPer100g: 4.8, carbsPer100g: 13.6, fatPer100g: 0.5, fiberPer100g: 8.5 }],
+      ['arroz', { id: 3, foodName: 'Arroz, tipo 1, cozido', category: null, caloriesPer100g: 128, proteinPer100g: 2.5, carbsPer100g: 28.1, fatPer100g: 0.2, fiberPer100g: 1.6, foodBase: 'Arroz', foodVariant: 'tipo 1, cozido', isDefault: true }],
+      ['feijão', { id: 5, foodName: 'Feijão, carioca, cozido', category: null, caloriesPer100g: 76, proteinPer100g: 4.8, carbsPer100g: 13.6, fatPer100g: 0.5, fiberPer100g: 8.5, foodBase: 'Feijão', foodVariant: 'carioca, cozido', isDefault: true }],
     ])),
+    mockMatchTacoByBase: vi.fn().mockResolvedValue([]),
+    mockGetLearnedDefault: vi.fn().mockResolvedValue(null),
+    mockRecordTacoUsage: vi.fn().mockResolvedValue(undefined),
+    mockFormatDefaultNotice: vi.fn().mockReturnValue(''),
     mockCalculateMacros: vi.fn().mockImplementation((food: { caloriesPer100g: number; proteinPer100g: number; carbsPer100g: number; fatPer100g: number }, grams: number) => ({
       calories: Math.round(food.caloriesPer100g * grams / 100),
       protein: Math.round(food.proteinPer100g * grams / 100 * 10) / 10,
@@ -84,6 +92,7 @@ vi.mock('@/lib/utils/formatters', () => ({
   formatMultiMealBreakdown: mockFormatMultiMealBreakdown,
   formatProgress: mockFormatProgress,
   formatDecompositionFeedback: mockFormatDecompositionFeedback,
+  formatDefaultNotice: mockFormatDefaultNotice,
 }))
 
 vi.mock('@/lib/db/queries/message-history', () => ({
@@ -93,6 +102,9 @@ vi.mock('@/lib/db/queries/message-history', () => ({
 vi.mock('@/lib/db/queries/taco', () => ({
   fuzzyMatchTacoMultiple: mockFuzzyMatchTacoMultiple,
   calculateMacros: mockCalculateMacros,
+  matchTacoByBase: mockMatchTacoByBase,
+  getLearnedDefault: mockGetLearnedDefault,
+  recordTacoUsage: mockRecordTacoUsage,
 }))
 
 vi.mock('@/lib/whatsapp/client', () => ({
@@ -240,9 +252,13 @@ describe('handleMealLog', () => {
     mockFormatProgress.mockReturnValue('📊 Hoje: 800 / 2000 kcal (restam 1200)')
     // Reset TACO mocks to default
     mockFuzzyMatchTacoMultiple.mockResolvedValue(new Map([
-      ['arroz', { id: 3, foodName: 'Arroz, tipo 1, cozido', category: 'Cereais', caloriesPer100g: 128, proteinPer100g: 2.5, carbsPer100g: 28.1, fatPer100g: 0.2, fiberPer100g: 1.6 }],
-      ['feijão', { id: 5, foodName: 'Feijão, carioca, cozido', category: 'Leguminosas', caloriesPer100g: 76, proteinPer100g: 4.8, carbsPer100g: 13.6, fatPer100g: 0.5, fiberPer100g: 8.5 }],
+      ['arroz', { id: 3, foodName: 'Arroz, tipo 1, cozido', category: null, caloriesPer100g: 128, proteinPer100g: 2.5, carbsPer100g: 28.1, fatPer100g: 0.2, fiberPer100g: 1.6, foodBase: 'Arroz', foodVariant: 'tipo 1, cozido', isDefault: true }],
+      ['feijão', { id: 5, foodName: 'Feijão, carioca, cozido', category: null, caloriesPer100g: 76, proteinPer100g: 4.8, carbsPer100g: 13.6, fatPer100g: 0.5, fiberPer100g: 8.5, foodBase: 'Feijão', foodVariant: 'carioca, cozido', isDefault: true }],
     ]))
+    mockMatchTacoByBase.mockResolvedValue([])
+    mockGetLearnedDefault.mockResolvedValue(null)
+    mockRecordTacoUsage.mockResolvedValue(undefined)
+    mockFormatDefaultNotice.mockReturnValue('')
     mockSearchMealHistory.mockResolvedValue([])
   })
 
@@ -615,6 +631,46 @@ describe('handleMealLog', () => {
 
       expect(result.response).toContain('Tá certo?')
       expect(result.completed).toBe(false)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Base matching fallback
+  // -------------------------------------------------------------------------
+
+  describe('base matching fallback', () => {
+    it('uses base matching when fuzzy match fails', async () => {
+      // Fuzzy returns no match for "banana"
+      mockFuzzyMatchTacoMultiple.mockResolvedValueOnce(new Map([
+        ['banana', null],
+      ]))
+
+      // Base matching returns banana variants
+      mockMatchTacoByBase.mockResolvedValueOnce([
+        { id: 182, foodName: 'Banana, prata, crua', category: null, caloriesPer100g: 98, proteinPer100g: 1.3, carbsPer100g: 26, fatPer100g: 0.1, fiberPer100g: 2, foodBase: 'Banana', foodVariant: 'prata, crua', isDefault: true },
+      ])
+
+      mockAnalyzeMeal.mockResolvedValueOnce([{
+        meal_type: 'snack',
+        confidence: 'high',
+        items: [{ food: 'banana', quantity_grams: 120, calories: null, protein: null, carbs: null, fat: null, quantity_source: 'estimated', confidence: 'high' }],
+        unknown_items: [],
+        needs_clarification: false,
+        references_previous: false,
+        reference_query: null,
+        clarification_question: undefined,
+      }])
+
+      const result = await handleMealLog(
+        supabase,
+        USER_ID,
+        'comi uma banana',
+        mockUser,
+        null,
+      )
+
+      expect(result.completed).toBe(false)
+      expect(mockMatchTacoByBase).toHaveBeenCalledWith(supabase, 'banana')
     })
   })
 })

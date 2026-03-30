@@ -294,3 +294,16 @@ export function formatDecompositionFeedback(foodNames: string[]): string {
   const list = foodNames.join(', ')
   return `Não encontrei ${list} na Tabela TACO. Vou decompor nos ingredientes, um momento... 🔍`
 }
+
+// ---------------------------------------------------------------------------
+// formatDefaultNotice
+// ---------------------------------------------------------------------------
+export function formatDefaultNotice(defaults: Array<{ foodBase: string; foodVariant: string }>): string {
+  if (defaults.length === 0) return ''
+  if (defaults.length === 1) {
+    const d = defaults[0]
+    return `\nℹ️ Usei ${d.foodBase.toLowerCase()} ${d.foodVariant.split(',')[0]} como padrão. Se for outro tipo, me diz qual!`
+  }
+  const list = defaults.map(d => `${d.foodBase.toLowerCase()} ${d.foodVariant.split(',')[0]}`).join(', ')
+  return `\nℹ️ Usei como padrão: ${list}. Se algum for diferente, me diz qual!`
+}
