@@ -27,6 +27,7 @@ export interface MealLogResult {
 interface EnrichedItem {
   food: string
   quantityGrams: number
+  quantityDisplay?: string | null
   calories: number
   protein: number
   carbs: number
@@ -99,7 +100,7 @@ function buildReceiptResponse(
 
     const breakdown = formatMealBreakdown(
       analysis.meal_type,
-      items.map(i => ({ food: i.food, quantityGrams: i.quantityGrams, calories: i.calories })),
+      items.map(i => ({ food: i.food, quantityGrams: i.quantityGrams, quantityDisplay: i.quantityDisplay, calories: i.calories })),
       total,
       dailyConsumedSoFar,
       dailyTarget,
@@ -142,6 +143,7 @@ async function enrichItemsWithTaco(
       enriched.push({
         food: item.food,
         quantityGrams: item.quantity_grams,
+        quantityDisplay: item.quantity_display,
         calories: item.calories,
         protein: item.protein ?? 0,
         carbs: item.carbs ?? 0,
@@ -157,6 +159,7 @@ async function enrichItemsWithTaco(
       enriched.push({
         food: item.food,
         quantityGrams: item.quantity_grams,
+        quantityDisplay: item.quantity_display,
         calories: macros.calories,
         protein: macros.protein,
         carbs: macros.carbs,
@@ -187,6 +190,7 @@ async function enrichItemsWithTaco(
         enriched[index] = {
           food: item.food,
           quantityGrams: item.quantity_grams,
+          quantityDisplay: item.quantity_display,
           calories: macros.calories,
           protein: macros.protein,
           carbs: macros.carbs,
@@ -263,6 +267,7 @@ async function enrichItemsWithTaco(
       enriched[index] = {
         food: item.food,
         quantityGrams: item.quantity_grams,
+        quantityDisplay: item.quantity_display,
         calories: Math.round(totalCal),
         protein: Math.round(totalProt * 10) / 10,
         carbs: Math.round(totalCarbs * 10) / 10,
@@ -273,6 +278,7 @@ async function enrichItemsWithTaco(
       enriched[index] = {
         food: item.food,
         quantityGrams: item.quantity_grams,
+        quantityDisplay: item.quantity_display,
         calories: 0,
         protein: 0,
         carbs: 0,

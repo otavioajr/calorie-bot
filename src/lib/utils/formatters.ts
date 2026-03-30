@@ -5,6 +5,7 @@
 export interface MealItem {
   food: string
   quantityGrams: number
+  quantityDisplay?: string | null
   calories: number
 }
 
@@ -48,7 +49,7 @@ export function formatMealBreakdown(
   dailyTarget: number,
 ): string {
   const itemLines = items
-    .map((item) => `• ${item.food} (${item.quantityGrams}g) — ${item.calories} kcal`)
+    .map((item) => `• ${item.food} (${item.quantityDisplay || `${item.quantityGrams}g`}) — ${item.calories} kcal`)
     .join('\n')
 
   const remaining = dailyTarget - dailyConsumed
@@ -81,7 +82,7 @@ export function formatMultiMealBreakdown(
 ): string {
   const sections = meals.map((meal) => {
     const itemLines = meal.items
-      .map((item) => `• ${item.food} (${item.quantityGrams}g) — ${item.calories} kcal`)
+      .map((item) => `• ${item.food} (${item.quantityDisplay || `${item.quantityGrams}g`}) — ${item.calories} kcal`)
       .join('\n')
 
     return `🍽️ ${translateMealType(meal.mealType)}:\n${itemLines}\nSubtotal: ${meal.total} kcal`

@@ -4,6 +4,7 @@ import { MealTypeSchema, ConfidenceSchema } from './common'
 export const MealItemSchema = z.object({
   food: z.string(),
   quantity_grams: z.coerce.number().positive(),
+  quantity_display: z.string().nullable().optional().default(null),
   quantity_source: z.enum(['estimated', 'user_provided']).default('estimated'),
   calories: z.coerce.number().nonnegative().nullable().optional().default(null),
   protein: z.coerce.number().nonnegative().nullable().optional().default(null),

@@ -141,7 +141,7 @@ const mockMealAnalysis: MealAnalysis = {
     {
       food: 'Arroz',
       quantity_grams: 200,
-      quantity_source: 'estimated',
+      quantity_display: null, quantity_source: 'estimated',
       calories: null,
       protein: null,
       carbs: null,
@@ -151,7 +151,7 @@ const mockMealAnalysis: MealAnalysis = {
     {
       food: 'Feijão',
       quantity_grams: 150,
-      quantity_source: 'estimated',
+      quantity_display: null, quantity_source: 'estimated',
       calories: null,
       protein: null,
       carbs: null,
@@ -495,7 +495,7 @@ describe('handleMealLog', () => {
       mockAnalyzeMeal.mockResolvedValueOnce([{
         meal_type: 'snack',
         confidence: 'high',
-        items: [{ food: 'banana', quantity_grams: 120, calories: null, protein: null, carbs: null, fat: null, quantity_source: 'estimated', confidence: 'high' }],
+        items: [{ food: 'banana', quantity_grams: 120, calories: null, protein: null, carbs: null, fat: null, quantity_display: null, quantity_source: 'estimated', confidence: 'high' }],
         unknown_items: [],
         needs_clarification: false,
         references_previous: false,

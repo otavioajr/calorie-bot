@@ -67,6 +67,7 @@ FORMATO DE RESPOSTA (JSON):
         {
           "food": "nome do alimento",
           "quantity_grams": 100,
+          "quantity_display": "100ml",
           "quantity_source": "estimated|user_provided",
           "calories": null,
           "protein": null,
@@ -83,6 +84,8 @@ FORMATO DE RESPOSTA (JSON):
 }
 
 NOTAS SOBRE CAMPOS OPCIONAIS:
+- "quantity_display": a quantidade EXATAMENTE como o usuário descreveu (ex: "100ml", "2 fatias", "1 banana", "15g"). Se o usuário não especificou quantidade, deixar null.
+- "quantity_grams": SEMPRE em gramas (converter ml, fatias, unidades, etc. usando a tabela de porções). Este campo é usado internamente para cálculos.
 - "calories", "protein", "carbs", "fat": incluir SOMENTE se o usuário forneceu valores explícitos. Caso contrário, deixar null.
 - "quantity_source": usar "user_provided" quando o usuário informou a quantidade explicitamente.
 

@@ -54,7 +54,7 @@ const mockSingleItemAnalysis: MealAnalysis = {
     {
       food: 'coxinha',
       quantity_grams: 130,
-      quantity_source: 'estimated',
+      quantity_display: null, quantity_source: 'estimated',
       calories: 290,
       protein: 13,
       carbs: 22,
@@ -76,7 +76,7 @@ const mockMultiItemAnalysis: MealAnalysis = {
     {
       food: 'Arroz',
       quantity_grams: 200,
-      quantity_source: 'estimated',
+      quantity_display: null, quantity_source: 'estimated',
       calories: 260,
       protein: 4,
       carbs: 57,
@@ -86,7 +86,7 @@ const mockMultiItemAnalysis: MealAnalysis = {
     {
       food: 'Feijão',
       quantity_grams: 150,
-      quantity_source: 'estimated',
+      quantity_display: null, quantity_source: 'estimated',
       calories: 180,
       protein: 9,
       carbs: 30,
