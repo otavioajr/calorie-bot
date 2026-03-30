@@ -262,16 +262,17 @@ async function enrichItemsWithTaco(
             totalCarbs += macros.carbs
             totalFat += macros.fat
           } else {
-            // Step 4: LLM fallback for ingredient not in TACO
+            // Step 4: Direct LLM calorie estimate for ingredient not in TACO
             try {
-              const fallbackMeals = await llm.analyzeMeal(`${ig.quantity_grams}g de ${ig.food}`)
-              const fallbackItem = fallbackMeals[0]?.items[0]
-              if (fallbackItem) {
-                totalCal += fallbackItem.calories ?? 0
-                totalProt += fallbackItem.protein ?? 0
-                totalCarbs += fallbackItem.carbs ?? 0
-                totalFat += fallbackItem.fat ?? 0
-              }
+              const raw = await llm.chat(
+                `Estime calorias e macronutrientes para ${ig.quantity_grams}g de "${ig.food}". Responda APENAS com JSON: {"calories":number,"protein":number,"carbs":number,"fat":number} (valores para ${ig.quantity_grams}g, não por 100g).`,
+                'Você é um especialista em nutrição. Responda APENAS com JSON válido.',
+              )
+              const estimate = JSON.parse(raw.trim())
+              totalCal += estimate.calories ?? 0
+              totalProt += estimate.protein ?? 0
+              totalCarbs += estimate.carbs ?? 0
+              totalFat += estimate.fat ?? 0
             } catch {
               // Silently skip
             }
@@ -290,15 +291,34 @@ async function enrichItemsWithTaco(
         source: totalCal > 0 ? 'taco_decomposed' : 'approximate',
       }
     } catch {
-      enriched[index] = {
-        food: item.food,
-        quantityGrams: item.quantity_grams,
-        quantityDisplay: item.quantity_display,
-        calories: 0,
-        protein: 0,
-        carbs: 0,
-        fat: 0,
-        source: 'approximate',
+      // Decomposition failed entirely — try a direct LLM estimate
+      try {
+        const raw = await llm.chat(
+          `Estime calorias e macronutrientes para ${item.quantity_grams}g de "${item.food}". Responda APENAS com JSON: {"calories":number,"protein":number,"carbs":number,"fat":number} (valores para ${item.quantity_grams}g, não por 100g).`,
+          'Você é um especialista em nutrição. Responda APENAS com JSON válido.',
+        )
+        const estimate = JSON.parse(raw.trim())
+        enriched[index] = {
+          food: item.food,
+          quantityGrams: item.quantity_grams,
+          quantityDisplay: item.quantity_display,
+          calories: Math.round(estimate.calories ?? 0),
+          protein: Math.round((estimate.protein ?? 0) * 10) / 10,
+          carbs: Math.round((estimate.carbs ?? 0) * 10) / 10,
+          fat: Math.round((estimate.fat ?? 0) * 10) / 10,
+          source: 'approximate',
+        }
+      } catch {
+        enriched[index] = {
+          food: item.food,
+          quantityGrams: item.quantity_grams,
+          quantityDisplay: item.quantity_display,
+          calories: 0,
+          protein: 0,
+          carbs: 0,
+          fat: 0,
+          source: 'approximate',
+        }
       }
     }
   }
