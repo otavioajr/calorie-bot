@@ -208,12 +208,7 @@ async function enrichItemsWithTaco(
   const needsDecomposition: { item: MealItem; index: number }[] = []
 
   for (const { item, index } of needsUSDA) {
-    let usdaResult: Awaited<ReturnType<typeof searchUSDAFood>> = null
-    try {
-      usdaResult = await searchUSDAFood(item.food, item.quantity_grams, supabase)
-    } catch (usdaErr) {
-      console.error(`[enrichment] USDA THREW for "${item.food}":`, usdaErr)
-    }
+    const usdaResult = await searchUSDAFood(item.food, item.quantity_grams)
     if (usdaResult) {
       enriched[index] = {
         food: item.food,
@@ -232,10 +227,8 @@ async function enrichItemsWithTaco(
 
   // Step 4: Decompose composite foods that didn't match TACO or USDA
   for (const { item, index } of needsDecomposition) {
-    console.log(`[enrichment] Step 4 decomposition for: "${item.food}" (${item.quantity_grams}g)`)
     try {
       const ingredients = await llm.decomposeMeal(item.food, item.quantity_grams)
-      console.log(`[enrichment] Decomposed "${item.food}" into ${ingredients.length} ingredients:`, ingredients.map(ig => `${ig.food} ${ig.quantity_grams}g`).join(', '))
 
       // Match each ingredient: base first, then fuzzy
       let totalCal = 0, totalProt = 0, totalCarbs = 0, totalFat = 0
@@ -296,16 +289,7 @@ async function enrichItemsWithTaco(
         fat: Math.round(totalFat * 10) / 10,
         source: totalCal > 0 ? 'taco_decomposed' : 'approximate',
       }
-    } catch (err) {
-      console.error(`[enrichment] Decomposition FAILED for "${item.food}":`, err)
-      // Persist diagnostic to DB (fire-and-forget)
-      supabase.from('llm_usage_log').insert({
-        provider: 'debug',
-        model: JSON.stringify({ step: 'decomposition', food: item.food, error: String(err).substring(0, 200) }).substring(0, 255),
-        function_type: 'debug_enrichment',
-        latency_ms: 0,
-        success: false,
-      }).then(() => {}, () => {})
+    } catch {
       enriched[index] = {
         food: item.food,
         quantityGrams: item.quantity_grams,

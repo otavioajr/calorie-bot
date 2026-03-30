@@ -577,7 +577,7 @@ describe('handleMealLog', () => {
       )
 
       expect(result.completed).toBe(true)
-      expect(mockSearchUSDAFood).toHaveBeenCalledWith('Proteína de soro de leite', 30, expect.anything())
+      expect(mockSearchUSDAFood).toHaveBeenCalledWith('Proteína de soro de leite', 30)
       // Should NOT attempt decomposition
       expect(mockDecomposeMeal).not.toHaveBeenCalled()
     })
@@ -627,7 +627,7 @@ describe('handleMealLog', () => {
         null,
       )
 
-      expect(mockSearchUSDAFood).toHaveBeenCalledWith('Pão caseiro', 100, expect.anything())
+      expect(mockSearchUSDAFood).toHaveBeenCalledWith('Pão caseiro', 100)
       expect(mockDecomposeMeal).toHaveBeenCalled()
     })
   })

@@ -1,5 +1,4 @@
 import { getLLMProvider } from '@/lib/llm/index'
-import type { SupabaseClient } from '@supabase/supabase-js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -25,23 +24,6 @@ const NUTRIENT_IDS = {
   CARBS: 1005,
   FAT: 1004,
 } as const
-
-// ---------------------------------------------------------------------------
-// Debug logging helper (uses caller-provided supabase client)
-// ---------------------------------------------------------------------------
-
-function debugLog(supabase: SupabaseClient | undefined, data: Record<string, unknown>) {
-  if (!supabase) return
-  try {
-    supabase.from?.('llm_usage_log')?.insert?.({
-      provider: 'debug',
-      model: JSON.stringify(data).substring(0, 255),
-      function_type: 'debug_usda',
-      latency_ms: 0,
-      success: !!data.ok,
-    })?.then?.(() => {}, () => {})
-  } catch { /* ignore */ }
-}
 
 // ---------------------------------------------------------------------------
 // Translation
@@ -148,28 +130,16 @@ async function queryUSDA(
 export async function searchUSDAFood(
   foodNamePtBr: string,
   quantityGrams: number,
-  dbClient?: SupabaseClient,
 ): Promise<USDAResult | null> {
   try {
     const apiKey = process.env.USDA_API_KEY
-    if (!apiKey) {
-      debugLog(dbClient, { step: 'no_api_key', food: foodNamePtBr })
-      return null
-    }
+    if (!apiKey) return null
 
     const translation = await translateFoodName(foodNamePtBr)
-    if (!translation) {
-      debugLog(dbClient, { step: 'translation_failed', food: foodNamePtBr })
-      return null
-    }
-    const translatedName = translation.text
-    debugLog(dbClient, { step: 'translated', food: foodNamePtBr, to: translatedName, eng: translation.alreadyEnglish, ok: true })
+    if (!translation) return null
 
-    const result = await queryUSDA(translatedName, apiKey, quantityGrams, foodNamePtBr)
-    debugLog(dbClient, { step: 'usda_result', food: foodNamePtBr, q: translatedName, found: !!result, cal: result?.calories, ok: !!result })
-    return result
-  } catch (err) {
-    debugLog(dbClient, { step: 'exception', food: foodNamePtBr, err: String(err).substring(0, 100) })
+    return await queryUSDA(translation.text, apiKey, quantityGrams, foodNamePtBr)
+  } catch {
     return null
   }
 }
