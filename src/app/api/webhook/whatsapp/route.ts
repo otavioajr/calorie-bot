@@ -1,3 +1,5 @@
+export const maxDuration = 60
+
 import { verifyWebhook, parseWebhookPayload } from '@/lib/whatsapp/webhook'
 import { createServiceRoleClient } from '@/lib/db/supabase'
 import { handleIncomingMessage, handleIncomingAudio, handleIncomingImage } from '@/lib/bot/handler'

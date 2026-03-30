@@ -109,24 +109,45 @@ describe('searchUSDAFood', () => {
     expect(result!.usdaFoodName).toBe('Whey protein powder, vanilla')
   })
 
-  it('calls USDA API with translated name and correct params', async () => {
+  it('tries original name first, then translated name', async () => {
+    // First call (original PT-BR name) returns empty
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => usdaEmptyResponse,
+    })
+    // Second call (translated name) returns match
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => usdaWheyResponse,
+    })
+
+    const result = await searchUSDAFood('Proteína de soro de leite', 30)
+
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+    // First call uses original name
+    const firstUrl = mockFetch.mock.calls[0][0] as string
+    expect(firstUrl).toContain('api_key=test-key')
+    expect(firstUrl).toContain('pageSize=5')
+    // Second call uses translated name
+    const secondUrl = mockFetch.mock.calls[1][0] as string
+    expect(secondUrl).toContain('query=whey+protein')
+    expect(result).not.toBeNull()
+    expect(result!.calories).toBe(120)
+  })
+
+  it('returns direct match without translating when original name works', async () => {
     mockFetch.mockResolvedValue({
       ok: true,
       json: async () => usdaWheyResponse,
     })
 
-    await searchUSDAFood('Proteína de soro de leite', 30)
+    const result = await searchUSDAFood('whey protein', 30)
 
-    expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining('api.nal.usda.gov/fdc/v1/foods/search'),
-      expect.objectContaining({
-        signal: expect.any(AbortSignal),
-      }),
-    )
-    const calledUrl = mockFetch.mock.calls[0][0] as string
-    expect(calledUrl).toContain('query=whey+protein')
-    expect(calledUrl).toContain('api_key=test-key')
-    expect(calledUrl).toContain('pageSize=5')
+    // Should only call once — direct match, no translation needed
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    expect(mockChat).not.toHaveBeenCalled()
+    expect(result).not.toBeNull()
+    expect(result!.calories).toBe(120)
   })
 
   it('returns null when USDA returns no results', async () => {

@@ -69,6 +69,59 @@ function extractNutrient(nutrients: USDAFoodNutrient[], nutrientId: number): num
   return found ? found.value : null
 }
 
+async function queryUSDA(
+  query: string,
+  apiKey: string,
+  quantityGrams: number,
+  originalName: string,
+): Promise<USDAResult | null> {
+  const params = new URLSearchParams({
+    api_key: apiKey,
+    query,
+    dataType: 'SR Legacy,Branded',
+    pageSize: '5',
+  })
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), USDA_TIMEOUT_MS)
+
+  try {
+    const response = await fetch(`${USDA_BASE_URL}?${params}`, {
+      signal: controller.signal,
+    })
+
+    if (!response.ok) return null
+
+    const data: USDASearchResponse = await response.json()
+
+    if (!data.foods || data.foods.length === 0) return null
+
+    for (const food of data.foods) {
+      const cal = extractNutrient(food.foodNutrients, NUTRIENT_IDS.ENERGY)
+      const prot = extractNutrient(food.foodNutrients, NUTRIENT_IDS.PROTEIN)
+      const carbs = extractNutrient(food.foodNutrients, NUTRIENT_IDS.CARBS)
+      const fat = extractNutrient(food.foodNutrients, NUTRIENT_IDS.FAT)
+
+      if (cal !== null && prot !== null && carbs !== null && fat !== null) {
+        const scale = quantityGrams / 100
+        return {
+          food: originalName,
+          usdaFoodName: food.description,
+          fdcId: food.fdcId,
+          calories: Math.round(cal * scale),
+          protein: Math.round(prot * scale * 10) / 10,
+          carbs: Math.round(carbs * scale * 10) / 10,
+          fat: Math.round(fat * scale * 10) / 10,
+        }
+      }
+    }
+
+    return null
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
 export async function searchUSDAFood(
   foodNamePtBr: string,
   quantityGrams: number,
@@ -77,54 +130,15 @@ export async function searchUSDAFood(
     const apiKey = process.env.USDA_API_KEY
     if (!apiKey) return null
 
+    // Try with original name first (handles English-origin terms like whey, creatine, BCAA)
+    const directResult = await queryUSDA(foodNamePtBr, apiKey, quantityGrams, foodNamePtBr)
+    if (directResult) return directResult
+
+    // Translate PT-BR → EN and retry
     const translatedName = await translateFoodName(foodNamePtBr)
+    if (translatedName.toLowerCase() === foodNamePtBr.toLowerCase()) return null
 
-    const params = new URLSearchParams({
-      api_key: apiKey,
-      query: translatedName,
-      dataType: 'SR Legacy,Branded',
-      pageSize: '5',
-    })
-
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), USDA_TIMEOUT_MS)
-
-    try {
-      const response = await fetch(`${USDA_BASE_URL}?${params}`, {
-        signal: controller.signal,
-      })
-
-      if (!response.ok) return null
-
-      const data: USDASearchResponse = await response.json()
-
-      if (!data.foods || data.foods.length === 0) return null
-
-      // Find first result with all four required nutrients
-      for (const food of data.foods) {
-        const cal = extractNutrient(food.foodNutrients, NUTRIENT_IDS.ENERGY)
-        const prot = extractNutrient(food.foodNutrients, NUTRIENT_IDS.PROTEIN)
-        const carbs = extractNutrient(food.foodNutrients, NUTRIENT_IDS.CARBS)
-        const fat = extractNutrient(food.foodNutrients, NUTRIENT_IDS.FAT)
-
-        if (cal !== null && prot !== null && carbs !== null && fat !== null) {
-          const scale = quantityGrams / 100
-          return {
-            food: foodNamePtBr,
-            usdaFoodName: food.description,
-            fdcId: food.fdcId,
-            calories: Math.round(cal * scale),
-            protein: Math.round(prot * scale * 10) / 10,
-            carbs: Math.round(carbs * scale * 10) / 10,
-            fat: Math.round(fat * scale * 10) / 10,
-          }
-        }
-      }
-
-      return null
-    } finally {
-      clearTimeout(timeout)
-    }
+    return await queryUSDA(translatedName, apiKey, quantityGrams, foodNamePtBr)
   } catch {
     return null
   }
