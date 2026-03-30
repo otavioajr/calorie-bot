@@ -1,5 +1,6 @@
 export const maxDuration = 60
 
+import { after } from 'next/server'
 import { verifyWebhook, parseWebhookPayload } from '@/lib/whatsapp/webhook'
 import { createServiceRoleClient } from '@/lib/db/supabase'
 import { handleIncomingMessage, handleIncomingAudio, handleIncomingImage } from '@/lib/bot/handler'
@@ -45,17 +46,25 @@ export async function POST(request: Request) {
       console.error('[webhook] Dedup insert failed (processing anyway):', dedupError.message)
     }
 
-    if (event.type === 'text' && event.text) {
-      await handleIncomingMessage(event.from, event.messageId, event.text)
-    }
+    // Return 200 immediately, process message in background
+    // This prevents Meta from retrying and Vercel from timing out
+    after(async () => {
+      try {
+        if (event.type === 'text' && event.text) {
+          await handleIncomingMessage(event.from, event.messageId, event.text)
+        }
 
-    if (event.type === 'audio' && event.audioId) {
-      await handleIncomingAudio(event.from, event.messageId, event.audioId)
-    }
+        if (event.type === 'audio' && event.audioId) {
+          await handleIncomingAudio(event.from, event.messageId, event.audioId)
+        }
 
-    if (event.type === 'image' && event.imageId) {
-      await handleIncomingImage(event.from, event.messageId, event.imageId, event.caption)
-    }
+        if (event.type === 'image' && event.imageId) {
+          await handleIncomingImage(event.from, event.messageId, event.imageId, event.caption)
+        }
+      } catch (err) {
+        console.error('[webhook] Error processing message in background:', err)
+      }
+    })
 
     return new Response('OK', { status: 200 })
   } catch (err) {
