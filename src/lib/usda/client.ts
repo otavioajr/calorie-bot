@@ -1,19 +1,5 @@
 import { getLLMProvider } from '@/lib/llm/index'
-import { createServiceRoleClient } from '@/lib/db/supabase'
-
-function debugLog(data: Record<string, unknown>) {
-  try {
-    const supabase = createServiceRoleClient()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ;(supabase as any).from('llm_usage_log').insert({
-      provider: 'debug',
-      model: JSON.stringify(data).substring(0, 255),
-      function_type: 'debug_usda',
-      latency_ms: 0,
-      success: !!data.ok,
-    }).then(() => {}, () => {})
-  } catch { /* ignore */ }
-}
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -39,6 +25,23 @@ const NUTRIENT_IDS = {
   CARBS: 1005,
   FAT: 1004,
 } as const
+
+// ---------------------------------------------------------------------------
+// Debug logging helper (uses caller-provided supabase client)
+// ---------------------------------------------------------------------------
+
+function debugLog(supabase: SupabaseClient | undefined, data: Record<string, unknown>) {
+  if (!supabase) return
+  try {
+    supabase.from?.('llm_usage_log')?.insert?.({
+      provider: 'debug',
+      model: JSON.stringify(data).substring(0, 255),
+      function_type: 'debug_usda',
+      latency_ms: 0,
+      success: !!data.ok,
+    })?.then?.(() => {}, () => {})
+  } catch { /* ignore */ }
+}
 
 // ---------------------------------------------------------------------------
 // Translation
@@ -145,27 +148,28 @@ async function queryUSDA(
 export async function searchUSDAFood(
   foodNamePtBr: string,
   quantityGrams: number,
+  dbClient?: SupabaseClient,
 ): Promise<USDAResult | null> {
   try {
     const apiKey = process.env.USDA_API_KEY
     if (!apiKey) {
-      debugLog({ step: 'no_api_key', food: foodNamePtBr })
+      debugLog(dbClient, { step: 'no_api_key', food: foodNamePtBr })
       return null
     }
 
     const translation = await translateFoodName(foodNamePtBr)
     if (!translation) {
-      debugLog({ step: 'translation_failed', food: foodNamePtBr })
+      debugLog(dbClient, { step: 'translation_failed', food: foodNamePtBr })
       return null
     }
     const translatedName = translation.text
-    debugLog({ step: 'translated', food: foodNamePtBr, to: translatedName, alreadyEnglish: translation.alreadyEnglish, ok: true })
+    debugLog(dbClient, { step: 'translated', food: foodNamePtBr, to: translatedName, eng: translation.alreadyEnglish, ok: true })
 
     const result = await queryUSDA(translatedName, apiKey, quantityGrams, foodNamePtBr)
-    debugLog({ step: 'usda_query', food: foodNamePtBr, query: translatedName, found: !!result, cal: result?.calories, ok: !!result })
+    debugLog(dbClient, { step: 'usda_result', food: foodNamePtBr, q: translatedName, found: !!result, cal: result?.calories, ok: !!result })
     return result
   } catch (err) {
-    debugLog({ step: 'exception', food: foodNamePtBr, error: String(err).substring(0, 150) })
+    debugLog(dbClient, { step: 'exception', food: foodNamePtBr, err: String(err).substring(0, 100) })
     return null
   }
 }
