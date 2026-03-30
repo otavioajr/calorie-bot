@@ -1,4 +1,19 @@
 import { getLLMProvider } from '@/lib/llm/index'
+import { createServiceRoleClient } from '@/lib/db/supabase'
+
+function debugLog(data: Record<string, unknown>) {
+  try {
+    const supabase = createServiceRoleClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(supabase as any).from('llm_usage_log').insert({
+      provider: 'debug',
+      model: JSON.stringify(data).substring(0, 255),
+      function_type: 'debug_usda',
+      latency_ms: 0,
+      success: !!data.ok,
+    }).then(() => {}, () => {})
+  } catch { /* ignore */ }
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -134,25 +149,23 @@ export async function searchUSDAFood(
   try {
     const apiKey = process.env.USDA_API_KEY
     if (!apiKey) {
-      console.log('[USDA] No API key, skipping')
+      debugLog({ step: 'no_api_key', food: foodNamePtBr })
       return null
     }
 
-    console.log('[USDA] Translating:', foodNamePtBr)
     const translation = await translateFoodName(foodNamePtBr)
     if (!translation) {
-      console.log('[USDA] Translation failed, skipping')
+      debugLog({ step: 'translation_failed', food: foodNamePtBr })
       return null
     }
     const translatedName = translation.text
-    console.log('[USDA] Translated to:', translatedName, translation.alreadyEnglish ? '(already English)' : '')
+    debugLog({ step: 'translated', food: foodNamePtBr, to: translatedName, alreadyEnglish: translation.alreadyEnglish, ok: true })
 
-    console.log('[USDA] Querying API...')
     const result = await queryUSDA(translatedName, apiKey, quantityGrams, foodNamePtBr)
-    console.log('[USDA] Result:', result ? `${result.usdaFoodName} (${result.calories} kcal)` : 'null')
+    debugLog({ step: 'usda_query', food: foodNamePtBr, query: translatedName, found: !!result, cal: result?.calories, ok: !!result })
     return result
   } catch (err) {
-    console.error('[USDA] Error:', err)
+    debugLog({ step: 'exception', food: foodNamePtBr, error: String(err).substring(0, 150) })
     return null
   }
 }
