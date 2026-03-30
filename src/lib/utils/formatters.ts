@@ -297,6 +297,13 @@ export function formatDecompositionFeedback(foodNames: string[]): string {
 }
 
 // ---------------------------------------------------------------------------
+// formatSearchFeedback
+// ---------------------------------------------------------------------------
+export function formatSearchFeedback(): string {
+  return 'Encontrando os alimentos... 🔍'
+}
+
+// ---------------------------------------------------------------------------
 // formatDefaultNotice
 // ---------------------------------------------------------------------------
 export function formatDefaultNotice(defaults: Array<{ foodBase: string; foodVariant: string }>): string {
