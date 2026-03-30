@@ -290,38 +290,26 @@ describe('formatProgress', () => {
 // formatOnboardingComplete
 // ---------------------------------------------------------------------------
 describe('formatOnboardingComplete', () => {
-  it('includes the user name', () => {
-    const result = formatOnboardingComplete('João', 2000)
-    expect(result).toContain('João')
+  it('includes completion, name, target, macros, and a meal-logging prompt', () => {
+    const result = formatOnboardingComplete('João', 2000, {
+      proteinG: 140,
+      fatG: 60,
+      carbsG: 220,
+    })
+
+    expect(result).toContain('Tudo pronto, João')
+    expect(result).toContain('2000 kcal')
+    expect(result).toContain('Proteína 140g')
+    expect(result).toContain('Gordura 60g')
+    expect(result).toContain('Carboidratos 220g')
+    expect(result).toContain('primeira refeição')
   })
 
-  it('includes the daily target', () => {
+  it('does not leak undefined text when macros are omitted', () => {
     const result = formatOnboardingComplete('João', 2000)
-    expect(result).toContain('2000')
-    expect(result).toContain('kcal')
-  })
-
-  it('includes 🎉 emoji', () => {
-    const result = formatOnboardingComplete('João', 2000)
-    expect(result).toContain('🎉')
-  })
-
-  it('includes meal examples', () => {
-    const result = formatOnboardingComplete('João', 2000)
-    expect(result).toContain('almocei')
-    expect(result).toContain('café')
-    expect(result).toContain('lanche')
-  })
-
-  it('mentions menu command', () => {
-    const result = formatOnboardingComplete('João', 2000)
-    expect(result).toContain('menu')
-  })
-
-  it('matches exact PRD format', () => {
-    const result = formatOnboardingComplete('João', 2000)
-    const expected = `Tudo pronto, João! 🎉\nSua meta diária é de 2000 kcal.\n\nAgora é só me mandar o que comeu! Exemplos:\n• 'almocei arroz, feijão e frango'\n• 'comi um pão com ovo no café'\n• 'lanche: 1 banana e granola'\n\nDica: manda 'menu' a qualquer momento pra ver o que posso fazer.`
-    expect(result).toBe(expected)
+    expect(result).toContain('Tudo pronto, João')
+    expect(result).toContain('2000 kcal')
+    expect(result).not.toContain('undefined')
   })
 })
 

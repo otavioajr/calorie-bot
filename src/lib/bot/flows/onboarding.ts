@@ -7,7 +7,6 @@ import {
   validateHeight,
   validateActivityLevel,
   validateGoal,
-  validateCalorieMode,
 } from '@/lib/utils/validators'
 import { calculateAll } from '@/lib/calc/tdee'
 import { setState, clearState } from '@/lib/bot/state'
@@ -28,19 +27,63 @@ export interface OnboardingResult {
 // Step messages
 // ---------------------------------------------------------------------------
 
-const WELCOME_MSG = `Olá! 👋 Eu sou o CalorieBot, seu assistente de controle de calorias.\nVou te fazer algumas perguntas rápidas pra configurar tudo (< 2 min).\nQual é o seu nome?`
+const WELCOME_MSG = `Olá! Eu sou o CalorieBot, seu assistente pessoal de nutrição.\nVou configurar sua meta diária em poucos passos.\nComo você prefere ser chamado?`
 
-const MSG_ASK_SEX = `Para calcular sua meta calórica, preciso saber:\n1️⃣ Masculino\n2️⃣ Feminino`
+const MSG_ASK_SEX = `Perfeito. Para personalizar seus cálculos, me diga seu sexo biológico:\n1️⃣ Masculino\n2️⃣ Feminino`
 
-const MSG_ASK_WEIGHT = `Qual seu peso atual em kg? (ex: 72.5)`
+const MSG_ASK_WEIGHT = `Ótimo. Qual é o seu peso atual em kg? (ex: 72.5)`
 
-const MSG_ASK_HEIGHT = `E sua altura em cm? (ex: 175)`
+const MSG_ASK_HEIGHT = `Agora me diga sua altura em cm. (ex: 175)`
 
-const MSG_ASK_ACTIVITY = `Qual seu nível de atividade física?\n1️⃣ Sedentário (pouco ou nenhum exercício)\n2️⃣ Leve (1-3 dias/semana)\n3️⃣ Moderado (3-5 dias/semana)\n4️⃣ Intenso (6-7 dias/semana)\n5️⃣ Atleta (treino intenso 2x/dia)`
+const MSG_ASK_ACTIVITY = `Como está sua rotina de atividade física hoje?\n1️⃣ Sedentário (pouco ou nenhum exercício)\n2️⃣ Leve (1-3 dias/semana)\n3️⃣ Moderado (3-5 dias/semana)\n4️⃣ Intenso (6-7 dias/semana)\n5️⃣ Atleta (treino intenso 2x/dia)`
 
-const MSG_ASK_GOAL = `Qual seu objetivo?\n1️⃣ Perder peso\n2️⃣ Manter peso\n3️⃣ Ganhar massa`
+const MSG_ASK_GOAL = `E qual é o seu objetivo agora?\n1️⃣ Perder peso\n2️⃣ Manter peso\n3️⃣ Ganhar massa`
 
-const MSG_ASK_CALORIE_MODE = `Como quer que eu calcule as calorias?\n1️⃣ Tabela TACO — uso a tabela oficial brasileira (mais preciso)\n2️⃣ Manual — você me envia a tabela nutricional (precisão total)`
+async function finalizeOnboarding(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<OnboardingResult> {
+  // Fetch full user data from DB for TMB/TDEE calculation
+  const { user } = await getUserWithSettings(supabase, userId)
+
+  // Calculate TMB, TDEE, daily target, and macros
+  const calcResult = calculateAll({
+    sex: user.sex!,
+    weightKg: user.weightKg!,
+    heightCm: user.heightCm!,
+    age: user.age!,
+    activityLevel: user.activityLevel!,
+    goal: user.goal!,
+  })
+
+  // Persist calculations and mark onboarding complete
+  await updateUser(supabase, userId, {
+    tmb: calcResult.tmb,
+    tdee: calcResult.tdee,
+    dailyCalorieTarget: Math.round(calcResult.dailyTarget),
+    maxWeightKg: calcResult.maxWeightKg,
+    dailyProteinG: calcResult.proteinG,
+    dailyFatG: calcResult.fatG,
+    dailyCarbsG: calcResult.carbsG,
+    onboardingComplete: true,
+    onboardingStep: 7,
+  })
+
+  // Create default settings for the new user
+  await createDefaultSettings(supabase, userId)
+
+  // Clear the onboarding context
+  await clearState(userId)
+
+  return {
+    response: formatOnboardingComplete(user.name, calcResult.dailyTarget, {
+      proteinG: calcResult.proteinG,
+      fatG: calcResult.fatG,
+      carbsG: calcResult.carbsG,
+    }),
+    completed: true,
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Main handler
@@ -72,7 +115,7 @@ export async function handleOnboarding(
     const name = result.value
     await updateUser(supabase, userId, { name, onboardingStep: 2 })
     await setState(userId, 'onboarding', { step: 2, name })
-    return { response: `Prazer, ${name}! Quantos anos você tem?`, completed: false }
+    return { response: `Prazer, ${name}. Quantos anos você tem?`, completed: false }
   }
 
   // -------------------------------------------------------------------------
@@ -164,66 +207,17 @@ export async function handleOnboarding(
       return { response: result.error, completed: false }
     }
     const goal = result.value
-    await updateUser(supabase, userId, { goal, onboardingStep: 8 })
-    await setState(userId, 'onboarding', { step: 8, goal })
-    return { response: MSG_ASK_CALORIE_MODE, completed: false }
+    await updateUser(supabase, userId, { goal, onboardingStep: 7 })
+    return finalizeOnboarding(supabase, userId)
   }
 
   // -------------------------------------------------------------------------
-  // Step 8 — user sends calorie mode (finalization)
+  // Step 8 — compatibility path for users left on the old final step
   // -------------------------------------------------------------------------
   if (currentStep === 8) {
-    const result = validateCalorieMode(message)
-    if (!result.valid) {
-      return { response: result.error, completed: false }
-    }
-    const calorieMode = result.value
-
-    // Save calorie mode first
-    await updateUser(supabase, userId, { calorieMode })
-
-    // Fetch full user data from DB for TMB/TDEE calculation
-    const { user } = await getUserWithSettings(supabase, userId)
-
-    // Calculate TMB, TDEE, daily target, and macros
-    const calcResult = calculateAll({
-      sex: user.sex!,
-      weightKg: user.weightKg!,
-      heightCm: user.heightCm!,
-      age: user.age!,
-      activityLevel: user.activityLevel!,
-      goal: user.goal!,
-    })
-
-    // Persist calculations and mark onboarding complete
-    await updateUser(supabase, userId, {
-      tmb: calcResult.tmb,
-      tdee: calcResult.tdee,
-      dailyCalorieTarget: Math.round(calcResult.dailyTarget),
-      maxWeightKg: calcResult.maxWeightKg,
-      dailyProteinG: calcResult.proteinG,
-      dailyFatG: calcResult.fatG,
-      dailyCarbsG: calcResult.carbsG,
-      onboardingComplete: true,
-      onboardingStep: 8,
-    })
-
-    // Create default settings for the new user
-    await createDefaultSettings(supabase, userId)
-
-    // Clear the onboarding context
-    await clearState(userId)
-
-    return {
-      response: formatOnboardingComplete(user.name, calcResult.dailyTarget, {
-        proteinG: calcResult.proteinG,
-        fatG: calcResult.fatG,
-        carbsG: calcResult.carbsG,
-      }),
-      completed: true,
-    }
+    return finalizeOnboarding(supabase, userId)
   }
 
-  // Fallback — should never be reached for steps 0-8
+  // Fallback — should never be reached for steps 0-7
   return { response: WELCOME_MSG, completed: false }
 }

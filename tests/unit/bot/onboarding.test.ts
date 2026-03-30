@@ -47,6 +47,12 @@ import type { OnboardingResult } from '@/lib/bot/flows/onboarding'
 
 const USER_ID = 'user-onboarding-123'
 
+function expectNoCalorieModeTerms(text: string) {
+  const normalized = text.toLowerCase()
+  expect(normalized).not.toContain('taco')
+  expect(normalized).not.toContain('manual')
+}
+
 // A minimal mock Supabase client that supports the weight_log insert used in
 // step 4. All higher-level DB calls (updateUser, getUserWithSettings, etc.)
 // are intercepted by module-level vi.mock(), so the client only needs to
@@ -66,7 +72,7 @@ function buildDefaultSupabase(): SupabaseClient {
 
 let supabase: SupabaseClient
 
-// A fully-populated mock user returned by getUserWithSettings at step 8.
+// A fully-populated mock user returned by getUserWithSettings at finalization.
 const mockFullUser = {
   id: USER_ID,
   name: 'João',
@@ -98,7 +104,7 @@ beforeEach(() => {
 
   // Default: updateUser returns a resolved promise with the user
   mockUpdateUser.mockResolvedValue({ ...mockFullUser })
-  // Default for step 8: getUserWithSettings returns the full user
+  // Default for finalization: getUserWithSettings returns the full user
   mockGetUserWithSettings.mockResolvedValue({ user: { ...mockFullUser }, settings: null })
 })
 
@@ -134,7 +140,13 @@ describe('handleOnboarding — step 0 (welcome)', () => {
   it('asks for the user name in the response', async () => {
     const result = await handleOnboarding(supabase, USER_ID, '', 0)
 
-    expect(result.response.toLowerCase()).toMatch(/nome/)
+    expect(result.response.toLowerCase()).toMatch(/chamado|nome/)
+  })
+
+  it('does not expose internal calorie-mode terms in welcome copy', async () => {
+    const result = await handleOnboarding(supabase, USER_ID, '', 0)
+
+    expectNoCalorieModeTerms(result.response)
   })
 })
 
@@ -143,10 +155,10 @@ describe('handleOnboarding — step 0 (welcome)', () => {
 // ---------------------------------------------------------------------------
 
 describe('handleOnboarding — step 1 (name)', () => {
-  it('valid name: response contains "Prazer, João"', async () => {
+  it('valid name: response acknowledges the user name', async () => {
     const result = await handleOnboarding(supabase, USER_ID, 'João', 1)
 
-    expect(result.response).toContain('Prazer, João')
+    expect(result.response).toContain('João')
   })
 
   it('valid name: completed is false', async () => {
@@ -521,86 +533,57 @@ describe('handleOnboarding — step 6 (activity level)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Step 7 — Goal input
+// Step 7 — Goal input + finalization
 // ---------------------------------------------------------------------------
 
-describe('handleOnboarding — step 7 (goal)', () => {
-  it('valid goal "1" (lose): response asks for calorie mode', async () => {
+describe('handleOnboarding — step 7 (goal + completion)', () => {
+  it('valid goal "1" (lose): completes onboarding immediately', async () => {
     const result = await handleOnboarding(supabase, USER_ID, '1', 7)
 
-    expect(result.response.toLowerCase()).toMatch(/calorias|taco|manual|aproximado/)
+    expect(result.completed).toBe(true)
   })
 
-  it('valid goal "2" (maintain): completed is false', async () => {
-    const result = await handleOnboarding(supabase, USER_ID, '2', 7)
+  it('valid goal "1": returns final summary with target and macros', async () => {
+    const result = await handleOnboarding(supabase, USER_ID, '1', 7)
 
-    expect(result.completed).toBe(false)
+    expect(result.response).toContain('João')
+    expect(result.response).toContain('kcal')
+    expect(result.response).toContain('Proteína')
+    expect(result.response).toContain('Gordura')
+    expect(result.response).toContain('Carboidratos')
   })
 
-  it('valid goal "3" (gain): calls updateUser with goal: "gain" and onboardingStep: 8', async () => {
+  it('valid goal "1": final response does not mention TACO or manual', async () => {
+    const result = await handleOnboarding(supabase, USER_ID, '1', 7)
+
+    expectNoCalorieModeTerms(result.response)
+  })
+
+  it('valid goal "3" (gain): calls updateUser with goal: "gain"', async () => {
     await handleOnboarding(supabase, USER_ID, '3', 7)
 
     expect(mockUpdateUser).toHaveBeenCalledWith(
       supabase,
       USER_ID,
-      expect.objectContaining({ goal: 'gain', onboardingStep: 8 }),
+      expect.objectContaining({ goal: 'gain' }),
     )
   })
 
-  it('valid goal: calls setState with step: 8 and goal', async () => {
+  it('valid goal: updateUser called with onboardingComplete: true and onboardingStep: 7', async () => {
     await handleOnboarding(supabase, USER_ID, '1', 7)
-
-    expect(mockSetState).toHaveBeenCalledWith(
-      USER_ID,
-      'onboarding',
-      expect.objectContaining({ step: 8, goal: 'lose' }),
-    )
-  })
-
-  it('invalid goal: returns error, completed false', async () => {
-    const result = await handleOnboarding(supabase, USER_ID, '4', 7)
-
-    expect(result.completed).toBe(false)
-    expect(result.response).toContain('perder')
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Step 8 — Calorie mode input + finalization
-// ---------------------------------------------------------------------------
-
-describe('handleOnboarding — step 8 (calorie mode + finalization)', () => {
-  it('valid mode "1": completed is true', async () => {
-    const result = await handleOnboarding(supabase, USER_ID, '1', 8)
-
-    expect(result.completed).toBe(true)
-  })
-
-  it('valid mode "1": response contains "Tudo pronto"', async () => {
-    const result = await handleOnboarding(supabase, USER_ID, '1', 8)
-
-    expect(result.response).toContain('Tudo pronto')
-  })
-
-  it('valid mode "1": response contains the user name', async () => {
-    const result = await handleOnboarding(supabase, USER_ID, '1', 8)
-
-    // formatOnboardingComplete includes "Tudo pronto, {name}!"
-    expect(result.response).toContain('João')
-  })
-
-  it('valid mode "1" (taco): updateUser called with calorieMode: "taco"', async () => {
-    await handleOnboarding(supabase, USER_ID, '1', 8)
 
     expect(mockUpdateUser).toHaveBeenCalledWith(
       supabase,
       USER_ID,
-      expect.objectContaining({ calorieMode: 'taco' }),
+      expect.objectContaining({
+        onboardingComplete: true,
+        onboardingStep: 7,
+      }),
     )
   })
 
-  it('valid mode: updateUser called with tmb, tdee, dailyCalorieTarget', async () => {
-    await handleOnboarding(supabase, USER_ID, '1', 8)
+  it('valid goal: updateUser called with tmb, tdee, dailyCalorieTarget', async () => {
+    await handleOnboarding(supabase, USER_ID, '1', 7)
 
     expect(mockUpdateUser).toHaveBeenCalledWith(
       supabase,
@@ -613,43 +596,12 @@ describe('handleOnboarding — step 8 (calorie mode + finalization)', () => {
     )
   })
 
-  it('valid mode: updateUser called with onboardingComplete: true and onboardingStep: 8', async () => {
-    await handleOnboarding(supabase, USER_ID, '1', 8)
-
-    expect(mockUpdateUser).toHaveBeenCalledWith(
-      supabase,
-      USER_ID,
-      expect.objectContaining({
-        onboardingComplete: true,
-        onboardingStep: 8,
-      }),
-    )
-  })
-
-  it('valid mode: createDefaultSettings is called with the userId', async () => {
-    await handleOnboarding(supabase, USER_ID, '1', 8)
-
-    expect(mockCreateDefaultSettings).toHaveBeenCalledWith(supabase, USER_ID)
-  })
-
-  it('valid mode: clearState is called with the userId', async () => {
-    await handleOnboarding(supabase, USER_ID, '1', 8)
-
-    expect(mockClearState).toHaveBeenCalledWith(USER_ID)
-  })
-
-  it('valid mode: getUserWithSettings is called to fetch user data for calculations', async () => {
-    await handleOnboarding(supabase, USER_ID, '1', 8)
-
-    expect(mockGetUserWithSettings).toHaveBeenCalledWith(supabase, USER_ID)
-  })
-
   it('tmb/tdee values are calculated correctly from mock user data', async () => {
     // For João: male, 72.5kg, 175cm, age 28, moderate, lose
     // TMB = 10*72.5 + 6.25*175 - 5*28 + 5 = 725 + 1093.75 - 140 + 5 = 1683.75
     // TDEE = 1683.75 * 1.6 = 2694
     // dailyTarget = 2694 - 500 = 2194
-    await handleOnboarding(supabase, USER_ID, '1', 8)
+    await handleOnboarding(supabase, USER_ID, '1', 7)
 
     expect(mockUpdateUser).toHaveBeenCalledWith(
       supabase,
@@ -662,10 +614,11 @@ describe('handleOnboarding — step 8 (calorie mode + finalization)', () => {
     )
   })
 
-  it('valid mode: updateUser called with macros', async () => {
-    await handleOnboarding(supabase, USER_ID, '1', 8)
+  it('valid goal: updateUser called with macros', async () => {
+    await handleOnboarding(supabase, USER_ID, '1', 7)
     expect(mockUpdateUser).toHaveBeenCalledWith(
-      supabase, USER_ID,
+      supabase,
+      USER_ID,
       expect.objectContaining({
         maxWeightKg: expect.any(Number),
         dailyProteinG: expect.any(Number),
@@ -675,36 +628,67 @@ describe('handleOnboarding — step 8 (calorie mode + finalization)', () => {
     )
   })
 
-  it('valid mode "1": response contains macros breakdown', async () => {
-    const result = await handleOnboarding(supabase, USER_ID, '1', 8)
-    expect(result.response).toContain('Proteína:')
-    expect(result.response).toContain('Gordura:')
-    expect(result.response).toContain('Carbs:')
+  it('valid goal: createDefaultSettings is called with the userId', async () => {
+    await handleOnboarding(supabase, USER_ID, '1', 7)
+
+    expect(mockCreateDefaultSettings).toHaveBeenCalledWith(supabase, USER_ID)
   })
 
-  it('invalid mode: returns error, completed false', async () => {
-    const result = await handleOnboarding(supabase, USER_ID, '5', 8)
+  it('valid goal: clearState is called with the userId', async () => {
+    await handleOnboarding(supabase, USER_ID, '1', 7)
+
+    expect(mockClearState).toHaveBeenCalledWith(USER_ID)
+  })
+
+  it('valid goal: getUserWithSettings is called to fetch user data for calculations', async () => {
+    await handleOnboarding(supabase, USER_ID, '1', 7)
+
+    expect(mockGetUserWithSettings).toHaveBeenCalledWith(supabase, USER_ID)
+  })
+
+  it('valid goal: does not move onboarding state to step 8', async () => {
+    await handleOnboarding(supabase, USER_ID, '1', 7)
+
+    expect(mockSetState).not.toHaveBeenCalledWith(
+      USER_ID,
+      'onboarding',
+      expect.objectContaining({ step: 8 }),
+    )
+  })
+
+  it('invalid goal: returns error, completed false', async () => {
+    const result = await handleOnboarding(supabase, USER_ID, '4', 7)
 
     expect(result.completed).toBe(false)
-    expect(result.response).toContain('TACO')
+    expect(result.response).toContain('perder')
   })
 
-  it('invalid mode: does NOT call createDefaultSettings', async () => {
-    await handleOnboarding(supabase, USER_ID, 'xyz', 8)
+  it('invalid goal: does NOT call createDefaultSettings', async () => {
+    await handleOnboarding(supabase, USER_ID, '4', 7)
 
     expect(mockCreateDefaultSettings).not.toHaveBeenCalled()
   })
 
-  it('invalid mode: does NOT call clearState', async () => {
-    await handleOnboarding(supabase, USER_ID, 'xyz', 8)
+  it('invalid goal: does NOT call clearState', async () => {
+    await handleOnboarding(supabase, USER_ID, '4', 7)
 
     expect(mockClearState).not.toHaveBeenCalled()
   })
+})
 
-  it('valid mode "2" (manual): completed true', async () => {
-    const result = await handleOnboarding(supabase, USER_ID, '2', 8)
+// ---------------------------------------------------------------------------
+// Step 8 — Legacy compatibility
+// ---------------------------------------------------------------------------
+
+describe('handleOnboarding — step 8 (legacy compatibility)', () => {
+  it('finalizes onboarding for users left on the old last step', async () => {
+    const result = await handleOnboarding(supabase, USER_ID, '1', 8)
 
     expect(result.completed).toBe(true)
+    expect(result.response).toContain('João')
+    expect(result.response).toContain('kcal')
+    expect(mockCreateDefaultSettings).toHaveBeenCalledWith(supabase, USER_ID)
+    expect(mockClearState).toHaveBeenCalledWith(USER_ID)
   })
 })
 
