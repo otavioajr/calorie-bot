@@ -325,6 +325,11 @@ export async function handleMealLog(
     if (REJECT_PATTERN.test(trimmed)) {
       return handleRejection(userId, context)
     }
+    // User sent something else while awaiting confirmation — treat as correction
+    // Combine the original meal with the new input for re-analysis
+    const originalMessage = context.contextData.originalMessage as string
+    const combined = `${originalMessage}\n${trimmed}`
+    return analyzeAndConfirm(supabase, userId, combined, originalMessage, user)
   }
 
   // Branch: user is selecting from history matches

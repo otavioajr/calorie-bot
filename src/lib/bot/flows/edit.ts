@@ -42,7 +42,7 @@ export async function handleEdit(
   const trimmed = message.trim()
 
   // -------------------------------------------------------------------------
-  // Branch: confirmation/rejection of a pending delete
+  // Branch: active correction context
   // -------------------------------------------------------------------------
   if (context?.contextType === 'awaiting_correction') {
     const action = context.contextData.action as string
@@ -56,6 +56,10 @@ export async function handleEdit(
         await clearState(userId)
         return 'Ok, mantive a refeição. Pode me mandar o que quer corrigir!'
       }
+    }
+
+    if (action === 'select_meal') {
+      return handleMealSelection(supabase, userId, trimmed, context)
     }
   }
 
@@ -120,6 +124,36 @@ async function confirmDeleteMeal(
   await clearState(userId)
 
   return 'Refeição apagada! ✅'
+}
+
+// ---------------------------------------------------------------------------
+// handleMealSelection
+// ---------------------------------------------------------------------------
+
+async function handleMealSelection(
+  supabase: SupabaseClient,
+  userId: string,
+  message: string,
+  context: ConversationContext,
+): Promise<string> {
+  const meals = context.contextData.meals as unknown as RecentMeal[]
+  const choice = parseInt(message, 10)
+
+  if (isNaN(choice) || choice < 1 || choice > meals.length) {
+    return `Opção inválida. Digite um número de 1 a ${meals.length}.`
+  }
+
+  const selected = meals[choice - 1]
+  const label = mealLabel(selected.mealType)
+
+  await setState(userId, 'awaiting_correction', {
+    action: 'delete_confirm',
+    mealId: selected.id,
+    mealType: selected.mealType,
+    totalCalories: selected.totalCalories,
+  })
+
+  return `Quer apagar: ${label} (${selected.totalCalories} kcal)? (sim/não)`
 }
 
 // ---------------------------------------------------------------------------
