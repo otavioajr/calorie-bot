@@ -225,7 +225,7 @@ async function enrichItemsWithTaco(
     }
   }
 
-  // Step 4: Decompose composite foods that didn't match TACO or USDA
+  // Step 4: Decompose composite foods that didn't match TACO or OFF
   for (const { item, index } of needsDecomposition) {
     try {
       const ingredients = await llm.decomposeMeal(item.food, item.quantity_grams)
