@@ -32,13 +32,16 @@ const NUTRIENT_IDS = {
 const TRANSLATE_PROMPT = `Translate the following Brazilian Portuguese food name to English.
 Return ONLY the English name, nothing else. No quotes, no explanation.`
 
-export async function translateFoodName(foodNamePtBr: string): Promise<string | null> {
+export async function translateFoodName(foodNamePtBr: string): Promise<{ text: string; alreadyEnglish: boolean } | null> {
   try {
     const llm = getLLMProvider()
     const translated = await llm.chat(foodNamePtBr, TRANSLATE_PROMPT)
     const trimmed = translated.trim()
-    if (trimmed.toLowerCase() === foodNamePtBr.toLowerCase()) return null
-    return trimmed
+    // Same text = already in English (e.g., LLM returned "Whey protein" for input "Whey protein")
+    if (trimmed.toLowerCase() === foodNamePtBr.toLowerCase()) {
+      return { text: foodNamePtBr, alreadyEnglish: true }
+    }
+    return { text: trimmed, alreadyEnglish: false }
   } catch {
     return null
   }
@@ -136,12 +139,13 @@ export async function searchUSDAFood(
     }
 
     console.log('[USDA] Translating:', foodNamePtBr)
-    const translatedName = await translateFoodName(foodNamePtBr)
-    if (!translatedName) {
+    const translation = await translateFoodName(foodNamePtBr)
+    if (!translation) {
       console.log('[USDA] Translation failed, skipping')
       return null
     }
-    console.log('[USDA] Translated to:', translatedName)
+    const translatedName = translation.text
+    console.log('[USDA] Translated to:', translatedName, translation.alreadyEnglish ? '(already English)' : '')
 
     console.log('[USDA] Querying API...')
     const result = await queryUSDA(translatedName, apiKey, quantityGrams, foodNamePtBr)

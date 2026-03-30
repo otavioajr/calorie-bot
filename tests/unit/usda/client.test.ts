@@ -29,7 +29,7 @@ describe('translateFoodName', () => {
       'Proteína de soro de leite',
       expect.stringContaining('Translate'),
     )
-    expect(result).toBe('whey protein')
+    expect(result).toEqual({ text: 'whey protein', alreadyEnglish: false })
   })
 
   it('trims whitespace from LLM response', async () => {
@@ -37,7 +37,7 @@ describe('translateFoodName', () => {
 
     const result = await translateFoodName('Proteína de soro de leite')
 
-    expect(result).toBe('whey protein')
+    expect(result).toEqual({ text: 'whey protein', alreadyEnglish: false })
   })
 
   it('returns null if LLM fails', async () => {
@@ -48,12 +48,12 @@ describe('translateFoodName', () => {
     expect(result).toBeNull()
   })
 
-  it('returns null if translation matches original', async () => {
-    mockChat.mockResolvedValue('Creatina')
+  it('marks as alreadyEnglish when translation matches original', async () => {
+    mockChat.mockResolvedValue('Whey protein')
 
-    const result = await translateFoodName('Creatina')
+    const result = await translateFoodName('Whey protein')
 
-    expect(result).toBeNull()
+    expect(result).toEqual({ text: 'Whey protein', alreadyEnglish: true })
   })
 })
 
