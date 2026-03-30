@@ -17,5 +17,5 @@ export interface LLMProvider {
   analyzeImage(imageBase64: string, caption: string | undefined): Promise<ImageAnalysis>
   decomposeMeal(foodName: string, grams: number): Promise<DecomposedItem[]>
   classifyIntent(message: string): Promise<IntentType>
-  chat(message: string, systemPrompt: string): Promise<string>
+  chat(message: string, systemPrompt: string, jsonMode?: boolean): Promise<string>
 }

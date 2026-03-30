@@ -156,8 +156,8 @@ export class OpenRouterProvider implements LLMProvider {
     return validated.intent
   }
 
-  async chat(message: string, systemPrompt: string): Promise<string> {
-    return this.callAPI(this.mealModel, systemPrompt, message, false)
+  async chat(message: string, systemPrompt: string, jsonMode?: boolean): Promise<string> {
+    return this.callAPI(this.mealModel, systemPrompt, message, jsonMode ?? false)
   }
 
   private async callVisionAPI(
