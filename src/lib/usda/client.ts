@@ -193,13 +193,25 @@ export async function searchUSDAFood(
 ): Promise<USDAResult | null> {
   try {
     const apiKey = process.env.USDA_API_KEY
-    if (!apiKey) return null
+    if (!apiKey) {
+      console.log('[USDA] No API key, skipping')
+      return null
+    }
 
+    console.log('[USDA] Translating:', foodNamePtBr)
     const translatedName = await translateFoodName(foodNamePtBr)
-    if (!translatedName) return null
+    if (!translatedName) {
+      console.log('[USDA] Translation failed, skipping')
+      return null
+    }
+    console.log('[USDA] Translated to:', translatedName)
 
-    return await queryUSDA(translatedName, apiKey, quantityGrams, foodNamePtBr)
-  } catch {
+    console.log('[USDA] Querying API...')
+    const result = await queryUSDA(translatedName, apiKey, quantityGrams, foodNamePtBr)
+    console.log('[USDA] Result:', result ? `${result.usdaFoodName} (${result.calories} kcal)` : 'null')
+    return result
+  } catch (err) {
+    console.error('[USDA] Error:', err)
     return null
   }
 }

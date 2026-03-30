@@ -113,19 +113,25 @@ export async function handleIncomingMessage(
     let intent = classifyByRules(text)
     if (!intent) {
       try {
+        console.log('[handler] Classifying intent via LLM...')
         const llm = getLLMProvider()
         intent = await llm.classifyIntent(text)
-      } catch {
+        console.log('[handler] Intent classified:', intent)
+      } catch (err) {
+        console.error('[handler] LLM classify failed:', err)
         // LLM failed — default to assuming it's a meal log
         intent = 'meal_log'
       }
     }
 
     // 5. Route to appropriate flow
+    console.log('[handler] Routing to flow:', intent)
     let response: string
     switch (intent) {
       case 'meal_log': {
+        console.log('[handler] Starting meal log...')
         const result = await handleMealLog(supabase, user.id, text, userSettings, null)
+        console.log('[handler] Meal log done, completed:', result.completed)
         response = result.response
         break
       }
@@ -163,7 +169,9 @@ export async function handleIncomingMessage(
         break
     }
 
+    console.log('[handler] Sending response, length:', response.length)
     await sendTextMessage(from, response)
+    console.log('[handler] Response sent successfully')
     saveHistory(supabase, user.id, text, response)
   } catch (err) {
     console.error('[handler] Error:', err)
