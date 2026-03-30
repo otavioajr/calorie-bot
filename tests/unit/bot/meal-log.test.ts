@@ -19,6 +19,7 @@ const {
   mockFormatMultiMealBreakdown,
   mockFormatProgress,
   mockFormatDecompositionFeedback,
+  mockFormatSearchFeedback,
   mockGetRecentMessages,
   mockFuzzyMatchTacoMultiple,
   mockMatchTacoByBase,
@@ -28,6 +29,7 @@ const {
   mockCalculateMacros,
   mockSendTextMessage,
   mockSearchMealHistory,
+  mockSearchUSDAFood,
 } = vi.hoisted(() => {
   const mockAnalyzeMeal = vi.fn()
   const mockDecomposeMeal = vi.fn()
@@ -49,6 +51,7 @@ const {
     mockFormatMultiMealBreakdown: vi.fn().mockReturnValue('Multi breakdown message\nAlgo errado? Manda "corrigir"'),
     mockFormatProgress: vi.fn().mockReturnValue('📊 Hoje: 800 / 2000 kcal (restam 1200)'),
     mockFormatDecompositionFeedback: vi.fn().mockReturnValue('Decompondo...'),
+    mockFormatSearchFeedback: vi.fn().mockReturnValue('Encontrando os alimentos... 🔍'),
     mockGetRecentMessages: vi.fn().mockResolvedValue([]),
     mockFuzzyMatchTacoMultiple: vi.fn().mockResolvedValue(new Map([
       ['arroz', { id: 3, foodName: 'Arroz, tipo 1, cozido', category: null, caloriesPer100g: 128, proteinPer100g: 2.5, carbsPer100g: 28.1, fatPer100g: 0.2, fiberPer100g: 1.6, foodBase: 'Arroz', foodVariant: 'tipo 1, cozido', isDefault: true }],
@@ -66,6 +69,7 @@ const {
     })),
     mockSendTextMessage: vi.fn().mockResolvedValue(undefined),
     mockSearchMealHistory: vi.fn().mockResolvedValue([]),
+    mockSearchUSDAFood: vi.fn().mockResolvedValue(null),
   }
 })
 
@@ -92,7 +96,12 @@ vi.mock('@/lib/utils/formatters', () => ({
   formatMultiMealBreakdown: mockFormatMultiMealBreakdown,
   formatProgress: mockFormatProgress,
   formatDecompositionFeedback: mockFormatDecompositionFeedback,
+  formatSearchFeedback: mockFormatSearchFeedback,
   formatDefaultNotice: mockFormatDefaultNotice,
+}))
+
+vi.mock('@/lib/usda/client', () => ({
+  searchUSDAFood: mockSearchUSDAFood,
 }))
 
 vi.mock('@/lib/db/queries/message-history', () => ({
@@ -513,6 +522,113 @@ describe('handleMealLog', () => {
 
       expect(result.completed).toBe(true)
       expect(mockMatchTacoByBase).toHaveBeenCalledWith(supabase, 'banana')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // USDA fallback
+  // -------------------------------------------------------------------------
+
+  describe('USDA fallback', () => {
+    it('uses USDA when TACO base and fuzzy both miss', async () => {
+      // Setup: whey protein not in TACO
+      mockMatchTacoByBase.mockResolvedValue([])
+      mockFuzzyMatchTacoMultiple.mockResolvedValue(new Map())
+
+      // USDA returns a match
+      mockSearchUSDAFood.mockResolvedValue({
+        food: 'Proteína de soro de leite',
+        usdaFoodName: 'Whey protein powder',
+        fdcId: 456789,
+        calories: 120,
+        protein: 24,
+        carbs: 3,
+        fat: 1.5,
+      })
+
+      const wheyAnalysis: MealAnalysis = {
+        meal_type: 'breakfast',
+        confidence: 'high',
+        references_previous: false,
+        reference_query: null,
+        items: [{
+          food: 'Proteína de soro de leite',
+          quantity_grams: 30,
+          quantity_display: '30g',
+          quantity_source: 'user_provided',
+          calories: null,
+          protein: null,
+          carbs: null,
+          fat: null,
+          confidence: 'high',
+        }],
+        unknown_items: [],
+        needs_clarification: false,
+        clarification_question: undefined,
+      }
+      mockAnalyzeMeal.mockResolvedValue([wheyAnalysis])
+
+      const result = await handleMealLog(
+        supabase,
+        USER_ID,
+        '30g whey protein',
+        { ...mockUser, phone: '5511999999999' },
+        null,
+      )
+
+      expect(result.completed).toBe(true)
+      expect(mockSearchUSDAFood).toHaveBeenCalledWith('Proteína de soro de leite', 30)
+      // Should NOT attempt decomposition
+      expect(mockDecomposeMeal).not.toHaveBeenCalled()
+    })
+
+    it('falls through to decomposition when USDA returns null', async () => {
+      mockMatchTacoByBase.mockResolvedValue([])
+      mockFuzzyMatchTacoMultiple.mockResolvedValue(new Map())
+      mockSearchUSDAFood.mockResolvedValue(null)
+
+      // Decompose returns ingredients that match TACO
+      mockDecomposeMeal.mockResolvedValue([
+        { food: 'Farinha de trigo', quantity_grams: 50 },
+      ])
+      mockFuzzyMatchTacoMultiple
+        .mockResolvedValueOnce(new Map()) // first call for main items
+        .mockResolvedValueOnce(new Map([  // second call for decomposed ingredients
+          ['farinha de trigo', { id: 10, foodName: 'Farinha, de trigo', category: null, caloriesPer100g: 360, proteinPer100g: 9.8, carbsPer100g: 75.1, fatPer100g: 1.4, fiberPer100g: 2.3, foodBase: 'Farinha', foodVariant: 'de trigo', isDefault: true }],
+        ]))
+
+      const compositeAnalysis: MealAnalysis = {
+        meal_type: 'lunch',
+        confidence: 'high',
+        references_previous: false,
+        reference_query: null,
+        items: [{
+          food: 'Pão caseiro',
+          quantity_grams: 100,
+          quantity_display: null,
+          quantity_source: 'estimated',
+          calories: null,
+          protein: null,
+          carbs: null,
+          fat: null,
+          confidence: 'medium',
+        }],
+        unknown_items: [],
+        needs_clarification: false,
+        clarification_question: undefined,
+      }
+      mockAnalyzeMeal.mockResolvedValue([compositeAnalysis])
+
+      const result = await handleMealLog(
+        supabase,
+        USER_ID,
+        'comi pão caseiro',
+        { ...mockUser, phone: '5511999999999' },
+        null,
+      )
+
+      expect(mockSearchUSDAFood).toHaveBeenCalledWith('Pão caseiro', 100)
+      expect(mockDecomposeMeal).toHaveBeenCalled()
     })
   })
 })

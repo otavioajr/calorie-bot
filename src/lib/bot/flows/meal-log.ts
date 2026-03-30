@@ -4,12 +4,13 @@ import type { MealAnalysis, MealItem } from '@/lib/llm/schemas/meal-analysis'
 import { setState, clearState } from '@/lib/bot/state'
 import type { ConversationContext } from '@/lib/bot/state'
 import { createMeal, getDailyCalories, getDailyMacros } from '@/lib/db/queries/meals'
-import { formatMealBreakdown, formatMultiMealBreakdown, formatProgress, formatDecompositionFeedback, formatDefaultNotice } from '@/lib/utils/formatters'
+import { formatMealBreakdown, formatMultiMealBreakdown, formatProgress, formatSearchFeedback, formatDefaultNotice } from '@/lib/utils/formatters'
 import { getRecentMessages } from '@/lib/db/queries/message-history'
 import { fuzzyMatchTacoMultiple, calculateMacros, matchTacoByBase, getLearnedDefault, recordTacoUsage } from '@/lib/db/queries/taco'
 import type { TacoFood } from '@/lib/db/queries/taco'
 import { sendTextMessage } from '@/lib/whatsapp/client'
 import { searchMealHistory, HistoryMatch } from '@/lib/db/queries/meal-history-search'
+import { searchUSDAFood } from '@/lib/usda/client'
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -134,6 +135,11 @@ async function enrichItemsWithTaco(
   const enriched: EnrichedItem[] = []
   const needsFuzzy: { item: MealItem; index: number }[] = []
 
+  // Send generic feedback while enrichment runs
+  if (phone) {
+    await sendTextMessage(phone, formatSearchFeedback())
+  }
+
   // Step 1: Try base-name matching first (most precise for generic names)
   for (let i = 0; i < items.length; i++) {
     const item = items[i]
@@ -177,7 +183,7 @@ async function enrichItemsWithTaco(
   }
 
   // Step 2: Fuzzy match for items that didn't match any base
-  const needsDecomposition: { item: MealItem; index: number }[] = []
+  const needsUSDA: { item: MealItem; index: number }[] = []
 
   if (needsFuzzy.length > 0) {
     const fuzzyNames = needsFuzzy.map(d => d.item.food)
@@ -199,18 +205,33 @@ async function enrichItemsWithTaco(
           tacoId: tacoMatch.id,
         }
       } else {
-        needsDecomposition.push({ item, index })
+        needsUSDA.push({ item, index })
       }
     }
   }
 
-  // Step 3: Decompose composite foods that didn't match
-  if (needsDecomposition.length > 0 && phone) {
-    const feedbackNames = needsDecomposition.map(d => d.item.food)
-    const feedbackMsg = formatDecompositionFeedback(feedbackNames)
-    await sendTextMessage(phone, feedbackMsg)
+  // Step 3: Try USDA for items that didn't match TACO
+  const needsDecomposition: { item: MealItem; index: number }[] = []
+
+  for (const { item, index } of needsUSDA) {
+    const usdaResult = await searchUSDAFood(item.food, item.quantity_grams)
+    if (usdaResult) {
+      enriched[index] = {
+        food: item.food,
+        quantityGrams: item.quantity_grams,
+        quantityDisplay: item.quantity_display,
+        calories: usdaResult.calories,
+        protein: usdaResult.protein,
+        carbs: usdaResult.carbs,
+        fat: usdaResult.fat,
+        source: 'usda',
+      }
+    } else {
+      needsDecomposition.push({ item, index })
+    }
   }
 
+  // Step 4: Decompose composite foods that didn't match TACO or USDA
   for (const { item, index } of needsDecomposition) {
     try {
       const ingredients = await llm.decomposeMeal(item.food, item.quantity_grams)
