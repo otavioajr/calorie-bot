@@ -29,7 +29,6 @@ const {
   mockCalculateMacros,
   mockSendTextMessage,
   mockSearchMealHistory,
-  mockSearchOFFFood,
 } = vi.hoisted(() => {
   const mockAnalyzeMeal = vi.fn()
   const mockDecomposeMeal = vi.fn()
@@ -69,7 +68,6 @@ const {
     })),
     mockSendTextMessage: vi.fn().mockResolvedValue(undefined),
     mockSearchMealHistory: vi.fn().mockResolvedValue([]),
-    mockSearchOFFFood: vi.fn().mockResolvedValue(null),
   }
 })
 
@@ -98,10 +96,6 @@ vi.mock('@/lib/utils/formatters', () => ({
   formatDecompositionFeedback: mockFormatDecompositionFeedback,
   formatSearchFeedback: mockFormatSearchFeedback,
   formatDefaultNotice: mockFormatDefaultNotice,
-}))
-
-vi.mock('@/lib/off/client', () => ({
-  searchOFFFood: mockSearchOFFFood,
 }))
 
 vi.mock('@/lib/db/queries/message-history', () => ({
@@ -526,66 +520,13 @@ describe('handleMealLog', () => {
   })
 
   // -------------------------------------------------------------------------
-  // OFF fallback
+  // Decomposition fallback
   // -------------------------------------------------------------------------
 
-  describe('OFF fallback', () => {
-    it('uses OFF when TACO base and fuzzy both miss', async () => {
-      // Setup: whey protein not in TACO
+  describe('decomposition fallback', () => {
+    it('goes to decomposition when TACO base and fuzzy both miss', async () => {
       mockMatchTacoByBase.mockResolvedValue([])
       mockFuzzyMatchTacoMultiple.mockResolvedValue(new Map())
-
-      // OFF returns a match
-      mockSearchOFFFood.mockResolvedValue({
-        food: 'Proteína de soro de leite',
-        offFoodName: 'Whey Protein Powder',
-        offId: 'abc123',
-        calories: 120,
-        protein: 24,
-        carbs: 3,
-        fat: 1.5,
-      })
-
-      const wheyAnalysis: MealAnalysis = {
-        meal_type: 'breakfast',
-        confidence: 'high',
-        references_previous: false,
-        reference_query: null,
-        items: [{
-          food: 'Proteína de soro de leite',
-          quantity_grams: 30,
-          quantity_display: '30g',
-          quantity_source: 'user_provided',
-          calories: null,
-          protein: null,
-          carbs: null,
-          fat: null,
-          confidence: 'high',
-        }],
-        unknown_items: [],
-        needs_clarification: false,
-        clarification_question: undefined,
-      }
-      mockAnalyzeMeal.mockResolvedValue([wheyAnalysis])
-
-      const result = await handleMealLog(
-        supabase,
-        USER_ID,
-        '30g whey protein',
-        { ...mockUser, phone: '5511999999999' },
-        null,
-      )
-
-      expect(result.completed).toBe(true)
-      expect(mockSearchOFFFood).toHaveBeenCalledWith('Proteína de soro de leite', 30)
-      // Should NOT attempt decomposition
-      expect(mockDecomposeMeal).not.toHaveBeenCalled()
-    })
-
-    it('falls through to decomposition when OFF returns null', async () => {
-      mockMatchTacoByBase.mockResolvedValue([])
-      mockFuzzyMatchTacoMultiple.mockResolvedValue(new Map())
-      mockSearchOFFFood.mockResolvedValue(null)
 
       // Decompose returns ingredients that match TACO
       mockDecomposeMeal.mockResolvedValue([
@@ -627,8 +568,8 @@ describe('handleMealLog', () => {
         null,
       )
 
-      expect(mockSearchOFFFood).toHaveBeenCalledWith('Pão caseiro', 100)
       expect(mockDecomposeMeal).toHaveBeenCalled()
+      expect(result.completed).toBe(true)
     })
   })
 })

@@ -10,7 +10,6 @@ import { fuzzyMatchTacoMultiple, calculateMacros, matchTacoByBase, getLearnedDef
 import type { TacoFood } from '@/lib/db/queries/taco'
 import { sendTextMessage } from '@/lib/whatsapp/client'
 import { searchMealHistory, HistoryMatch } from '@/lib/db/queries/meal-history-search'
-import { searchOFFFood } from '@/lib/off/client'
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -177,7 +176,7 @@ async function enrichItemsWithTaco(
   }
 
   // Step 2: Fuzzy match for items that didn't match any base
-  const needsOFF: { item: MealItem; index: number }[] = []
+  const needsDecomposition: { item: MealItem; index: number }[] = []
 
   if (needsFuzzy.length > 0) {
     const fuzzyNames = needsFuzzy.map(d => d.item.food)
@@ -199,33 +198,12 @@ async function enrichItemsWithTaco(
           tacoId: tacoMatch.id,
         }
       } else {
-        needsOFF.push({ item, index })
+        needsDecomposition.push({ item, index })
       }
     }
   }
 
-  // Step 3: Try OFF for items that didn't match TACO
-  const needsDecomposition: { item: MealItem; index: number }[] = []
-
-  for (const { item, index } of needsOFF) {
-    const offResult = await searchOFFFood(item.food, item.quantity_grams)
-    if (offResult) {
-      enriched[index] = {
-        food: item.food,
-        quantityGrams: item.quantity_grams,
-        quantityDisplay: item.quantity_display,
-        calories: offResult.calories,
-        protein: offResult.protein,
-        carbs: offResult.carbs,
-        fat: offResult.fat,
-        source: 'off',
-      }
-    } else {
-      needsDecomposition.push({ item, index })
-    }
-  }
-
-  // Step 4: Decompose composite foods that didn't match TACO or OFF
+  // Step 3: Decompose composite foods that didn't match TACO
   for (const { item, index } of needsDecomposition) {
     try {
       const ingredients = await llm.decomposeMeal(item.food, item.quantity_grams)
