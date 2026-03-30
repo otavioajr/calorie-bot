@@ -130,15 +130,9 @@ async function enrichItemsWithTaco(
   items: MealItem[],
   llm: ReturnType<typeof getLLMProvider>,
   userId: string,
-  phone?: string,
 ): Promise<EnrichedItem[]> {
   const enriched: EnrichedItem[] = []
   const needsFuzzy: { item: MealItem; index: number }[] = []
-
-  // Send generic feedback while enrichment runs
-  if (phone) {
-    await sendTextMessage(phone, formatSearchFeedback())
-  }
 
   // Step 1: Try base-name matching first (most precise for generic names)
   for (let i = 0; i < items.length; i++) {
@@ -214,7 +208,9 @@ async function enrichItemsWithTaco(
   const needsDecomposition: { item: MealItem; index: number }[] = []
 
   for (const { item, index } of needsUSDA) {
+    console.log(`[enrichment] Step 3 USDA lookup for: "${item.food}" (${item.quantity_grams}g)`)
     const usdaResult = await searchUSDAFood(item.food, item.quantity_grams)
+    console.log(`[enrichment] USDA result for "${item.food}":`, usdaResult ? `${usdaResult.usdaFoodName} = ${usdaResult.calories} kcal` : 'null (not found)')
     if (usdaResult) {
       enriched[index] = {
         food: item.food,
@@ -233,8 +229,10 @@ async function enrichItemsWithTaco(
 
   // Step 4: Decompose composite foods that didn't match TACO or USDA
   for (const { item, index } of needsDecomposition) {
+    console.log(`[enrichment] Step 4 decomposition for: "${item.food}" (${item.quantity_grams}g)`)
     try {
       const ingredients = await llm.decomposeMeal(item.food, item.quantity_grams)
+      console.log(`[enrichment] Decomposed "${item.food}" into ${ingredients.length} ingredients:`, ingredients.map(ig => `${ig.food} ${ig.quantity_grams}g`).join(', '))
 
       // Match each ingredient: base first, then fuzzy
       let totalCal = 0, totalProt = 0, totalCarbs = 0, totalFat = 0
@@ -295,7 +293,8 @@ async function enrichItemsWithTaco(
         fat: Math.round(totalFat * 10) / 10,
         source: totalCal > 0 ? 'taco_decomposed' : 'approximate',
       }
-    } catch {
+    } catch (err) {
+      console.error(`[enrichment] Decomposition FAILED for "${item.food}":`, err)
       enriched[index] = {
         food: item.food,
         quantityGrams: item.quantity_grams,
@@ -520,10 +519,15 @@ async function analyzeAndRegister(
     }
   }
 
+  // Send feedback once before enrichment loop
+  if (user.phone) {
+    await sendTextMessage(user.phone, formatSearchFeedback())
+  }
+
   // Enrich all meal items with TACO data
   const enrichedMeals: EnrichedItem[][] = []
   for (const meal of meals) {
-    const enriched = await enrichItemsWithTaco(supabase, meal.items, llm, userId, user.phone)
+    const enriched = await enrichItemsWithTaco(supabase, meal.items, llm, userId)
     enrichedMeals.push(enriched)
   }
 
