@@ -37,10 +37,6 @@ vi.mock('@/lib/bot/handler', () => ({
   handleIncomingImage: mockHandleIncomingImage,
 }))
 
-// Mock next/server after() to execute callback immediately in tests
-vi.mock('next/server', () => ({
-  after: (fn: () => Promise<void>) => { fn() },
-}))
 
 // Import after mocks are set up
 import { GET, POST } from '@/app/api/webhook/whatsapp/route'
