@@ -20,44 +20,38 @@ describe('translateFoodName', () => {
     vi.clearAllMocks()
   })
 
-  it('uses static dictionary for known terms (no LLM call)', async () => {
+  it('translates PT-BR food name to English via LLM', async () => {
+    mockChat.mockResolvedValue('whey protein')
+
     const result = await translateFoodName('Proteína de soro de leite')
 
-    expect(result).toBe('whey protein powder')
-    expect(mockChat).not.toHaveBeenCalled()
-  })
-
-  it('static lookup is case-insensitive', async () => {
-    const result = await translateFoodName('CREATINA')
-
-    expect(result).toBe('creatine supplement')
-    expect(mockChat).not.toHaveBeenCalled()
-  })
-
-  it('falls back to LLM for unknown terms', async () => {
-    mockChat.mockResolvedValue('tapioca flour')
-
-    const result = await translateFoodName('farinha de tapioca')
-
     expect(mockChat).toHaveBeenCalledWith(
-      'farinha de tapioca',
+      'Proteína de soro de leite',
       expect.stringContaining('Translate'),
     )
-    expect(result).toBe('tapioca flour')
+    expect(result).toBe('whey protein')
   })
 
-  it('returns null if LLM fails for unknown term', async () => {
+  it('trims whitespace from LLM response', async () => {
+    mockChat.mockResolvedValue('  whey protein  \n')
+
+    const result = await translateFoodName('Proteína de soro de leite')
+
+    expect(result).toBe('whey protein')
+  })
+
+  it('returns null if LLM fails', async () => {
     mockChat.mockRejectedValue(new Error('LLM error'))
 
-    const result = await translateFoodName('comida desconhecida')
+    const result = await translateFoodName('Creatina')
 
     expect(result).toBeNull()
   })
 
-  it('returns null if LLM returns same text as input', async () => {
-    mockChat.mockResolvedValue('salgadinho')
+  it('returns null if translation matches original', async () => {
+    mockChat.mockResolvedValue('Creatina')
 
-    const result = await translateFoodName('salgadinho')
+    const result = await translateFoodName('Creatina')
 
     expect(result).toBeNull()
   })
@@ -99,6 +93,7 @@ const usdaIncompleteNutrientsResponse = {
 describe('searchUSDAFood', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockChat.mockResolvedValue('whey protein')
     process.env.USDA_API_KEY = 'test-key'
   })
 
@@ -120,7 +115,7 @@ describe('searchUSDAFood', () => {
     expect(result!.usdaFoodName).toBe('Whey protein powder, vanilla')
   })
 
-  it('uses static dictionary translation for known foods', async () => {
+  it('translates then searches USDA', async () => {
     mockFetch.mockResolvedValue({
       ok: true,
       json: async () => usdaWheyResponse,
@@ -128,30 +123,13 @@ describe('searchUSDAFood', () => {
 
     await searchUSDAFood('Proteína de soro de leite', 30)
 
-    // Should use dictionary (no LLM call), then search USDA
-    expect(mockChat).not.toHaveBeenCalled()
-    expect(mockFetch).toHaveBeenCalledTimes(1)
-    const calledUrl = mockFetch.mock.calls[0][0] as string
-    expect(calledUrl).toContain('query=whey+protein+powder')
-  })
-
-  it('uses LLM translation for unknown foods', async () => {
-    mockChat.mockResolvedValue('tapioca flour')
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => usdaWheyResponse,
-    })
-
-    await searchUSDAFood('farinha de tapioca', 100)
-
     expect(mockChat).toHaveBeenCalled()
     expect(mockFetch).toHaveBeenCalledTimes(1)
     const calledUrl = mockFetch.mock.calls[0][0] as string
-    expect(calledUrl).toContain('query=tapioca+flour')
+    expect(calledUrl).toContain('query=whey+protein')
   })
 
   it('returns null when USDA returns no results', async () => {
-    mockChat.mockResolvedValue('invented food')
     mockFetch.mockResolvedValue({
       ok: true,
       json: async () => usdaEmptyResponse,
@@ -163,7 +141,6 @@ describe('searchUSDAFood', () => {
   })
 
   it('returns null when USDA results lack complete nutrients', async () => {
-    mockChat.mockResolvedValue('some food')
     mockFetch.mockResolvedValue({
       ok: true,
       json: async () => usdaIncompleteNutrientsResponse,
@@ -198,10 +175,10 @@ describe('searchUSDAFood', () => {
     expect(result).toBeNull()
   })
 
-  it('returns null when LLM translation fails for unknown term', async () => {
+  it('returns null when translation fails', async () => {
     mockChat.mockRejectedValue(new Error('LLM error'))
 
-    const result = await searchUSDAFood('comida desconhecida', 30)
+    const result = await searchUSDAFood('Proteína de soro de leite', 30)
 
     expect(result).toBeNull()
     expect(mockFetch).not.toHaveBeenCalled()
