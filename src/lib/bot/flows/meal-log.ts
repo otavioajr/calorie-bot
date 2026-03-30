@@ -143,32 +143,15 @@ async function enrichItemsWithTaco(
   userId: string,
   phone?: string,
 ): Promise<EnrichedItem[]> {
-  // Step 1: Batch fuzzy match all items against TACO (exact name matching)
-  const foodNames = items.map(i => i.food)
-  const tacoMatches = await fuzzyMatchTacoMultiple(supabase, foodNames)
-
   const enriched: EnrichedItem[] = []
-  const needsBaseMatch: { item: MealItem; index: number }[] = []
+  const needsFuzzy: { item: MealItem; index: number }[] = []
 
+  // Step 1: Try base-name matching first (most precise for generic names)
   for (let i = 0; i < items.length; i++) {
     const item = items[i]
-    const tacoMatch = tacoMatches.get(item.food.toLowerCase())
 
-    if (tacoMatch) {
-      // Direct fuzzy match found
-      const macros = calculateMacros(tacoMatch, item.quantity_grams)
-      enriched.push({
-        food: item.food,
-        quantityGrams: item.quantity_grams,
-        calories: macros.calories,
-        protein: macros.protein,
-        carbs: macros.carbs,
-        fat: macros.fat,
-        source: 'taco',
-        tacoId: tacoMatch.id,
-      })
-    } else if (item.calories !== null && item.calories !== undefined && item.calories > 0) {
-      // User provided explicit macros
+    if (item.calories !== null && item.calories !== undefined && item.calories > 0) {
+      // User provided explicit macros — use as-is
       enriched.push({
         food: item.food,
         quantityGrams: item.quantity_grams,
@@ -178,20 +161,13 @@ async function enrichItemsWithTaco(
         fat: item.fat ?? 0,
         source: 'user_provided',
       })
-    } else {
-      needsBaseMatch.push({ item, index: i })
-      enriched.push(null as unknown as EnrichedItem) // placeholder
+      continue
     }
-  }
 
-  // Step 2: Try base-name matching for unmatched items
-  const needsDecomposition: { item: MealItem; index: number }[] = []
-
-  for (const { item, index } of needsBaseMatch) {
     const baseResult = await resolveByBase(supabase, item.food)
     if (baseResult) {
       const macros = calculateMacros(baseResult.match, item.quantity_grams)
-      enriched[index] = {
+      enriched.push({
         food: item.food,
         quantityGrams: item.quantity_grams,
         calories: macros.calories,
@@ -203,9 +179,37 @@ async function enrichItemsWithTaco(
         usedDefault: baseResult.usedDefault,
         defaultFoodBase: baseResult.usedDefault ? baseResult.match.foodBase : undefined,
         defaultFoodVariant: baseResult.usedDefault ? baseResult.match.foodVariant : undefined,
-      }
+      })
     } else {
-      needsDecomposition.push({ item, index })
+      needsFuzzy.push({ item, index: i })
+      enriched.push(null as unknown as EnrichedItem) // placeholder
+    }
+  }
+
+  // Step 2: Fuzzy match for items that didn't match any base
+  const needsDecomposition: { item: MealItem; index: number }[] = []
+
+  if (needsFuzzy.length > 0) {
+    const fuzzyNames = needsFuzzy.map(d => d.item.food)
+    const tacoMatches = await fuzzyMatchTacoMultiple(supabase, fuzzyNames)
+
+    for (const { item, index } of needsFuzzy) {
+      const tacoMatch = tacoMatches.get(item.food.toLowerCase())
+      if (tacoMatch) {
+        const macros = calculateMacros(tacoMatch, item.quantity_grams)
+        enriched[index] = {
+          food: item.food,
+          quantityGrams: item.quantity_grams,
+          calories: macros.calories,
+          protein: macros.protein,
+          carbs: macros.carbs,
+          fat: macros.fat,
+          source: 'taco',
+          tacoId: tacoMatch.id,
+        }
+      } else {
+        needsDecomposition.push({ item, index })
+      }
     }
   }
 
@@ -220,40 +224,51 @@ async function enrichItemsWithTaco(
     try {
       const ingredients = await llm.decomposeMeal(item.food, item.quantity_grams)
 
-      // Match each ingredient via fuzzy + base pipeline
-      const ingredientNames = ingredients.map(ig => ig.food)
-      const ingredientMatches = await fuzzyMatchTacoMultiple(supabase, ingredientNames)
-
+      // Match each ingredient: base first, then fuzzy
       let totalCal = 0, totalProt = 0, totalCarbs = 0, totalFat = 0
+      const unmatchedIngredients: typeof ingredients = []
 
       for (const ig of ingredients) {
-        let match = ingredientMatches.get(ig.food.toLowerCase())
-
-        // If fuzzy didn't work, try base matching for the ingredient
-        if (!match) {
-          const baseResult = await resolveByBase(supabase, ig.food)
-          if (baseResult) match = baseResult.match
-        }
-
-        if (match) {
-          const macros = calculateMacros(match, ig.quantity_grams)
+        const baseResult = await resolveByBase(supabase, ig.food)
+        if (baseResult) {
+          const macros = calculateMacros(baseResult.match, ig.quantity_grams)
           totalCal += macros.calories
           totalProt += macros.protein
           totalCarbs += macros.carbs
           totalFat += macros.fat
         } else {
-          // Step 4: LLM fallback for ingredient not in TACO
-          try {
-            const fallbackMeals = await llm.analyzeMeal(`${ig.quantity_grams}g de ${ig.food}`)
-            const fallbackItem = fallbackMeals[0]?.items[0]
-            if (fallbackItem) {
-              totalCal += fallbackItem.calories ?? 0
-              totalProt += fallbackItem.protein ?? 0
-              totalCarbs += fallbackItem.carbs ?? 0
-              totalFat += fallbackItem.fat ?? 0
+          unmatchedIngredients.push(ig)
+        }
+      }
+
+      // Fuzzy match remaining ingredients
+      if (unmatchedIngredients.length > 0) {
+        const ingredientNames = unmatchedIngredients.map(ig => ig.food)
+        const ingredientMatches = await fuzzyMatchTacoMultiple(supabase, ingredientNames)
+
+        for (const ig of unmatchedIngredients) {
+          const match = ingredientMatches.get(ig.food.toLowerCase())
+
+          if (match) {
+            const macros = calculateMacros(match, ig.quantity_grams)
+            totalCal += macros.calories
+            totalProt += macros.protein
+            totalCarbs += macros.carbs
+            totalFat += macros.fat
+          } else {
+            // Step 4: LLM fallback for ingredient not in TACO
+            try {
+              const fallbackMeals = await llm.analyzeMeal(`${ig.quantity_grams}g de ${ig.food}`)
+              const fallbackItem = fallbackMeals[0]?.items[0]
+              if (fallbackItem) {
+                totalCal += fallbackItem.calories ?? 0
+                totalProt += fallbackItem.protein ?? 0
+                totalCarbs += fallbackItem.carbs ?? 0
+                totalFat += fallbackItem.fat ?? 0
+              }
+            } catch {
+              // Silently skip
             }
-          } catch {
-            // Silently skip
           }
         }
       }
