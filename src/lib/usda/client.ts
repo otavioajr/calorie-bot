@@ -26,18 +26,80 @@ const NUTRIENT_IDS = {
 } as const
 
 // ---------------------------------------------------------------------------
+// Static translation dictionary for common foods not in TACO
+// Avoids LLM call for known terms (faster + works with free/rate-limited models)
+// ---------------------------------------------------------------------------
+
+const FOOD_TRANSLATIONS: Record<string, string> = {
+  // Supplements
+  'proteína de soro de leite': 'whey protein powder',
+  'whey protein': 'whey protein powder',
+  'whey': 'whey protein powder',
+  'caseína': 'casein protein powder',
+  'creatina': 'creatine supplement',
+  'bcaa': 'bcaa supplement',
+  'glutamina': 'glutamine supplement',
+  'albumina': 'egg white protein powder',
+  'hipercalórico': 'mass gainer protein powder',
+  'colágeno': 'collagen supplement',
+  'dextrose': 'dextrose sugar',
+  'maltodextrina': 'maltodextrin',
+
+  // Common foods not in TACO
+  'pasta de amendoim': 'peanut butter',
+  'manteiga de amendoim': 'peanut butter',
+  'cream cheese': 'cream cheese',
+  'cottage': 'cottage cheese',
+  'cream crackers': 'cream crackers',
+  'wrap': 'tortilla wrap',
+  'bagel': 'bagel',
+  'muffin': 'muffin',
+  'brownie': 'brownie',
+  'waffle': 'waffle',
+  'panqueca americana': 'pancake',
+  'frozen yogurt': 'frozen yogurt',
+  'açaí': 'acai berry puree',
+  'granola': 'granola cereal',
+  'overnight oats': 'overnight oats',
+  'shake': 'protein shake',
+  'smoothie': 'fruit smoothie',
+  'sushi': 'sushi roll',
+  'yakisoba': 'yakisoba noodles',
+  'ramen': 'ramen noodles',
+  'pad thai': 'pad thai',
+  'hummus': 'hummus',
+  'guacamole': 'guacamole',
+  'burrito': 'burrito',
+  'taco': 'taco',
+  'nachos': 'nachos',
+  'nuggets': 'chicken nuggets',
+  'hambúrguer': 'hamburger',
+  'hot dog': 'hot dog',
+  'pizza': 'pizza',
+}
+
+// ---------------------------------------------------------------------------
 // Translation
 // ---------------------------------------------------------------------------
 
 const TRANSLATE_PROMPT = `Translate the following Brazilian Portuguese food name to English.
 Return ONLY the English name, nothing else. No quotes, no explanation.`
 
+function lookupTranslation(foodNamePtBr: string): string | null {
+  const key = foodNamePtBr.toLowerCase().trim()
+  return FOOD_TRANSLATIONS[key] ?? null
+}
+
 export async function translateFoodName(foodNamePtBr: string): Promise<string | null> {
+  // Check static dictionary first (instant, no API call)
+  const staticMatch = lookupTranslation(foodNamePtBr)
+  if (staticMatch) return staticMatch
+
+  // Fall back to LLM translation for unknown terms
   try {
     const llm = getLLMProvider()
     const translated = await llm.chat(foodNamePtBr, TRANSLATE_PROMPT)
     const trimmed = translated.trim()
-    // If translation returned the same text, it didn't actually translate
     if (trimmed.toLowerCase() === foodNamePtBr.toLowerCase()) return null
     return trimmed
   } catch {
@@ -133,8 +195,6 @@ export async function searchUSDAFood(
     const apiKey = process.env.USDA_API_KEY
     if (!apiKey) return null
 
-    // Translate PT-BR → EN first to avoid false positives
-    // (e.g., "Proteína de soro de leite" matching "CREME DE LEITE" instead of "whey protein")
     const translatedName = await translateFoodName(foodNamePtBr)
     if (!translatedName) return null
 
