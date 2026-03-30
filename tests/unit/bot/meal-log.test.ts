@@ -29,7 +29,7 @@ const {
   mockCalculateMacros,
   mockSendTextMessage,
   mockSearchMealHistory,
-  mockSearchUSDAFood,
+  mockSearchOFFFood,
 } = vi.hoisted(() => {
   const mockAnalyzeMeal = vi.fn()
   const mockDecomposeMeal = vi.fn()
@@ -69,7 +69,7 @@ const {
     })),
     mockSendTextMessage: vi.fn().mockResolvedValue(undefined),
     mockSearchMealHistory: vi.fn().mockResolvedValue([]),
-    mockSearchUSDAFood: vi.fn().mockResolvedValue(null),
+    mockSearchOFFFood: vi.fn().mockResolvedValue(null),
   }
 })
 
@@ -100,8 +100,8 @@ vi.mock('@/lib/utils/formatters', () => ({
   formatDefaultNotice: mockFormatDefaultNotice,
 }))
 
-vi.mock('@/lib/usda/client', () => ({
-  searchUSDAFood: mockSearchUSDAFood,
+vi.mock('@/lib/off/client', () => ({
+  searchOFFFood: mockSearchOFFFood,
 }))
 
 vi.mock('@/lib/db/queries/message-history', () => ({
@@ -536,7 +536,7 @@ describe('handleMealLog', () => {
       mockFuzzyMatchTacoMultiple.mockResolvedValue(new Map())
 
       // USDA returns a match
-      mockSearchUSDAFood.mockResolvedValue({
+      mockSearchOFFFood.mockResolvedValue({
         food: 'Proteína de soro de leite',
         usdaFoodName: 'Whey protein powder',
         fdcId: 456789,
@@ -577,7 +577,7 @@ describe('handleMealLog', () => {
       )
 
       expect(result.completed).toBe(true)
-      expect(mockSearchUSDAFood).toHaveBeenCalledWith('Proteína de soro de leite', 30)
+      expect(mockSearchOFFFood).toHaveBeenCalledWith('Proteína de soro de leite', 30)
       // Should NOT attempt decomposition
       expect(mockDecomposeMeal).not.toHaveBeenCalled()
     })
@@ -585,7 +585,7 @@ describe('handleMealLog', () => {
     it('falls through to decomposition when USDA returns null', async () => {
       mockMatchTacoByBase.mockResolvedValue([])
       mockFuzzyMatchTacoMultiple.mockResolvedValue(new Map())
-      mockSearchUSDAFood.mockResolvedValue(null)
+      mockSearchOFFFood.mockResolvedValue(null)
 
       // Decompose returns ingredients that match TACO
       mockDecomposeMeal.mockResolvedValue([
@@ -627,7 +627,7 @@ describe('handleMealLog', () => {
         null,
       )
 
-      expect(mockSearchUSDAFood).toHaveBeenCalledWith('Pão caseiro', 100)
+      expect(mockSearchOFFFood).toHaveBeenCalledWith('Pão caseiro', 100)
       expect(mockDecomposeMeal).toHaveBeenCalled()
     })
   })
