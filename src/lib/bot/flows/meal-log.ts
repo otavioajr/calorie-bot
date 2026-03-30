@@ -209,8 +209,21 @@ async function enrichItemsWithTaco(
 
   for (const { item, index } of needsUSDA) {
     console.log(`[enrichment] Step 3 USDA lookup for: "${item.food}" (${item.quantity_grams}g)`)
-    const usdaResult = await searchUSDAFood(item.food, item.quantity_grams)
-    console.log(`[enrichment] USDA result for "${item.food}":`, usdaResult ? `${usdaResult.usdaFoodName} = ${usdaResult.calories} kcal` : 'null (not found)')
+    let usdaResult: Awaited<ReturnType<typeof searchUSDAFood>> = null
+    try {
+      usdaResult = await searchUSDAFood(item.food, item.quantity_grams)
+      console.log(`[enrichment] USDA result for "${item.food}":`, usdaResult ? `${usdaResult.usdaFoodName} = ${usdaResult.calories} kcal` : 'null (not found)')
+    } catch (usdaErr) {
+      console.error(`[enrichment] USDA THREW for "${item.food}":`, usdaErr)
+    }
+    // Persist diagnostic to DB (fire-and-forget)
+    supabase.from?.('llm_usage_log')?.insert?.({
+      provider: 'debug',
+      model: JSON.stringify({ step: 'usda', food: item.food, result: usdaResult ? { name: usdaResult.usdaFoodName, cal: usdaResult.calories } : null }).substring(0, 255),
+      function_type: 'debug_enrichment',
+      latency_ms: 0,
+      success: !!usdaResult,
+    }).then(() => {}, () => {})
     if (usdaResult) {
       enriched[index] = {
         food: item.food,
@@ -295,6 +308,14 @@ async function enrichItemsWithTaco(
       }
     } catch (err) {
       console.error(`[enrichment] Decomposition FAILED for "${item.food}":`, err)
+      // Persist diagnostic to DB (fire-and-forget)
+      supabase.from('llm_usage_log').insert({
+        provider: 'debug',
+        model: JSON.stringify({ step: 'decomposition', food: item.food, error: String(err).substring(0, 200) }).substring(0, 255),
+        function_type: 'debug_enrichment',
+        latency_ms: 0,
+        success: false,
+      }).then(() => {}, () => {})
       enriched[index] = {
         food: item.food,
         quantityGrams: item.quantity_grams,
