@@ -18,6 +18,7 @@ interface OpenRouterRequestBody {
   messages: OpenRouterMessage[]
   response_format?: { type: 'json_object' }
   temperature?: number
+  provider?: { ignore?: string[] }
 }
 
 type ContentPart =
@@ -254,6 +255,9 @@ export class OpenRouterProvider implements LLMProvider {
     }
 
     body.temperature = 0
+    body.provider = {
+      ignore: ['Azure'],
+    }
 
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
