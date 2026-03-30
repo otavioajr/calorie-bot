@@ -32,13 +32,16 @@ const NUTRIENT_IDS = {
 const TRANSLATE_PROMPT = `Translate the following Brazilian Portuguese food name to English.
 Return ONLY the English name, nothing else. No quotes, no explanation.`
 
-export async function translateFoodName(foodNamePtBr: string): Promise<string> {
+export async function translateFoodName(foodNamePtBr: string): Promise<string | null> {
   try {
     const llm = getLLMProvider()
     const translated = await llm.chat(foodNamePtBr, TRANSLATE_PROMPT)
-    return translated.trim()
+    const trimmed = translated.trim()
+    // If translation returned the same text, it didn't actually translate
+    if (trimmed.toLowerCase() === foodNamePtBr.toLowerCase()) return null
+    return trimmed
   } catch {
-    return foodNamePtBr
+    return null
   }
 }
 
@@ -130,13 +133,10 @@ export async function searchUSDAFood(
     const apiKey = process.env.USDA_API_KEY
     if (!apiKey) return null
 
-    // Try with original name first (handles English-origin terms like whey, creatine, BCAA)
-    const directResult = await queryUSDA(foodNamePtBr, apiKey, quantityGrams, foodNamePtBr)
-    if (directResult) return directResult
-
-    // Translate PT-BR → EN and retry
+    // Translate PT-BR → EN first to avoid false positives
+    // (e.g., "Proteína de soro de leite" matching "CREME DE LEITE" instead of "whey protein")
     const translatedName = await translateFoodName(foodNamePtBr)
-    if (translatedName.toLowerCase() === foodNamePtBr.toLowerCase()) return null
+    if (!translatedName) return null
 
     return await queryUSDA(translatedName, apiKey, quantityGrams, foodNamePtBr)
   } catch {

@@ -40,12 +40,20 @@ describe('translateFoodName', () => {
     expect(result).toBe('whey protein')
   })
 
-  it('returns original name if translation fails', async () => {
+  it('returns null if translation fails', async () => {
     mockChat.mockRejectedValue(new Error('LLM error'))
 
     const result = await translateFoodName('Creatina')
 
-    expect(result).toBe('Creatina')
+    expect(result).toBeNull()
+  })
+
+  it('returns null if translation matches original', async () => {
+    mockChat.mockResolvedValue('Creatina')
+
+    const result = await translateFoodName('Creatina')
+
+    expect(result).toBeNull()
   })
 })
 
@@ -109,43 +117,19 @@ describe('searchUSDAFood', () => {
     expect(result!.usdaFoodName).toBe('Whey protein powder, vanilla')
   })
 
-  it('tries original name first, then translated name', async () => {
-    // First call (original PT-BR name) returns empty
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => usdaEmptyResponse,
-    })
-    // Second call (translated name) returns match
-    mockFetch.mockResolvedValueOnce({
+  it('always translates before searching USDA', async () => {
+    mockFetch.mockResolvedValue({
       ok: true,
       json: async () => usdaWheyResponse,
     })
 
     const result = await searchUSDAFood('Proteína de soro de leite', 30)
 
-    expect(mockFetch).toHaveBeenCalledTimes(2)
-    // First call uses original name
-    const firstUrl = mockFetch.mock.calls[0][0] as string
-    expect(firstUrl).toContain('api_key=test-key')
-    expect(firstUrl).toContain('pageSize=5')
-    // Second call uses translated name
-    const secondUrl = mockFetch.mock.calls[1][0] as string
-    expect(secondUrl).toContain('query=whey+protein')
-    expect(result).not.toBeNull()
-    expect(result!.calories).toBe(120)
-  })
-
-  it('returns direct match without translating when original name works', async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => usdaWheyResponse,
-    })
-
-    const result = await searchUSDAFood('whey protein', 30)
-
-    // Should only call once — direct match, no translation needed
+    // Should translate first, then search once
+    expect(mockChat).toHaveBeenCalled()
     expect(mockFetch).toHaveBeenCalledTimes(1)
-    expect(mockChat).not.toHaveBeenCalled()
+    const calledUrl = mockFetch.mock.calls[0][0] as string
+    expect(calledUrl).toContain('query=whey+protein')
     expect(result).not.toBeNull()
     expect(result!.calories).toBe(120)
   })
@@ -197,5 +181,14 @@ describe('searchUSDAFood', () => {
     const result = await searchUSDAFood('Whey protein', 30)
 
     expect(result).toBeNull()
+  })
+
+  it('returns null when translation fails', async () => {
+    mockChat.mockRejectedValue(new Error('LLM error'))
+
+    const result = await searchUSDAFood('Proteína de soro de leite', 30)
+
+    expect(result).toBeNull()
+    expect(mockFetch).not.toHaveBeenCalled()
   })
 })
