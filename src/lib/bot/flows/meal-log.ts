@@ -10,7 +10,7 @@ import { fuzzyMatchTacoMultiple, calculateMacros, matchTacoByBase, getLearnedDef
 import type { TacoFood } from '@/lib/db/queries/taco'
 import { sendTextMessage } from '@/lib/whatsapp/client'
 import { searchMealHistory, HistoryMatch } from '@/lib/db/queries/meal-history-search'
-import { searchUSDAFood } from '@/lib/usda/client'
+import { searchUSDAFood, translateFoodName } from '@/lib/usda/client'
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -208,18 +208,29 @@ async function enrichItemsWithTaco(
   const needsDecomposition: { item: MealItem; index: number }[] = []
 
   for (const { item, index } of needsUSDA) {
-    console.log(`[enrichment] Step 3 USDA lookup for: "${item.food}" (${item.quantity_grams}g)`)
+    // Pre-diagnostic: test translation separately to isolate failure point
+    let translationDiag: string = 'not_tested'
+    try {
+      const tr = await translateFoodName(item.food)
+      translationDiag = tr ? `ok:${tr.text}` : 'returned_null'
+    } catch (trErr) {
+      translationDiag = `threw:${String(trErr).substring(0, 100)}`
+    }
+
     let usdaResult: Awaited<ReturnType<typeof searchUSDAFood>> = null
+    let usdaDiag: string = 'not_called'
     try {
       usdaResult = await searchUSDAFood(item.food, item.quantity_grams)
-      console.log(`[enrichment] USDA result for "${item.food}":`, usdaResult ? `${usdaResult.usdaFoodName} = ${usdaResult.calories} kcal` : 'null (not found)')
+      usdaDiag = usdaResult ? `found:${usdaResult.usdaFoodName}:${usdaResult.calories}kcal` : 'returned_null'
     } catch (usdaErr) {
-      console.error(`[enrichment] USDA THREW for "${item.food}":`, usdaErr)
+      usdaDiag = `threw:${String(usdaErr).substring(0, 100)}`
     }
-    // Persist diagnostic to DB (fire-and-forget)
+
+    const hasApiKey = !!process.env.USDA_API_KEY
+    // Persist diagnostic to DB
     supabase.from?.('llm_usage_log')?.insert?.({
       provider: 'debug',
-      model: JSON.stringify({ step: 'usda', food: item.food, result: usdaResult ? { name: usdaResult.usdaFoodName, cal: usdaResult.calories } : null }).substring(0, 255),
+      model: JSON.stringify({ food: item.food, translate: translationDiag, usda: usdaDiag, apiKey: hasApiKey }).substring(0, 255),
       function_type: 'debug_enrichment',
       latency_ms: 0,
       success: !!usdaResult,
