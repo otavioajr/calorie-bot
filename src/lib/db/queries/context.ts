@@ -2,15 +2,15 @@ import { SupabaseClient } from '@supabase/supabase-js'
 
 export const CONTEXT_TTLS: Record<ContextType, number> = {
   onboarding: 1440,
-  awaiting_confirmation: 5,
-  awaiting_clarification: 10,
-  awaiting_correction: 10,
-  awaiting_weight: 5,
-  awaiting_label_portions: 5,
-  settings_menu: 5,
-  settings_change: 5,
-  awaiting_reset_confirmation: 5,
-  awaiting_history_selection: 5,
+  awaiting_confirmation: 1440,
+  awaiting_clarification: 60,
+  awaiting_correction: 60,
+  awaiting_weight: 60,
+  awaiting_label_portions: 60,
+  settings_menu: 30,
+  settings_change: 30,
+  awaiting_reset_confirmation: 30,
+  awaiting_history_selection: 30,
 }
 
 export type ContextType =
