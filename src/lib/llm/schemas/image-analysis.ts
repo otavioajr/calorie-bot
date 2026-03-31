@@ -12,7 +12,7 @@ const ImageMealItemSchema = z.object({
   protein: z.coerce.number().nonnegative().nullable().catch(null),
   carbs: z.coerce.number().nonnegative().nullable().catch(null),
   fat: z.coerce.number().nonnegative().nullable().catch(null),
-  confidence: ConfidenceSchema.optional().catch('medium'),
+  confidence: ConfidenceSchema.catch('medium'),
 })
 
 export const ImageAnalysisSchema = z.object({
