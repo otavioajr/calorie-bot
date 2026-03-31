@@ -1,11 +1,16 @@
 import { z } from 'zod'
 import { MealTypeSchema, ConfidenceSchema } from './common'
 
+export const PortionTypeSchema = z.enum(['unit', 'bulk', 'packaged']).default('unit')
+export type PortionType = z.infer<typeof PortionTypeSchema>
+
 export const MealItemSchema = z.object({
   food: z.string(),
-  quantity_grams: z.coerce.number().positive(),
+  quantity_grams: z.coerce.number().positive().nullable().optional().default(null),
   quantity_display: z.string().nullable().optional().default(null),
   quantity_source: z.enum(['estimated', 'user_provided']).default('estimated'),
+  portion_type: PortionTypeSchema.optional().default('unit'),
+  has_user_quantity: z.boolean().optional().default(false),
   calories: z.coerce.number().nonnegative().nullable().optional().default(null),
   protein: z.coerce.number().nonnegative().nullable().optional().default(null),
   carbs: z.coerce.number().nonnegative().nullable().optional().default(null),

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { MealAnalysisSchema, MealItemSchema } from '@/lib/llm/schemas/meal-analysis'
+import { MealAnalysisSchema, MealItemSchema, PortionTypeSchema } from '@/lib/llm/schemas/meal-analysis'
 import { IntentClassificationSchema } from '@/lib/llm/schemas/intent'
 import { CalorieModeSchema, MealTypeSchema, ConfidenceSchema } from '@/lib/llm/schemas/common'
 
@@ -137,6 +137,38 @@ describe('MealItemSchema', () => {
   it('rejects negative protein', () => {
     const invalid = { ...validItem, protein: -1 }
     expect(() => MealItemSchema.parse(invalid)).toThrow()
+  })
+})
+
+describe('MealItemSchema portion fields', () => {
+  it('parses portion_type field', () => {
+    const result = MealItemSchema.parse({
+      food: 'Arroz branco',
+      quantity_grams: 90,
+      portion_type: 'bulk',
+      has_user_quantity: false,
+    })
+    expect(result.portion_type).toBe('bulk')
+    expect(result.has_user_quantity).toBe(false)
+  })
+
+  it('defaults portion_type to "unit" when not provided', () => {
+    const result = MealItemSchema.parse({
+      food: 'Banana',
+      quantity_grams: 120,
+    })
+    expect(result.portion_type).toBe('unit')
+    expect(result.has_user_quantity).toBe(false)
+  })
+
+  it('allows null quantity_grams for bulk items without user quantity', () => {
+    const result = MealItemSchema.parse({
+      food: 'Arroz branco',
+      quantity_grams: null,
+      portion_type: 'bulk',
+      has_user_quantity: false,
+    })
+    expect(result.quantity_grams).toBeNull()
   })
 })
 
