@@ -13,6 +13,8 @@ export interface MealItemInput {
   fatG: number
   source: string
   tacoId?: number
+  confidence?: string
+  quantityDisplay?: string
 }
 
 export interface CreateMealInput {
@@ -72,6 +74,8 @@ export async function createMeal(
       fat_g: item.fatG,
       source: item.source,
       taco_id: item.tacoId ?? null,
+      confidence: item.confidence ?? 'high',
+      quantity_display: item.quantityDisplay ?? null,
     }))
 
     const { error: itemsError } = await supabase.from('meal_items').insert(itemRows)
@@ -375,4 +379,148 @@ export async function getRecentMeals(
     totalCalories: row.total_calories as number,
     registeredAt: row.registered_at as string,
   }))
+}
+
+// ---------------------------------------------------------------------------
+// MealWithItems (for correction flow)
+// ---------------------------------------------------------------------------
+
+export interface MealItemDetail {
+  id: string
+  foodName: string
+  quantityGrams: number
+  quantityDisplay: string | null
+  calories: number
+  proteinG: number
+  carbsG: number
+  fatG: number
+  source: string
+  confidence: string
+}
+
+export interface MealWithItems {
+  id: string
+  mealType: string
+  totalCalories: number
+  registeredAt: string
+  items: MealItemDetail[]
+}
+
+export async function getMealWithItems(
+  supabase: SupabaseClient,
+  mealId: string,
+): Promise<MealWithItems | null> {
+  const { data: mealRow, error: mealError } = await supabase
+    .from('meals')
+    .select('id, meal_type, total_calories, registered_at')
+    .eq('id', mealId)
+    .single()
+
+  if (mealError) {
+    if (mealError.code === 'PGRST116') return null
+    throw new Error(`Failed to get meal: ${mealError.message}`)
+  }
+
+  const meal = mealRow as Record<string, unknown>
+
+  const { data: itemRows, error: itemsError } = await supabase
+    .from('meal_items')
+    .select('id, food_name, quantity_grams, quantity_display, calories, protein_g, carbs_g, fat_g, source, confidence')
+    .eq('meal_id', mealId)
+
+  if (itemsError) {
+    throw new Error(`Failed to get meal items: ${itemsError.message}`)
+  }
+
+  const items = (itemRows as Array<Record<string, unknown>> || []).map((row) => ({
+    id: row.id as string,
+    foodName: row.food_name as string,
+    quantityGrams: row.quantity_grams as number,
+    quantityDisplay: (row.quantity_display as string) ?? null,
+    calories: row.calories as number,
+    proteinG: row.protein_g as number,
+    carbsG: row.carbs_g as number,
+    fatG: row.fat_g as number,
+    source: row.source as string,
+    confidence: (row.confidence as string) ?? 'high',
+  }))
+
+  return {
+    id: meal.id as string,
+    mealType: meal.meal_type as string,
+    totalCalories: meal.total_calories as number,
+    registeredAt: meal.registered_at as string,
+    items,
+  }
+}
+
+export async function updateMealItem(
+  supabase: SupabaseClient,
+  itemId: string,
+  update: {
+    quantityGrams: number
+    quantityDisplay?: string
+    calories: number
+    proteinG: number
+    carbsG: number
+    fatG: number
+  },
+): Promise<void> {
+  const row: Record<string, unknown> = {
+    quantity_grams: update.quantityGrams,
+    calories: update.calories,
+    protein_g: update.proteinG,
+    carbs_g: update.carbsG,
+    fat_g: update.fatG,
+  }
+  if (update.quantityDisplay !== undefined) {
+    row.quantity_display = update.quantityDisplay
+  }
+
+  const { error } = await supabase
+    .from('meal_items')
+    .update(row)
+    .eq('id', itemId)
+
+  if (error) throw new Error(`Failed to update meal item: ${error.message}`)
+}
+
+export async function removeMealItem(
+  supabase: SupabaseClient,
+  itemId: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from('meal_items')
+    .delete()
+    .eq('id', itemId)
+
+  if (error) throw new Error(`Failed to remove meal item: ${error.message}`)
+}
+
+export async function recalculateMealTotal(
+  supabase: SupabaseClient,
+  mealId: string,
+): Promise<number> {
+  const { data, error } = await supabase
+    .from('meal_items')
+    .select('calories')
+    .eq('meal_id', mealId)
+
+  if (error) throw new Error(`Failed to sum meal items: ${error.message}`)
+
+  const total = Math.round(
+    (data as Array<Record<string, unknown>> || []).reduce(
+      (sum, row) => sum + (row.calories as number || 0),
+      0,
+    ),
+  )
+
+  const { error: updateError } = await supabase
+    .from('meals')
+    .update({ total_calories: total })
+    .eq('id', mealId)
+
+  if (updateError) throw new Error(`Failed to update meal total: ${updateError.message}`)
+
+  return total
 }
