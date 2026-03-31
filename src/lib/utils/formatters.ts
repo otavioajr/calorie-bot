@@ -7,6 +7,7 @@ export interface MealItem {
   quantityGrams: number
   quantityDisplay?: string | null
   calories: number
+  confidence?: string
 }
 
 export interface DailyMealSummary {
@@ -49,11 +50,20 @@ export function formatMealBreakdown(
   dailyTarget: number,
 ): string {
   const itemLines = items
-    .map((item) => `• ${item.food} (${item.quantityDisplay || `${item.quantityGrams}g`}) — ${item.calories} kcal`)
+    .map((item) => {
+      const display = item.quantityDisplay || `${item.quantityGrams}g`
+      const calStr = item.confidence === 'low' ? `~${item.calories}` : `${item.calories}`
+      const indicator = item.confidence === 'low' ? ' ⚠️' : ''
+      return `• ${item.food} (${display}) — ${calStr} kcal${indicator}`
+    })
     .join('\n')
 
-  const remaining = dailyTarget - dailyConsumed
   const progressLine = formatProgress(dailyConsumed, dailyTarget)
+
+  const lowConfItems = items.filter(i => i.confidence === 'low')
+  const lowConfNotice = lowConfItems.length > 0
+    ? `\n⚠️ Valores estimados para: ${lowConfItems.map(i => i.food).join(', ')}. Se souber o valor exato, manda "corrigir"`
+    : ''
 
   return [
     `🍽️ ${translateMealType(mealType)} registrado!`,
@@ -63,9 +73,10 @@ export function formatMealBreakdown(
     `Total: ${total} kcal`,
     '',
     progressLine,
+    lowConfNotice,
     '',
     'Algo errado? Manda "corrigir"',
-  ].join('\n')
+  ].filter(Boolean).join('\n')
 }
 
 // ---------------------------------------------------------------------------
@@ -82,7 +93,12 @@ export function formatMultiMealBreakdown(
 ): string {
   const sections = meals.map((meal) => {
     const itemLines = meal.items
-      .map((item) => `• ${item.food} (${item.quantityDisplay || `${item.quantityGrams}g`}) — ${item.calories} kcal`)
+      .map((item) => {
+        const display = item.quantityDisplay || `${item.quantityGrams}g`
+        const calStr = item.confidence === 'low' ? `~${item.calories}` : `${item.calories}`
+        const indicator = item.confidence === 'low' ? ' ⚠️' : ''
+        return `• ${item.food} (${display}) — ${calStr} kcal${indicator}`
+      })
       .join('\n')
 
     return `🍽️ ${translateMealType(meal.mealType)}:\n${itemLines}\nSubtotal: ${meal.total} kcal`
