@@ -668,8 +668,22 @@ async function handleBulkQuantitiesResponse(
 
   // If this was a query flow, return formatted result without registering
   if (flow === 'query') {
+    // Combine previously resolved items with newly enriched items
+    const resolvedEnriched = (context.contextData.resolved_enriched as Array<Record<string, unknown>> ?? []).map(i => ({
+      food: i.food as string,
+      quantityGrams: i.quantityGrams as number,
+      quantityDisplay: (i.quantityDisplay as string) ?? null,
+      calories: i.calories as number,
+      protein: i.protein as number,
+      carbs: i.carbs as number,
+      fat: i.fat as number,
+      source: i.source as string,
+      tacoId: i.tacoId as number | undefined,
+    }))
+    const allEnriched = [...resolvedEnriched, ...enriched]
+
     const lines: string[] = []
-    for (const item of enriched) {
+    for (const item of allEnriched) {
       const display = item.quantityDisplay ?? (item.quantityGrams ? `${item.quantityGrams}g` : '')
       const qtyPart = display ? `(${display})` : ''
       const calStr = item.source === 'approximate' ? `~${item.calories}` : `${item.calories}`
@@ -679,25 +693,25 @@ async function handleBulkQuantitiesResponse(
       const fat = Math.round(item.fat * 10) / 10
       lines.push(`🔍 ${item.food}${qtyPart ? ' ' + qtyPart : ''}: ${calStr} kcal, ${prot}g proteína | ${carbs}g carbos | ${fat}g gordura${indicator}`)
     }
-    if (enriched.length > 1) {
-      const totalCal = Math.round(enriched.reduce((s, i) => s + i.calories, 0))
-      const totalProt = Math.round(enriched.reduce((s, i) => s + i.protein, 0) * 10) / 10
-      const totalCarbs = Math.round(enriched.reduce((s, i) => s + i.carbs, 0) * 10) / 10
-      const totalFat = Math.round(enriched.reduce((s, i) => s + i.fat, 0) * 10) / 10
+    if (allEnriched.length > 1) {
+      const totalCal = Math.round(allEnriched.reduce((s, i) => s + i.calories, 0))
+      const totalProt = Math.round(allEnriched.reduce((s, i) => s + i.protein, 0) * 10) / 10
+      const totalCarbs = Math.round(allEnriched.reduce((s, i) => s + i.carbs, 0) * 10) / 10
+      const totalFat = Math.round(allEnriched.reduce((s, i) => s + i.fat, 0) * 10) / 10
       lines.push(`📊 Total: ${totalCal} kcal | ${totalProt}g proteína | ${totalCarbs}g carbos | ${totalFat}g gordura`)
     }
-    const hasEstimated = enriched.some(i => i.source === 'approximate')
+    const hasEstimated = allEnriched.some(i => i.source === 'approximate')
     if (hasEstimated) {
       lines.push('\n⚠️ Valores com este sinal são estimados. Pra corrigir, me manda as calorias certas (ex: "magic toast são 160 kcal")')
     }
     lines.push('', 'Quer registrar como refeição? Manda "registrar"')
 
-    // Save state so user can register
+    // Save ALL items (resolved + new) for registration
     await setState(userId, 'awaiting_confirmation', {
       flow: 'query',
       mealType,
       originalMessage,
-      items: enriched.map(i => ({
+      items: allEnriched.map(i => ({
         food: i.food,
         quantityGrams: i.quantityGrams,
         quantityDisplay: i.quantityDisplay,

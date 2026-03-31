@@ -77,8 +77,9 @@ export async function handleQuery(
 
   // If there are pending items, ask for quantities first
   if (pendingItems.length > 0) {
-    // Calculate what we can for resolved items
+    // Enrich what we can for resolved items
     let resolvedResponse = ''
+    let enrichedResolvedData: Array<Record<string, unknown>> = []
     if (resolvedItems.length > 0) {
       const enrichedResolved = await enrichItemsWithTaco(supabase, resolvedItems, llm, userId)
       const resolvedQueryItems = enrichedResolved.map(item => ({
@@ -91,15 +92,27 @@ export async function handleQuery(
         source: item.source,
       }))
       resolvedResponse = resolvedQueryItems.map(formatItem).join('\n') + '\n\n'
+      // Save enriched data for later combination
+      enrichedResolvedData = enrichedResolved.map(i => ({
+        food: i.food,
+        quantityGrams: i.quantityGrams,
+        quantityDisplay: i.quantityDisplay,
+        calories: i.calories,
+        protein: i.protein,
+        carbs: i.carbs,
+        fat: i.fat,
+        source: i.source,
+        tacoId: i.tacoId,
+      }))
     }
 
     const defaultExample = 'ex: quantidade em g, ml, colheres, etc.'
     const pendingLines = pendingItems.map(p => `• ${p.food} — quanto? (${defaultExample})`).join('\n')
 
-    // Save state so we can complete the query when user responds
+    // Save state with enriched resolved items so we can combine later
     await setState(userId, 'awaiting_bulk_quantities', {
       pending_items: pendingItems,
-      resolved_items: resolvedItems.length > 0 ? resolvedItems as unknown as Record<string, unknown>[] : [],
+      resolved_enriched: enrichedResolvedData,
       meal_type: meals[0]?.meal_type ?? 'snack',
       original_message: message,
       flow: 'query',
