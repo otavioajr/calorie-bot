@@ -55,6 +55,15 @@ const EDIT_KEYWORDS: readonly string[] = [
   'tira o',
   'tira a',
   'remove',
+  'era na verdade',
+  'na verdade era',
+  'troca o',
+  'troca a',
+  'faltou',
+  'esqueci',
+  'atualiza',
+  'muda o',
+  'muda a',
 ]
 
 const WEIGHT_KEYWORDS: readonly string[] = [
