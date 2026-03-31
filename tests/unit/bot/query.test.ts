@@ -8,9 +8,10 @@ import type { MealAnalysis } from '@/lib/llm/schemas/meal-analysis'
 const {
   mockAnalyzeMeal,
   mockGetLLMProvider,
-  mockSetState,
+  mockEnrichItemsWithTaco,
 } = vi.hoisted(() => {
   const mockAnalyzeMeal = vi.fn()
+  const mockEnrichItemsWithTaco = vi.fn()
   return {
     mockAnalyzeMeal,
     mockGetLLMProvider: vi.fn(() => ({
@@ -19,7 +20,7 @@ const {
       classifyIntent: vi.fn(),
       chat: vi.fn(),
     })),
-    mockSetState: vi.fn().mockResolvedValue(undefined),
+    mockEnrichItemsWithTaco,
   }
 })
 
@@ -28,13 +29,12 @@ vi.mock('@/lib/llm/index', () => ({
 }))
 
 vi.mock('@/lib/bot/state', () => ({
-  setState: mockSetState,
+  setState: vi.fn().mockResolvedValue(undefined),
   clearState: vi.fn().mockResolvedValue(undefined),
 }))
 
-vi.mock('@/lib/db/queries/taco', () => ({
-  fuzzyMatchTacoMultiple: vi.fn().mockResolvedValue(new Map()),
-  calculateMacros: vi.fn(),
+vi.mock('@/lib/bot/flows/meal-log', () => ({
+  enrichItemsWithTaco: mockEnrichItemsWithTaco,
 }))
 
 import { handleQuery } from '@/lib/bot/flows/query'
@@ -54,7 +54,8 @@ const mockSingleItemAnalysis: MealAnalysis = {
     {
       food: 'coxinha',
       quantity_grams: 130,
-      quantity_display: null, quantity_source: 'estimated',
+      quantity_display: '1 unidade',
+      quantity_source: 'estimated',
       portion_type: 'unit' as const,
       has_user_quantity: false,
       calories: 290,
@@ -78,7 +79,8 @@ const mockMultiItemAnalysis: MealAnalysis = {
     {
       food: 'Arroz',
       quantity_grams: 200,
-      quantity_display: null, quantity_source: 'estimated',
+      quantity_display: null,
+      quantity_source: 'estimated',
       portion_type: 'bulk' as const,
       has_user_quantity: false,
       calories: 260,
@@ -90,7 +92,8 @@ const mockMultiItemAnalysis: MealAnalysis = {
     {
       food: 'Feijão',
       quantity_grams: 150,
-      quantity_display: null, quantity_source: 'estimated',
+      quantity_display: null,
+      quantity_source: 'estimated',
       portion_type: 'bulk' as const,
       has_user_quantity: false,
       calories: 180,
@@ -126,6 +129,19 @@ describe('handleQuery', () => {
       classifyIntent: vi.fn(),
       chat: vi.fn(),
     })
+    // Default enrichment mock: returns items with TACO data
+    mockEnrichItemsWithTaco.mockResolvedValue([
+      {
+        food: 'coxinha',
+        quantityGrams: 130,
+        quantityDisplay: '1 unidade',
+        calories: 290,
+        protein: 13,
+        carbs: 22,
+        fat: 17,
+        source: 'taco',
+      },
+    ])
   })
 
   // -------------------------------------------------------------------------
@@ -141,10 +157,15 @@ describe('handleQuery', () => {
       )
     })
 
-    it('calls getLLMProvider', async () => {
+    it('calls enrichItemsWithTaco with the analyzed items', async () => {
       await handleQuery(supabase, USER_ID, 'quantas calorias tem uma coxinha?')
 
-      expect(mockGetLLMProvider).toHaveBeenCalled()
+      expect(mockEnrichItemsWithTaco).toHaveBeenCalledWith(
+        supabase,
+        mockSingleItemAnalysis.items,
+        expect.anything(),
+        USER_ID,
+      )
     })
   })
 
@@ -168,19 +189,36 @@ describe('handleQuery', () => {
       expect(result).toMatch(/17.*gordura|gordura.*17/i)
     })
 
-    it('ends with offer to register as meal', async () => {
+    it('does NOT include confirmation prompt', async () => {
       const result = await handleQuery(supabase, USER_ID, 'quantas calorias tem uma coxinha?')
 
-      expect(result).toMatch(/registrar|sim.*não|sim.*nao/i)
+      expect(result).not.toContain('registrar')
+      expect(result).not.toContain('sim/não')
     })
 
     it('handles multiple items in the analysis', async () => {
       mockAnalyzeMeal.mockResolvedValue([mockMultiItemAnalysis])
+      mockEnrichItemsWithTaco.mockResolvedValue([
+        { food: 'Arroz', quantityGrams: 200, quantityDisplay: null, calories: 260, protein: 4, carbs: 57, fat: 0.4, source: 'taco' },
+        { food: 'Feijão', quantityGrams: 150, quantityDisplay: null, calories: 180, protein: 9, carbs: 30, fat: 1, source: 'taco' },
+      ])
 
       const result = await handleQuery(supabase, USER_ID, 'quantas calorias tem arroz e feijão?')
 
       expect(result).toContain('Arroz')
       expect(result).toContain('Feijão')
+      expect(result).toContain('Total')
+    })
+
+    it('shows ⚠️ for approximate items', async () => {
+      mockEnrichItemsWithTaco.mockResolvedValue([
+        { food: 'Magic Toast', quantityGrams: 100, quantityDisplay: '6 torradas', calories: 200, protein: 5, carbs: 35, fat: 3, source: 'approximate' },
+      ])
+
+      const result = await handleQuery(supabase, USER_ID, 'quantas calorias tem magic toast?')
+
+      expect(result).toContain('⚠️')
+      expect(result).toContain('~200')
     })
   })
 
@@ -190,46 +228,8 @@ describe('handleQuery', () => {
 
   describe('does not save to DB', () => {
     it('does not call any save/create function', async () => {
-      // We have no createMeal mock — if it was called, it would throw
-      // Just verify logWeight and createMeal are not imported/called
       const result = await handleQuery(supabase, USER_ID, 'quantas calorias tem uma coxinha?')
-
-      // Should return without error and with content
       expect(result).toBeTruthy()
-    })
-  })
-
-  // -------------------------------------------------------------------------
-  // Sets awaiting_confirmation context
-  // -------------------------------------------------------------------------
-
-  describe('sets confirmation context', () => {
-    it('sets awaiting_confirmation state with analysis', async () => {
-      await handleQuery(supabase, USER_ID, 'quantas calorias tem uma coxinha?')
-
-      expect(mockSetState).toHaveBeenCalledWith(
-        USER_ID,
-        'awaiting_confirmation',
-        expect.objectContaining({
-          mealAnalysis: expect.objectContaining({
-            items: expect.arrayContaining([
-              expect.objectContaining({ food: 'coxinha' }),
-            ]),
-          }),
-        }),
-      )
-    })
-
-    it('stores original message in the state', async () => {
-      await handleQuery(supabase, USER_ID, 'quantas calorias tem uma coxinha?')
-
-      expect(mockSetState).toHaveBeenCalledWith(
-        USER_ID,
-        'awaiting_confirmation',
-        expect.objectContaining({
-          originalMessage: 'quantas calorias tem uma coxinha?',
-        }),
-      )
     })
   })
 })

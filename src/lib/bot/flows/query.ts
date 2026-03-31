@@ -1,8 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getLLMProvider } from '@/lib/llm/index'
 import type { MealAnalysis } from '@/lib/llm/schemas/meal-analysis'
-import { setState } from '@/lib/bot/state'
-import { fuzzyMatchTacoMultiple, calculateMacros } from '@/lib/db/queries/taco'
+import { enrichItemsWithTaco } from '@/lib/bot/flows/meal-log'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -14,22 +13,23 @@ function round(n: number): number {
 
 interface EnrichedQueryItem {
   food: string
-  quantityGrams: number | null
   quantityDisplay: string | null
   calories: number
   protein: number
   carbs: number
   fat: number
+  source: string
 }
 
 function formatItem(item: EnrichedQueryItem): string {
   const protStr = `${round(item.protein)}g proteína`
   const carbStr = `${round(item.carbs)}g carbos`
   const fatStr = `${round(item.fat)}g gordura`
-  const display = item.quantityDisplay || (item.quantityGrams ? `${item.quantityGrams}g` : '')
-  const qtyPart = display ? `(${display})` : ''
+  const qtyPart = item.quantityDisplay ? `(${item.quantityDisplay})` : ''
+  const calStr = item.source === 'approximate' ? `~${Math.round(item.calories)}` : `${Math.round(item.calories)}`
+  const indicator = item.source === 'approximate' ? ' ⚠️' : ''
 
-  return `🔍 ${item.food}${qtyPart ? ' ' + qtyPart : ''}: ${Math.round(item.calories)} kcal, ${protStr} | ${carbStr} | ${fatStr}`
+  return `🔍 ${item.food}${qtyPart ? ' ' + qtyPart : ''}: ${calStr} kcal, ${protStr} | ${carbStr} | ${fatStr}${indicator}`
 }
 
 function formatTotal(items: EnrichedQueryItem[]): string {
@@ -55,38 +55,22 @@ export async function handleQuery(
 
   const allItems = meals.flatMap(m => m.items)
 
-  // Enrich with TACO
-  const foodNames = allItems.map(i => i.food)
-  const tacoMatches = await fuzzyMatchTacoMultiple(supabase, foodNames)
+  // Use the full enrichment pipeline (TACO base → synonyms → tokens → fuzzy → decompose → LLM estimate)
+  const enrichedItems = await enrichItemsWithTaco(supabase, allItems, llm, userId)
 
-  const enriched: EnrichedQueryItem[] = allItems.map(item => {
-    const match = tacoMatches.get(item.food.toLowerCase())
-    if (match) {
-      const macros = calculateMacros(match, item.quantity_grams ?? 0)
-      return { food: item.food, quantityGrams: item.quantity_grams, quantityDisplay: item.quantity_display, ...macros }
-    }
-    // No TACO match — use LLM values if available, otherwise zeros
-    return {
-      food: item.food,
-      quantityGrams: item.quantity_grams,
-      quantityDisplay: item.quantity_display,
-      calories: item.calories ?? 0,
-      protein: item.protein ?? 0,
-      carbs: item.carbs ?? 0,
-      fat: item.fat ?? 0,
-    }
-  })
+  const queryItems: EnrichedQueryItem[] = enrichedItems.map(item => ({
+    food: item.food,
+    quantityDisplay: item.quantityDisplay ?? null,
+    calories: item.calories,
+    protein: item.protein,
+    carbs: item.carbs,
+    fat: item.fat,
+    source: item.source,
+  }))
 
-  const itemLines = enriched.map(formatItem)
-  const totalLine = enriched.length > 1 ? [formatTotal(enriched)] : []
+  const itemLines = queryItems.map(formatItem)
+  const totalLine = queryItems.length > 1 ? [formatTotal(queryItems)] : []
 
-  const lines = [...itemLines, ...totalLine, '', 'Quer registrar como uma refeição? (sim/não)']
-  const response = lines.join('\n')
-
-  await setState(userId, 'awaiting_confirmation', {
-    mealAnalysis: meals[0] as unknown as Record<string, unknown>,
-    originalMessage: message,
-  })
-
-  return response
+  const lines = [...itemLines, ...totalLine]
+  return lines.join('\n')
 }
