@@ -11,6 +11,9 @@ export const CONTEXT_TTLS: Record<ContextType, number> = {
   settings_change: 5,
   awaiting_reset_confirmation: 5,
   awaiting_history_selection: 5,
+  awaiting_bulk_quantities: 10,
+  awaiting_correction_item: 10,
+  awaiting_correction_value: 10,
 }
 
 export type ContextType =
@@ -24,6 +27,9 @@ export type ContextType =
   | 'settings_change'
   | 'awaiting_reset_confirmation'
   | 'awaiting_history_selection'
+  | 'awaiting_bulk_quantities'
+  | 'awaiting_correction_item'
+  | 'awaiting_correction_value'
 
 export interface ConversationContext {
   id: string
