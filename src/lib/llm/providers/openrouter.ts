@@ -110,15 +110,19 @@ export class OpenRouterProvider implements LLMProvider {
     const captionText = caption || 'Analise esta imagem.'
 
     const rawContent = await this.callVisionAPI(this.visionModel, systemPrompt, imageBase64, captionText)
+    console.log('[OpenRouter] Vision raw content (first 500 chars):', rawContent.substring(0, 500))
+
     const parsed = this.parseJSON(rawContent)
+    console.log('[OpenRouter] Vision parsed JSON:', parsed ? JSON.stringify(parsed).substring(0, 500) : 'NULL')
+
     const validated = ImageAnalysisSchema.safeParse(parsed)
 
     if (validated.success) {
+      console.log('[OpenRouter] Vision validation OK:', JSON.stringify(validated.data).substring(0, 300))
       return validated.data
     }
 
-    console.error('[OpenRouter] Vision validation failed (attempt 1):', validated.error.message)
-    console.error('[OpenRouter] Raw LLM response:', rawContent.substring(0, 1000))
+    console.error('[OpenRouter] Vision validation FAILED (attempt 1):', JSON.stringify(validated.error.issues))
 
     // Retry once on validation failure
     const retryContent = await this.callVisionAPI(this.visionModel, systemPrompt, imageBase64, captionText)
@@ -129,8 +133,7 @@ export class OpenRouterProvider implements LLMProvider {
       return retryValidated.data
     }
 
-    console.error('[OpenRouter] Vision validation failed (attempt 2):', retryValidated.error.message)
-    console.error('[OpenRouter] Raw LLM response (retry):', retryContent.substring(0, 1000))
+    console.error('[OpenRouter] Vision validation FAILED (attempt 2):', JSON.stringify(retryValidated.error.issues))
 
     throw new Error(`ImageAnalysis validation failed after retry: ${retryValidated.error.message}`)
   }
