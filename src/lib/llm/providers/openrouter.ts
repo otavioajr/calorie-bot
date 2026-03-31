@@ -35,6 +35,7 @@ interface OpenRouterVisionRequestBody {
   messages: OpenRouterVisionMessage[]
   response_format?: { type: 'json_object' }
   temperature?: number
+  provider?: { ignore?: string[] }
 }
 
 interface OpenRouterResponse {
@@ -116,6 +117,9 @@ export class OpenRouterProvider implements LLMProvider {
       return validated.data
     }
 
+    console.error('[OpenRouter] Vision validation failed (attempt 1):', validated.error.message)
+    console.error('[OpenRouter] Raw LLM response:', rawContent.substring(0, 1000))
+
     // Retry once on validation failure
     const retryContent = await this.callVisionAPI(this.visionModel, systemPrompt, imageBase64, captionText)
     const retryParsed = this.parseJSON(retryContent)
@@ -124,6 +128,9 @@ export class OpenRouterProvider implements LLMProvider {
     if (retryValidated.success) {
       return retryValidated.data
     }
+
+    console.error('[OpenRouter] Vision validation failed (attempt 2):', retryValidated.error.message)
+    console.error('[OpenRouter] Raw LLM response (retry):', retryContent.substring(0, 1000))
 
     throw new Error(`ImageAnalysis validation failed after retry: ${retryValidated.error.message}`)
   }
@@ -180,6 +187,9 @@ export class OpenRouterProvider implements LLMProvider {
       ],
       response_format: { type: 'json_object' },
       temperature: 0,
+      provider: {
+        ignore: ['Azure'],
+      },
     }
 
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {

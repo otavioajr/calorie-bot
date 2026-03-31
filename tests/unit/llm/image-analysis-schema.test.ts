@@ -62,10 +62,13 @@ describe('ImageAnalysisSchema', () => {
     }
   })
 
-  it('rejects invalid image_type', () => {
+  it('falls back to food for invalid image_type', () => {
     const input = { image_type: 'selfie', confidence: 'high', items: [] }
     const result = ImageAnalysisSchema.safeParse(input)
-    expect(result.success).toBe(false)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.image_type).toBe('food')
+    }
   })
 })
 

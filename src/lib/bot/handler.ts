@@ -292,7 +292,8 @@ export async function handleIncomingImage(
       success: true,
     }).catch(() => {})
 
-    if (imageResult.needs_clarification || imageResult.items.length === 0) {
+    const hasInvalidItems = imageResult.items.some((item) => !item.quantity_grams || item.quantity_grams <= 0)
+    if (imageResult.needs_clarification || imageResult.items.length === 0 || hasInvalidItems) {
       const msg = imageResult.clarification_question ||
         'Não consegui identificar os alimentos nessa foto 😅 Pode descrever o que comeu?'
       await sendTextMessage(from, msg)
