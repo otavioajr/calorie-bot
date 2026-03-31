@@ -88,6 +88,7 @@ vi.mock('@/lib/db/queries/users', () => ({
 vi.mock('@/lib/bot/state', () => ({
   getState: mockGetState,
   setState: mockSetState,
+  clearState: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('@/lib/bot/router', () => ({
@@ -204,6 +205,9 @@ const newUser = {
   goal: null,
   calorieMode: 'taco' as const,
   dailyCalorieTarget: null,
+  dailyProteinG: null,
+  dailyFatG: null,
+  dailyCarbsG: null,
   calorieTargetManual: false,
   tmb: null,
   tdee: null,
@@ -433,7 +437,8 @@ describe('handleIncomingMessage — completed user, intent routing', () => {
       mockSupabase,
       completedUser.id,
       'corrigir',
-      null
+      null,
+      { timezone: completedUser.timezone, dailyCalorieTarget: completedUser.dailyCalorieTarget }
     )
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'edit response')
   })
@@ -630,7 +635,8 @@ describe('handleIncomingMessage — context-based routing', () => {
       mockSupabase,
       completedUser.id,
       'na verdade foi 300g',
-      mockContext
+      mockContext,
+      { timezone: completedUser.timezone, dailyCalorieTarget: completedUser.dailyCalorieTarget }
     )
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'correction received')
   })
@@ -960,11 +966,6 @@ describe('handleIncomingImage', () => {
       expect.stringContaining('data:image/jpeg;base64,'),
       'meu almoço',
     )
-    expect(mockSetState).toHaveBeenCalledWith(
-      completedUser.id,
-      'awaiting_confirmation',
-      expect.objectContaining({ originalMessage: 'meu almoço' }),
-    )
     expect(mockFormatMealBreakdown).toHaveBeenCalled()
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal breakdown message')
   })
@@ -1061,11 +1062,8 @@ describe('handleIncomingImage', () => {
   it('uses "[imagem]" as originalMessage when no caption', async () => {
     await handleIncomingImage(FROM, MESSAGE_ID, IMAGE_ID)
 
-    expect(mockSetState).toHaveBeenCalledWith(
-      completedUser.id,
-      'awaiting_confirmation',
-      expect.objectContaining({ originalMessage: '[imagem]' }),
-    )
+    expect(mockFormatMealBreakdown).toHaveBeenCalled()
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal breakdown message')
   })
 
   it('logs vision API usage', async () => {
@@ -1125,60 +1123,53 @@ describe('handleIncomingMessage — awaiting_label_portions context', () => {
     })
   })
 
-  it('multiplies nutrition values by portion count and enters awaiting_confirmation', async () => {
+  it('multiplies nutrition values by portion count and saves meal directly', async () => {
     await handleIncomingMessage(FROM, MESSAGE_ID, '2')
 
-    expect(mockSetState).toHaveBeenCalledWith(
-      completedUser.id,
-      'awaiting_confirmation',
-      expect.objectContaining({
-        mealAnalysis: expect.objectContaining({
-          items: expect.arrayContaining([
-            expect.objectContaining({
-              food: 'Granola',
-              quantity_grams: 80,
-              calories: 360,
-            }),
-          ]),
+    expect(mockFormatMealBreakdown).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.arrayContaining([
+        expect.objectContaining({
+          food: 'Granola',
+          quantityGrams: 80,
+          calories: 360,
         }),
-      }),
+      ]),
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
     )
-    expect(mockFormatMealBreakdown).toHaveBeenCalled()
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal breakdown message')
   })
 
   it('handles decimal portions like "1.5"', async () => {
     await handleIncomingMessage(FROM, MESSAGE_ID, '1.5')
 
-    expect(mockSetState).toHaveBeenCalledWith(
-      completedUser.id,
-      'awaiting_confirmation',
-      expect.objectContaining({
-        mealAnalysis: expect.objectContaining({
-          items: expect.arrayContaining([
-            expect.objectContaining({
-              quantity_grams: 60,
-              calories: 270,
-            }),
-          ]),
+    expect(mockFormatMealBreakdown).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.arrayContaining([
+        expect.objectContaining({
+          quantityGrams: 60,
+          calories: 270,
         }),
-      }),
+      ]),
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
     )
   })
 
   it('handles comma decimal "1,5"', async () => {
     await handleIncomingMessage(FROM, MESSAGE_ID, '1,5')
 
-    expect(mockSetState).toHaveBeenCalledWith(
-      completedUser.id,
-      'awaiting_confirmation',
-      expect.objectContaining({
-        mealAnalysis: expect.objectContaining({
-          items: expect.arrayContaining([
-            expect.objectContaining({ calories: 270 }),
-          ]),
-        }),
-      }),
+    expect(mockFormatMealBreakdown).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.arrayContaining([
+        expect.objectContaining({ calories: 270 }),
+      ]),
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
     )
   })
 

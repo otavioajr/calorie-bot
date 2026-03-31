@@ -9,6 +9,7 @@ const {
   mockGetLastWeight,
   mockUpdateUser,
   mockSetState,
+  mockClearState,
   mockFormatWeightUpdate,
 } = vi.hoisted(() => {
   return {
@@ -16,6 +17,7 @@ const {
     mockGetLastWeight: vi.fn().mockResolvedValue(null),
     mockUpdateUser: vi.fn().mockResolvedValue({}),
     mockSetState: vi.fn().mockResolvedValue(undefined),
+    mockClearState: vi.fn().mockResolvedValue(undefined),
     mockFormatWeightUpdate: vi.fn().mockReturnValue('Peso registrado! ⚖️\nHoje: 78.5 kg'),
   }
 })
@@ -31,6 +33,7 @@ vi.mock('@/lib/db/queries/users', () => ({
 
 vi.mock('@/lib/bot/state', () => ({
   setState: mockSetState,
+  clearState: mockClearState,
 }))
 
 vi.mock('@/lib/utils/formatters', () => ({

@@ -14,7 +14,7 @@ function round(n: number): number {
 
 interface EnrichedQueryItem {
   food: string
-  quantityGrams: number
+  quantityGrams: number | null
   calories: number
   protein: number
   carbs: number
@@ -61,7 +61,7 @@ export async function handleQuery(
   const enriched: EnrichedQueryItem[] = allItems.map(item => {
     const match = tacoMatches.get(item.food.toLowerCase())
     if (match) {
-      const macros = calculateMacros(match, item.quantity_grams)
+      const macros = calculateMacros(match, item.quantity_grams ?? 0)
       return { food: item.food, quantityGrams: item.quantity_grams, ...macros }
     }
     // No TACO match — use LLM values if available, otherwise zeros

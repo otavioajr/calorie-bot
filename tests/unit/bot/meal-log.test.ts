@@ -145,6 +145,8 @@ const mockMealAnalysis: MealAnalysis = {
       food: 'Arroz',
       quantity_grams: 200,
       quantity_display: null, quantity_source: 'estimated',
+      portion_type: 'bulk' as const,
+      has_user_quantity: false,
       calories: null,
       protein: null,
       carbs: null,
@@ -155,6 +157,8 @@ const mockMealAnalysis: MealAnalysis = {
       food: 'Feijão',
       quantity_grams: 150,
       quantity_display: null, quantity_source: 'estimated',
+      portion_type: 'bulk' as const,
+      has_user_quantity: false,
       calories: null,
       protein: null,
       carbs: null,
@@ -181,13 +185,14 @@ function buildConfirmationContext(mealAnalysis: MealAnalysis = mockMealAnalysis)
       }
       const taco = tacoMap[item.food.toLowerCase()]
       if (taco) {
+        const grams = item.quantity_grams ?? 0
         return {
           food: item.food,
-          quantityGrams: item.quantity_grams,
-          calories: Math.round(taco.caloriesPer100g * item.quantity_grams / 100),
-          protein: Math.round(taco.proteinPer100g * item.quantity_grams / 100 * 10) / 10,
-          carbs: Math.round(taco.carbsPer100g * item.quantity_grams / 100 * 10) / 10,
-          fat: Math.round(taco.fatPer100g * item.quantity_grams / 100 * 10) / 10,
+          quantityGrams: grams,
+          calories: Math.round(taco.caloriesPer100g * grams / 100),
+          protein: Math.round(taco.proteinPer100g * grams / 100 * 10) / 10,
+          carbs: Math.round(taco.carbsPer100g * grams / 100 * 10) / 10,
+          fat: Math.round(taco.fatPer100g * grams / 100 * 10) / 10,
           source: 'taco',
           tacoId: taco.id,
         }
@@ -548,6 +553,8 @@ describe('handleMealLog', () => {
           quantity_grams: 100,
           quantity_display: null,
           quantity_source: 'estimated',
+          portion_type: 'bulk' as const,
+          has_user_quantity: false,
           calories: null,
           protein: null,
           carbs: null,

@@ -314,7 +314,7 @@ async function processAutoConfirm(
         llmResponse: analysis as unknown as Record<string, unknown>,
         items: analysis.items.map((item) => ({
           foodName: item.food,
-          quantityGrams: item.quantity_grams,
+          quantityGrams: item.quantity_grams ?? 0,
           calories: item.calories ?? 0,
           proteinG: item.protein ?? 0,
           carbsG: item.carbs ?? 0,
