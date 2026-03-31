@@ -15,15 +15,16 @@ interface DayChartData {
   label: string
 }
 
-async function getWeeklyData(userId: string, days: number): Promise<DayChartData[]> {
+async function getWeeklyData(userId: string, days: number, timezone: string): Promise<DayChartData[]> {
   const supabase = createServiceRoleClient()
   const result: DayChartData[] = []
 
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date()
     d.setDate(d.getDate() - i)
-    const calories = await getDailyCalories(supabase, userId, d)
-    const label = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })
+    d.setHours(12, 0, 0, 0) // Use noon to avoid DST edge cases
+    const calories = await getDailyCalories(supabase, userId, d, timezone)
+    const label = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: timezone })
     result.push({ date: d.toISOString(), calories, label })
   }
 
@@ -49,11 +50,13 @@ export default async function DashboardPage() {
 
   const { user } = userData
 
+  const timezone = user.timezone ?? 'America/Sao_Paulo'
+
   const [todayCalories, todayMeals, recentMeals, weeklyData] = await Promise.all([
-    getDailyCalories(supabase, userId).catch(() => 0),
-    getDailyMeals(supabase, userId).catch(() => []),
+    getDailyCalories(supabase, userId, undefined, timezone).catch(() => 0),
+    getDailyMeals(supabase, userId, undefined, timezone).catch(() => []),
     getRecentMeals(supabase, userId, 5).catch(() => []),
-    getWeeklyData(userId, 30).catch(() => []),
+    getWeeklyData(userId, 30, timezone).catch(() => []),
   ])
 
   const target = user.dailyCalorieTarget ?? 2000

@@ -354,6 +354,7 @@ export async function handleMealLog(
     dailyFatG?: number | null
     dailyCarbsG?: number | null
     phone?: string
+    timezone?: string
   },
   context: ConversationContext | null,
 ): Promise<MealLogResult> {
@@ -382,7 +383,7 @@ async function handleHistorySelection(
   userId: string,
   message: string,
   context: ConversationContext,
-  user: { calorieMode: string; dailyCalorieTarget: number | null },
+  user: { calorieMode: string; dailyCalorieTarget: number | null; timezone?: string },
 ): Promise<MealLogResult> {
   const matches = context.contextData.matches as HistoryMatch[]
   const meals = context.contextData.meals as MealAnalysis[]
@@ -409,7 +410,7 @@ async function handleHistorySelection(
   await saveMeals(supabase, userId, meals, enrichedMeals, originalMessage)
   await clearState(userId)
 
-  const dailyConsumed = await getDailyCalories(supabase, userId)
+  const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user.timezone)
   const target = user.dailyCalorieTarget ?? 2000
   const response = buildReceiptResponse(meals, enrichedMeals, dailyConsumed, target)
 
@@ -477,6 +478,7 @@ async function analyzeAndRegister(
     dailyFatG?: number | null
     dailyCarbsG?: number | null
     phone?: string
+    timezone?: string
   },
 ): Promise<MealLogResult> {
   const llm = getLLMProvider()
@@ -525,7 +527,7 @@ async function analyzeAndRegister(
           tacoId: match.tacoId ?? undefined,
         }]]
         await saveMeals(supabase, userId, meals, enrichedMeals, originalMessage)
-        const dailyConsumed = await getDailyCalories(supabase, userId)
+        const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user.timezone)
         const target = user.dailyCalorieTarget ?? 2000
         const response = buildReceiptResponse(meals, enrichedMeals, dailyConsumed, target)
         return { response, completed: true }
@@ -562,7 +564,7 @@ async function analyzeAndRegister(
   // Register immediately
   await saveMeals(supabase, userId, meals, enrichedMeals, originalMessage)
 
-  const dailyConsumed = await getDailyCalories(supabase, userId)
+  const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user.timezone)
   const target = user.dailyCalorieTarget ?? 2000
 
   const response = buildReceiptResponse(meals, enrichedMeals, dailyConsumed, target)

@@ -181,7 +181,7 @@ async function processDailySummaries(
     if (alreadySentToday(settings.last_summary_sent_at, todayStr)) continue
 
     try {
-      const consumed = await getDailyCalories(supabase, user.id)
+      const consumed = await getDailyCalories(supabase, user.id, undefined, user.timezone)
       const target = user.daily_calorie_target ?? 2000
 
       await sendTextMessage(user.phone, buildDailySummaryMessage(consumed, target))

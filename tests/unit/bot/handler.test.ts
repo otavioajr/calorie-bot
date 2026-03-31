@@ -406,7 +406,7 @@ describe('handleIncomingMessage — completed user, intent routing', () => {
       mockSupabase,
       completedUser.id,
       'como tô hoje?',
-      { dailyCalorieTarget: completedUser.dailyCalorieTarget }
+      { dailyCalorieTarget: completedUser.dailyCalorieTarget, timezone: completedUser.timezone }
     )
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'summary response')
   })
@@ -497,7 +497,7 @@ describe('handleIncomingMessage — completed user, intent routing', () => {
       mockSupabase,
       completedUser.id,
       'almocei arroz',
-      { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget, phone: FROM },
+      { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget, dailyProteinG: completedUser.dailyProteinG, dailyFatG: completedUser.dailyFatG, dailyCarbsG: completedUser.dailyCarbsG, phone: FROM, timezone: completedUser.timezone },
       null
     )
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal log response')
@@ -542,7 +542,7 @@ describe('handleIncomingMessage — LLM classification fallback', () => {
       mockSupabase,
       completedUser.id,
       'almocei frango grelhado',
-      { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget, phone: FROM },
+      { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget, dailyProteinG: completedUser.dailyProteinG, dailyFatG: completedUser.dailyFatG, dailyCarbsG: completedUser.dailyCarbsG, phone: FROM, timezone: completedUser.timezone },
       null
     )
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal log response')
@@ -558,7 +558,7 @@ describe('handleIncomingMessage — LLM classification fallback', () => {
       mockSupabase,
       completedUser.id,
       'comi pizza',
-      { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget, phone: FROM },
+      { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget, dailyProteinG: completedUser.dailyProteinG, dailyFatG: completedUser.dailyFatG, dailyCarbsG: completedUser.dailyCarbsG, phone: FROM, timezone: completedUser.timezone },
       null
     )
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal log response')
@@ -610,7 +610,7 @@ describe('handleIncomingMessage — context-based routing', () => {
       mockSupabase,
       completedUser.id,
       '200g de frango',
-      { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget, phone: FROM },
+      { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget, dailyProteinG: completedUser.dailyProteinG, dailyFatG: completedUser.dailyFatG, dailyCarbsG: completedUser.dailyCarbsG, phone: FROM, timezone: completedUser.timezone },
       mockContext
     )
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'clarification received')

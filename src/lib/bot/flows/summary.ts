@@ -29,12 +29,12 @@ function detectSummaryType(message: string): SummaryType {
 // formatDateBR
 // ---------------------------------------------------------------------------
 
-function formatDateBR(date: Date): string {
+function formatDateBR(date: Date, timezone: string = 'America/Sao_Paulo'): string {
   return date.toLocaleDateString('pt-BR', {
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
-    timeZone: 'UTC',
+    timeZone: timezone,
   })
 }
 
@@ -76,16 +76,17 @@ export async function handleSummary(
   supabase: SupabaseClient,
   userId: string,
   message: string,
-  user: { dailyCalorieTarget: number | null },
+  user: { dailyCalorieTarget: number | null; timezone?: string },
 ): Promise<string> {
   const summaryType = detectSummaryType(message)
   const target = user.dailyCalorieTarget ?? 2000
+  const timezone = user.timezone ?? 'America/Sao_Paulo'
 
   if (summaryType === 'weekly') {
-    return handleWeeklySummary(supabase, userId, target)
+    return handleWeeklySummary(supabase, userId, target, timezone)
   }
 
-  return handleDailySummary(supabase, userId, target)
+  return handleDailySummary(supabase, userId, target, timezone)
 }
 
 // ---------------------------------------------------------------------------
@@ -96,11 +97,12 @@ async function handleDailySummary(
   supabase: SupabaseClient,
   userId: string,
   target: number,
+  timezone: string,
 ): Promise<string> {
   const today = new Date()
-  const rows = await getDailyMeals(supabase, userId, today)
+  const rows = await getDailyMeals(supabase, userId, today, timezone)
   const { meals, totalCalories } = buildDailyMealSummary(rows)
-  const dateStr = formatDateBR(today)
+  const dateStr = formatDateBR(today, timezone)
 
   return formatDailySummary(dateStr, meals, totalCalories, target)
 }
@@ -113,18 +115,19 @@ async function handleWeeklySummary(
   supabase: SupabaseClient,
   userId: string,
   target: number,
+  timezone: string,
 ): Promise<string> {
   const days: DailyEntry[] = []
 
   for (let i = 6; i >= 0; i--) {
     const date = new Date()
     date.setUTCDate(date.getUTCDate() - i)
-    date.setUTCHours(0, 0, 0, 0)
+    date.setUTCHours(12, 0, 0, 0) // Use noon to avoid DST edge cases
 
-    const calories = await getDailyCalories(supabase, userId, date)
+    const calories = await getDailyCalories(supabase, userId, date, timezone)
 
     days.push({
-      date: formatDateBR(date),
+      date: formatDateBR(date, timezone),
       calories,
       target,
     })

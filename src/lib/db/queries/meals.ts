@@ -85,25 +85,88 @@ export async function createMeal(
 }
 
 // ---------------------------------------------------------------------------
+// getDayBoundsForTimezone (helper)
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns UTC start/end of the "local day" for the given date in the user's timezone.
+ * E.g. for America/Sao_Paulo (UTC-3) on March 31:
+ *   start = March 31 03:00 UTC, end = April 1 02:59:59.999 UTC
+ */
+function getDayBoundsForTimezone(
+  date: Date,
+  timezone: string,
+): { startOfDay: Date; endOfDay: Date } {
+  // Format the date in the user's timezone to get the local YYYY-MM-DD
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+  const localDateStr = formatter.format(date) // "2026-03-31"
+
+  // Get the offset for the start of that day in the target timezone
+  const utcMidnight = new Date(`${localDateStr}T00:00:00Z`)
+  const offsetMs = getTimezoneOffsetMs(utcMidnight, timezone)
+
+  const startOfDay = new Date(utcMidnight.getTime() - offsetMs)
+  const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000 - 1)
+
+  return { startOfDay, endOfDay }
+}
+
+/**
+ * Get the UTC offset in milliseconds for a given timezone at a specific moment.
+ */
+function getTimezoneOffsetMs(date: Date, timezone: string): number {
+  // Format the date in both UTC and the target timezone
+  const utcParts = getDateParts(date, 'UTC')
+  const tzParts = getDateParts(date, timezone)
+
+  const utcDate = Date.UTC(utcParts.year, utcParts.month - 1, utcParts.day, utcParts.hour, utcParts.minute)
+  const tzDate = Date.UTC(tzParts.year, tzParts.month - 1, tzParts.day, tzParts.hour, tzParts.minute)
+
+  return tzDate - utcDate
+}
+
+function getDateParts(date: Date, timezone: string): { year: number; month: number; day: number; hour: number; minute: number } {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false,
+  })
+  const parts = formatter.formatToParts(date)
+  return {
+    year: parseInt(parts.find(p => p.type === 'year')!.value),
+    month: parseInt(parts.find(p => p.type === 'month')!.value),
+    day: parseInt(parts.find(p => p.type === 'day')!.value),
+    hour: parseInt(parts.find(p => p.type === 'hour')!.value),
+    minute: parseInt(parts.find(p => p.type === 'minute')!.value),
+  }
+}
+
+// ---------------------------------------------------------------------------
 // getDailyCalories
 // ---------------------------------------------------------------------------
 
 /**
  * Returns the total calories consumed by a user on the given date (defaults to today).
+ * Uses the user's timezone to determine day boundaries.
  */
 export async function getDailyCalories(
   supabase: SupabaseClient,
   userId: string,
   date?: Date,
+  timezone: string = 'America/Sao_Paulo',
 ): Promise<number> {
   const targetDate = date ?? new Date()
 
-  // Build date range for the full day in UTC
-  const startOfDay = new Date(targetDate)
-  startOfDay.setUTCHours(0, 0, 0, 0)
-
-  const endOfDay = new Date(targetDate)
-  endOfDay.setUTCHours(23, 59, 59, 999)
+  const { startOfDay, endOfDay } = getDayBoundsForTimezone(targetDate, timezone)
 
   const { data, error } = await supabase
     .from('meals')
@@ -145,14 +208,11 @@ export async function getDailyMacros(
   supabase: SupabaseClient,
   userId: string,
   date?: Date,
+  timezone: string = 'America/Sao_Paulo',
 ): Promise<DailyMacros> {
   const targetDate = date ?? new Date()
 
-  const startOfDay = new Date(targetDate)
-  startOfDay.setUTCHours(0, 0, 0, 0)
-
-  const endOfDay = new Date(targetDate)
-  endOfDay.setUTCHours(23, 59, 59, 999)
+  const { startOfDay, endOfDay } = getDayBoundsForTimezone(targetDate, timezone)
 
   const { data, error } = await supabase
     .from('meal_items')
@@ -259,14 +319,11 @@ export async function getDailyMeals(
   supabase: SupabaseClient,
   userId: string,
   date?: Date,
+  timezone: string = 'America/Sao_Paulo',
 ): Promise<DailyMeal[]> {
   const targetDate = date ?? new Date()
 
-  const startOfDay = new Date(targetDate)
-  startOfDay.setUTCHours(0, 0, 0, 0)
-
-  const endOfDay = new Date(targetDate)
-  endOfDay.setUTCHours(23, 59, 59, 999)
+  const { startOfDay, endOfDay } = getDayBoundsForTimezone(targetDate, timezone)
 
   const { data, error } = await supabase
     .from('meals')

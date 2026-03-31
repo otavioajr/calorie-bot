@@ -65,6 +65,7 @@ export async function handleIncomingMessage(
       dailyFatG: user.dailyFatG,
       dailyCarbsG: user.dailyCarbsG,
       phone: from,
+      timezone: user.timezone,
     }
 
     // 3. Check for active conversation context
@@ -102,6 +103,7 @@ export async function handleIncomingMessage(
           await handleLabelPortions(supabase, from, user.id, text, context, {
             calorieMode: user.calorieMode,
             dailyCalorieTarget: user.dailyCalorieTarget,
+            timezone: user.timezone,
           })
           saveMessage(supabase, user.id, 'user', text).catch(() => {})
           return
@@ -136,7 +138,7 @@ export async function handleIncomingMessage(
         break
       }
       case 'summary':
-        response = await handleSummary(supabase, user.id, text, { dailyCalorieTarget: user.dailyCalorieTarget })
+        response = await handleSummary(supabase, user.id, text, { dailyCalorieTarget: user.dailyCalorieTarget, timezone: user.timezone })
         break
       case 'query':
         response = await handleQuery(supabase, user.id, text)
@@ -332,7 +334,7 @@ export async function handleIncomingImage(
       return
     }
 
-    const dailyConsumed = await getDailyCalories(supabase, user.id)
+    const dailyConsumed = await getDailyCalories(supabase, user.id, undefined, user.timezone)
     const target = user.dailyCalorieTarget ?? 2000
 
     const response = formatMealBreakdown(
@@ -368,7 +370,7 @@ async function handleLabelPortions(
   userId: string,
   message: string,
   context: ConversationContext,
-  user: { calorieMode: string; dailyCalorieTarget: number | null },
+  user: { calorieMode: string; dailyCalorieTarget: number | null; timezone?: string },
 ): Promise<void> {
   const portions = parseFloat(message.trim().replace(',', '.'))
 
@@ -393,7 +395,7 @@ async function handleLabelPortions(
     items: multipliedItems,
   }
 
-  const dailyConsumed = await getDailyCalories(supabase, userId)
+  const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user.timezone)
   const target = user.dailyCalorieTarget ?? 2000
   const total = Math.round(multipliedItems.reduce((sum, item) => sum + item.calories, 0))
 
