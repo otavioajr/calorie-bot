@@ -639,21 +639,29 @@ async function handleBulkQuantitiesResponse(
     }
   }
 
-  const parsedItems = meals[0].items
-  const allItemsResolved = parsedItems.every(
-    i => i.quantity_grams !== null && i.quantity_grams !== undefined && i.quantity_grams > 0,
-  )
+  // Only keep items that match the pending foods — ignore extras the LLM may hallucinate from history
+  const pendingFoodSet = new Set(pendingItems.map(p => p.food.toLowerCase()))
+  const relevantItems = meals[0].items.filter(i => pendingFoodSet.has(i.food.toLowerCase()))
 
-  if (!allItemsResolved) {
-    const stillPending = parsedItems
-      .filter(i => !i.quantity_grams || i.quantity_grams <= 0)
-      .map(i => `• ${i.food}`)
-      .join('\n')
+  // Check if all PENDING items got resolved
+  const resolvedFoodSet = new Set(
+    relevantItems
+      .filter(i => i.quantity_grams !== null && i.quantity_grams !== undefined && i.quantity_grams > 0)
+      .map(i => i.food.toLowerCase()),
+  )
+  const stillMissing = pendingItems.filter(p => !resolvedFoodSet.has(p.food.toLowerCase()))
+
+  if (stillMissing.length > 0) {
+    const missingLines = stillMissing.map(p => `• ${p.food}`).join('\n')
     return {
-      response: `Ainda faltam quantidades:\n${stillPending}\n\nPode me dizer? (ex: "200ml", "2 colheres")`,
+      response: `Ainda faltam quantidades:\n${missingLines}\n\nPode me dizer? (ex: "200ml", "2 colheres")`,
       completed: false,
     }
   }
+
+  const parsedItems = relevantItems.filter(
+    i => i.quantity_grams !== null && i.quantity_grams !== undefined && i.quantity_grams > 0,
+  )
 
   const enriched = await enrichItemsWithTaco(supabase, parsedItems, llm, userId)
   await clearState(userId)
