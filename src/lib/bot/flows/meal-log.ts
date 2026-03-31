@@ -300,6 +300,54 @@ export async function enrichItemsWithTaco(
   // Step 3: Decompose composite foods that didn't match TACO
   for (const { item, index } of needsDecomposition) {
     const itemQty = item.quantity_grams ?? 0
+
+    // If quantity is 0 but we have a display description, go straight to LLM estimate
+    // (decomposition with 0g is meaningless)
+    if (itemQty <= 0) {
+      const description = item.quantity_display
+        ? `${item.quantity_display} de ${item.food}`
+        : item.food
+      try {
+        const raw = await llm.chat(
+          `Estime calorias e macronutrientes para: "${description}". Responda APENAS com JSON: {"calories":number,"protein":number,"carbs":number,"fat":number,"estimated_grams":number}`,
+          'Você é um especialista em nutrição. Responda APENAS com JSON válido. Se não souber o peso exato, estime um valor razoável para a porção descrita.',
+          true,
+        )
+        const estimate = safeParseJSON(raw) as Record<string, number> | null
+        if (estimate && typeof estimate.calories === 'number' && estimate.calories > 0) {
+          enriched[index] = {
+            food: item.food,
+            quantityGrams: estimate.estimated_grams ?? itemQty,
+            quantityDisplay: item.quantity_display,
+            calories: Math.round(estimate.calories),
+            protein: Math.round((estimate.protein ?? 0) * 10) / 10,
+            carbs: Math.round((estimate.carbs ?? 0) * 10) / 10,
+            fat: Math.round((estimate.fat ?? 0) * 10) / 10,
+            source: 'approximate',
+          }
+        } else {
+          console.error(`[enrichment] LLM estimate for "${description}" returned 0 or unparseable:`, raw?.substring(0, 200))
+          enriched[index] = {
+            food: item.food,
+            quantityGrams: itemQty,
+            quantityDisplay: item.quantity_display,
+            calories: 0, protein: 0, carbs: 0, fat: 0,
+            source: 'approximate',
+          }
+        }
+      } catch (err) {
+        console.error(`[enrichment] LLM estimate failed for "${description}":`, err)
+        enriched[index] = {
+          food: item.food,
+          quantityGrams: itemQty,
+          quantityDisplay: item.quantity_display,
+          calories: 0, protein: 0, carbs: 0, fat: 0,
+          source: 'approximate',
+        }
+      }
+      continue
+    }
+
     try {
       const ingredients = await llm.decomposeMeal(item.food, itemQty)
 
