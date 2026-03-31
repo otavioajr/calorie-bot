@@ -10,6 +10,7 @@ import { fuzzyMatchTacoMultiple, calculateMacros, matchTacoByBase, getLearnedDef
 import type { TacoFood } from '@/lib/db/queries/taco'
 import { sendTextMessage } from '@/lib/whatsapp/client'
 import { searchMealHistory, HistoryMatch } from '@/lib/db/queries/meal-history-search'
+import { normalizeFoodNameForTaco, applySynonyms, tokenMatchScore } from '@/lib/utils/food-normalize'
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -60,20 +61,15 @@ function safeParseJSON(raw: string): unknown {
   }
 }
 
-async function resolveByBase(
+async function pickBestVariant(
   supabase: SupabaseClient,
   foodName: string,
-): Promise<{ match: TacoFood; usedDefault: boolean } | null> {
-  // Try matching the food name as a base (e.g., "banana" → all banana variants)
-  const variants = await matchTacoByBase(supabase, foodName)
-  if (variants.length === 0) return null
-
-  // Single variant — no ambiguity
+  variants: TacoFood[],
+): Promise<{ match: TacoFood; usedDefault: boolean }> {
   if (variants.length === 1) {
     return { match: variants[0], usedDefault: false }
   }
 
-  // Check for learned default first (community preference)
   const learned = await getLearnedDefault(supabase, foodName)
   if (learned) {
     const learnedFood = variants.find(v => v.id === learned.tacoId)
@@ -82,14 +78,44 @@ async function resolveByBase(
     }
   }
 
-  // Fall back to manual default (is_default = true)
   const manualDefault = variants.find(v => v.isDefault)
   if (manualDefault) {
     return { match: manualDefault, usedDefault: true }
   }
 
-  // No default set — use first result
   return { match: variants[0], usedDefault: true }
+}
+
+async function resolveByBase(
+  supabase: SupabaseClient,
+  foodName: string,
+): Promise<{ match: TacoFood; usedDefault: boolean } | null> {
+  // Try raw name first
+  const variants = await matchTacoByBase(supabase, foodName)
+  if (variants.length > 0) {
+    return pickBestVariant(supabase, foodName, variants)
+  }
+
+  // Try with synonyms
+  const normalized = normalizeFoodNameForTaco(foodName)
+  const withSynonyms = applySynonyms(normalized)
+  if (withSynonyms !== normalized) {
+    const synonymBase = withSynonyms.split(',')[0].trim()
+    const synonymVariants = await matchTacoByBase(supabase, synonymBase)
+    if (synonymVariants.length > 0) {
+      const normalizedFull = withSynonyms.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+      const exactMatch = synonymVariants.find(v => {
+        const vNorm = v.foodName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+        return vNorm.includes(normalizedFull) || normalizedFull.includes(vNorm)
+      })
+      if (exactMatch) {
+        return { match: exactMatch, usedDefault: false }
+      }
+      return pickBestVariant(supabase, synonymBase, synonymVariants)
+    }
+  }
+
+  return null
 }
 
 function buildReceiptResponse(
@@ -190,14 +216,66 @@ export async function enrichItemsWithTaco(
     }
   }
 
+  // Step 1.5: Token-based search for items that didn't match base
+  const stillNeedsFuzzy: { item: MealItem; index: number }[] = []
+
+  for (const { item, index } of needsFuzzy) {
+    // Be defensive: skip token match if quantity is missing/zero
+    if (!item.quantity_grams || item.quantity_grams <= 0) {
+      stillNeedsFuzzy.push({ item, index })
+      continue
+    }
+
+    const normalized = normalizeFoodNameForTaco(item.food)
+    const withSynonyms = applySynonyms(normalized)
+    const inputTokens = withSynonyms.split(/[\s,]+/).filter(t => t.length > 1)
+
+    const baseWord = inputTokens[0]
+    if (baseWord) {
+      const candidates = await matchTacoByBase(supabase, baseWord)
+      if (candidates.length > 0) {
+        let bestMatch: TacoFood | null = null
+        let bestScore = 0
+
+        for (const candidate of candidates) {
+          const candidateNorm = normalizeFoodNameForTaco(candidate.foodName)
+          const candidateTokens = candidateNorm.split(/[\s,]+/).filter(t => t.length > 1)
+          const score = tokenMatchScore(inputTokens, candidateTokens)
+          if (score > bestScore) {
+            bestScore = score
+            bestMatch = candidate
+          }
+        }
+
+        if (bestMatch && bestScore >= 0.6) {
+          const macros = calculateMacros(bestMatch, item.quantity_grams)
+          enriched[index] = {
+            food: item.food,
+            quantityGrams: item.quantity_grams,
+            quantityDisplay: item.quantity_display,
+            calories: macros.calories,
+            protein: macros.protein,
+            carbs: macros.carbs,
+            fat: macros.fat,
+            source: 'taco',
+            tacoId: bestMatch.id,
+          }
+          continue
+        }
+      }
+    }
+
+    stillNeedsFuzzy.push({ item, index })
+  }
+
   // Step 2: Fuzzy match for items that didn't match any base
   const needsDecomposition: { item: MealItem; index: number }[] = []
 
-  if (needsFuzzy.length > 0) {
-    const fuzzyNames = needsFuzzy.map(d => d.item.food)
+  if (stillNeedsFuzzy.length > 0) {
+    const fuzzyNames = stillNeedsFuzzy.map(d => d.item.food)
     const tacoMatches = await fuzzyMatchTacoMultiple(supabase, fuzzyNames)
 
-    for (const { item, index } of needsFuzzy) {
+    for (const { item, index } of stillNeedsFuzzy) {
       const itemQty = item.quantity_grams ?? 0
       const tacoMatch = tacoMatches.get(item.food.toLowerCase())
       if (tacoMatch) {
