@@ -201,17 +201,17 @@ async function handleAwaitingCorrectionValue(
   const foodName = context.contextData.foodName as string
   const currentGrams = context.contextData.currentGrams as number
 
-  const llm = getLLMProvider()
-  const raw = await llm.chat(
-    `O usuário informou a quantidade de "${foodName}": "${message}". Converta para gramas. Use a tabela: 1 escumadeira de arroz=90g, 1 concha de feijão=80g, 1 colher de sopa=25g, 1 pegador de macarrão=110g, 1 fatia=20g, 1 copo=200ml≈206g. Responda APENAS com JSON: {"quantity_grams": number, "quantity_display": "texto do usuario"}`,
-    'Você é um conversor de medidas culinárias. Responda APENAS com JSON válido.',
-    true,
-  )
-
   let newGrams: number
   let newDisplay: string
 
   try {
+    const llm = getLLMProvider()
+    const raw = await llm.chat(
+      `O usuário informou a quantidade de "${foodName}": "${message}". Converta para gramas. Use a tabela: 1 escumadeira de arroz=90g, 1 concha de feijão=80g, 1 colher de sopa=25g, 1 pegador de macarrão=110g, 1 fatia=20g, 1 copo=200ml≈206g. Responda APENAS com JSON: {"quantity_grams": number, "quantity_display": "texto do usuario"}`,
+      'Você é um conversor de medidas culinárias. Responda APENAS com JSON válido.',
+      true,
+    )
+
     const parsed = JSON.parse(raw.trim()) as { quantity_grams: number; quantity_display: string }
     newGrams = parsed.quantity_grams
     newDisplay = parsed.quantity_display
