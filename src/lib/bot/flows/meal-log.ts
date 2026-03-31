@@ -3,7 +3,7 @@ import { getLLMProvider } from '@/lib/llm/index'
 import type { MealAnalysis, MealItem } from '@/lib/llm/schemas/meal-analysis'
 import { setState, clearState } from '@/lib/bot/state'
 import type { ConversationContext } from '@/lib/bot/state'
-import { createMeal, getDailyCalories, getDailyMacros } from '@/lib/db/queries/meals'
+import { createMeal, getDailyCalories, getDailyMacros, getLastMeal, recalculateMealTotal, getMealWithItems } from '@/lib/db/queries/meals'
 import { formatMealBreakdown, formatMultiMealBreakdown, formatProgress, formatSearchFeedback, formatDefaultNotice } from '@/lib/utils/formatters'
 import { getRecentMessages } from '@/lib/db/queries/message-history'
 import { fuzzyMatchTacoMultiple, calculateMacros, matchTacoByBase, getLearnedDefault, recordTacoUsage } from '@/lib/db/queries/taco'
@@ -137,7 +137,7 @@ function buildReceiptResponse(
 // TACO enrichment — the core new logic
 // ---------------------------------------------------------------------------
 
-async function enrichItemsWithTaco(
+export async function enrichItemsWithTaco(
   supabase: SupabaseClient,
   items: MealItem[],
   llm: ReturnType<typeof getLLMProvider>,
@@ -150,11 +150,13 @@ async function enrichItemsWithTaco(
   for (let i = 0; i < items.length; i++) {
     const item = items[i]
 
+    const quantityGrams = item.quantity_grams ?? 0
+
     if (item.calories !== null && item.calories !== undefined && item.calories > 0) {
       // User provided explicit macros — use as-is
       enriched.push({
         food: item.food,
-        quantityGrams: item.quantity_grams,
+        quantityGrams,
         quantityDisplay: item.quantity_display,
         calories: item.calories,
         protein: item.protein ?? 0,
@@ -167,10 +169,10 @@ async function enrichItemsWithTaco(
 
     const baseResult = await resolveByBase(supabase, item.food)
     if (baseResult) {
-      const macros = calculateMacros(baseResult.match, item.quantity_grams)
+      const macros = calculateMacros(baseResult.match, quantityGrams)
       enriched.push({
         food: item.food,
-        quantityGrams: item.quantity_grams,
+        quantityGrams,
         quantityDisplay: item.quantity_display,
         calories: macros.calories,
         protein: macros.protein,
@@ -196,12 +198,13 @@ async function enrichItemsWithTaco(
     const tacoMatches = await fuzzyMatchTacoMultiple(supabase, fuzzyNames)
 
     for (const { item, index } of needsFuzzy) {
+      const itemQty = item.quantity_grams ?? 0
       const tacoMatch = tacoMatches.get(item.food.toLowerCase())
       if (tacoMatch) {
-        const macros = calculateMacros(tacoMatch, item.quantity_grams)
+        const macros = calculateMacros(tacoMatch, itemQty)
         enriched[index] = {
           food: item.food,
-          quantityGrams: item.quantity_grams,
+          quantityGrams: itemQty,
           quantityDisplay: item.quantity_display,
           calories: macros.calories,
           protein: macros.protein,
@@ -218,8 +221,9 @@ async function enrichItemsWithTaco(
 
   // Step 3: Decompose composite foods that didn't match TACO
   for (const { item, index } of needsDecomposition) {
+    const itemQty = item.quantity_grams ?? 0
     try {
-      const ingredients = await llm.decomposeMeal(item.food, item.quantity_grams)
+      const ingredients = await llm.decomposeMeal(item.food, itemQty)
 
       // Match each ingredient: base first, then fuzzy
       let totalCal = 0, totalProt = 0, totalCarbs = 0, totalFat = 0
@@ -278,7 +282,7 @@ async function enrichItemsWithTaco(
 
       enriched[index] = {
         food: item.food,
-        quantityGrams: item.quantity_grams,
+        quantityGrams: itemQty,
         quantityDisplay: item.quantity_display,
         calories: Math.round(totalCal),
         protein: Math.round(totalProt * 10) / 10,
@@ -291,7 +295,7 @@ async function enrichItemsWithTaco(
       // Decomposition failed entirely — try a direct LLM estimate
       try {
         const raw = await llm.chat(
-          `Estime calorias e macronutrientes para ${item.quantity_grams}g de "${item.food}". Responda APENAS com JSON: {"calories":number,"protein":number,"carbs":number,"fat":number} (valores para ${item.quantity_grams}g, não por 100g).`,
+          `Estime calorias e macronutrientes para ${itemQty}g de "${item.food}". Responda APENAS com JSON: {"calories":number,"protein":number,"carbs":number,"fat":number} (valores para ${itemQty}g, não por 100g).`,
           'Você é um especialista em nutrição. Responda APENAS com JSON válido.',
           true,
         )
@@ -299,7 +303,7 @@ async function enrichItemsWithTaco(
         if (estimate && typeof estimate.calories === 'number') {
           enriched[index] = {
             food: item.food,
-            quantityGrams: item.quantity_grams,
+            quantityGrams: itemQty,
             quantityDisplay: item.quantity_display,
             calories: Math.round(estimate.calories),
             protein: Math.round((estimate.protein ?? 0) * 10) / 10,
@@ -311,7 +315,7 @@ async function enrichItemsWithTaco(
           console.error(`[enrichment] Direct LLM estimate unparseable for "${item.food}":`, raw.substring(0, 200))
           enriched[index] = {
             food: item.food,
-            quantityGrams: item.quantity_grams,
+            quantityGrams: itemQty,
             quantityDisplay: item.quantity_display,
             calories: 0,
             protein: 0,
@@ -324,7 +328,7 @@ async function enrichItemsWithTaco(
         console.error(`[enrichment] Direct LLM estimate failed for "${item.food}":`, estimateErr)
         enriched[index] = {
           food: item.food,
-          quantityGrams: item.quantity_grams,
+          quantityGrams: itemQty,
           quantityDisplay: item.quantity_display,
           calories: 0,
           protein: 0,
@@ -359,6 +363,11 @@ export async function handleMealLog(
   context: ConversationContext | null,
 ): Promise<MealLogResult> {
   const trimmed = message.trim()
+
+  // Branch: user is responding with missing quantities
+  if (context?.contextType === 'awaiting_bulk_quantities') {
+    return handleBulkQuantitiesResponse(supabase, userId, trimmed, context, user)
+  }
 
   // Branch: user is selecting from history matches
   if (context?.contextType === 'awaiting_history_selection') {
@@ -447,6 +456,8 @@ async function saveMeals(
         fatG: item.fat,
         source: item.source,
         tacoId: item.tacoId,
+        confidence: item.source === 'approximate' ? 'low' : 'high',
+        quantityDisplay: item.quantityDisplay ?? undefined,
       })),
     })
   }
@@ -459,6 +470,135 @@ async function saveMeals(
         await recordTacoUsage(supabase, foodBase, item.tacoId, userId)
       }
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Bulk quantities response handler
+// ---------------------------------------------------------------------------
+
+async function handleBulkQuantitiesResponse(
+  supabase: SupabaseClient,
+  userId: string,
+  message: string,
+  context: ConversationContext,
+  user: {
+    calorieMode: string
+    dailyCalorieTarget: number | null
+    phone?: string
+    timezone?: string
+  },
+): Promise<MealLogResult> {
+  const pendingItems = context.contextData.pending_items as Array<{
+    food: string
+    portion_type: string
+  }>
+  const resolvedMealId = context.contextData.resolved_meal_id as string | null
+  const mealType = context.contextData.meal_type as string
+  const originalMessage = context.contextData.original_message as string
+
+  const llm = getLLMProvider()
+  const history = await getRecentMessages(supabase, userId)
+  const pendingNames = pendingItems.map(i => i.food).join(', ')
+
+  const quantityPrompt = `O usuário estava informando as quantidades de: ${pendingNames}.\nResposta do usuário: "${message}"\n\nIdentifique as quantidades mencionadas para cada alimento.`
+
+  const meals: MealAnalysis[] = await llm.analyzeMeal(quantityPrompt, history)
+
+  if (!meals.length || !meals[0].items.length) {
+    return {
+      response: 'Não entendi as quantidades. Pode repetir? (ex: "1 escumadeira de arroz e 200ml de leite")',
+      completed: false,
+    }
+  }
+
+  const parsedItems = meals[0].items
+  const allItemsResolved = parsedItems.every(
+    i => i.quantity_grams !== null && i.quantity_grams !== undefined && i.quantity_grams > 0,
+  )
+
+  if (!allItemsResolved) {
+    const stillPending = parsedItems
+      .filter(i => !i.quantity_grams || i.quantity_grams <= 0)
+      .map(i => `• ${i.food}`)
+      .join('\n')
+    return {
+      response: `Ainda faltam quantidades:\n${stillPending}\n\nPode me dizer? (ex: "200ml", "2 colheres")`,
+      completed: false,
+    }
+  }
+
+  const enriched = await enrichItemsWithTaco(supabase, parsedItems, llm, userId)
+  await clearState(userId)
+
+  const mealAnalysis: MealAnalysis = {
+    meal_type: mealType as MealAnalysis['meal_type'],
+    confidence: 'high',
+    references_previous: false,
+    reference_query: null,
+    items: parsedItems,
+    unknown_items: [],
+    needs_clarification: false,
+  }
+
+  if (resolvedMealId) {
+    const itemRows = enriched.map((item) => ({
+      meal_id: resolvedMealId,
+      food_name: item.food,
+      quantity_grams: item.quantityGrams,
+      calories: item.calories,
+      protein_g: item.protein,
+      carbs_g: item.carbs,
+      fat_g: item.fat,
+      source: item.source,
+      taco_id: item.tacoId ?? null,
+      confidence: item.source === 'approximate' ? 'low' : 'high',
+      quantity_display: item.quantityDisplay ?? null,
+    }))
+
+    const { error } = await supabase.from('meal_items').insert(itemRows)
+    if (error) throw new Error(`Failed to add items to meal: ${error.message}`)
+    await recalculateMealTotal(supabase, resolvedMealId)
+  } else {
+    await saveMeals(supabase, userId, [mealAnalysis], [enriched], originalMessage)
+  }
+
+  for (const item of enriched) {
+    if (item.tacoId && item.source === 'taco') {
+      const foodBase = item.defaultFoodBase ?? item.food
+      await recordTacoUsage(supabase, foodBase, item.tacoId, userId)
+    }
+  }
+
+  const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user.timezone)
+  const target = user.dailyCalorieTarget ?? 2000
+
+  if (resolvedMealId) {
+    const fullMeal = await getMealWithItems(supabase, resolvedMealId)
+    if (fullMeal) {
+      const receiptItems = fullMeal.items.map(i => ({
+        food: i.foodName,
+        quantityGrams: i.quantityGrams,
+        quantityDisplay: i.quantityDisplay,
+        calories: i.calories,
+      }))
+      return {
+        response: formatMealBreakdown(fullMeal.mealType, receiptItems, fullMeal.totalCalories, dailyConsumed, target),
+        completed: true,
+      }
+    }
+  }
+
+  const total = totalCaloriesFromEnriched(enriched)
+  return {
+    response: formatMealBreakdown(
+      mealType,
+      enriched.map(i => ({ food: i.food, quantityGrams: i.quantityGrams, quantityDisplay: i.quantityDisplay, calories: i.calories })),
+      total,
+      dailyConsumed,
+      target,
+    ),
+    completed: true,
   }
 }
 
@@ -552,6 +692,57 @@ async function analyzeAndRegister(
   // Send feedback once before enrichment loop
   if (user.phone) {
     await sendTextMessage(user.phone, formatSearchFeedback())
+  }
+
+  // TRIAGE: separate resolved items from items needing quantity
+  for (let mealIdx = 0; mealIdx < meals.length; mealIdx++) {
+    const meal = meals[mealIdx]
+    const resolvedItems: MealItem[] = []
+    const pendingItems: Array<{ food: string; portion_type: string }> = []
+
+    for (const item of meal.items) {
+      const hasQuantity = item.quantity_grams !== null && item.quantity_grams !== undefined && item.quantity_grams > 0
+      const isUnit = item.portion_type === 'unit'
+      const userProvided = item.has_user_quantity === true
+
+      if (hasQuantity || isUnit || userProvided) {
+        resolvedItems.push(item)
+      } else {
+        pendingItems.push({ food: item.food, portion_type: item.portion_type ?? 'bulk' })
+      }
+    }
+
+    if (pendingItems.length > 0) {
+      let resolvedMealId: string | null = null
+
+      if (resolvedItems.length > 0) {
+        const enriched = await enrichItemsWithTaco(supabase, resolvedItems, llm, userId)
+        const partialAnalysis: MealAnalysis = { ...meal, items: resolvedItems }
+        await saveMeals(supabase, userId, [partialAnalysis], [enriched], originalMessage)
+        const lastMeal = await getLastMeal(supabase, userId)
+        resolvedMealId = lastMeal?.id ?? null
+      }
+
+      const defaultExample = 'ex: quantidade em g, ml, colheres, etc.'
+      const pendingLines = pendingItems.map(p => `• ${p.food} — quanto? (${defaultExample})`).join('\n')
+
+      let askMsg: string
+      if (resolvedItems.length > 0) {
+        const resolvedNames = resolvedItems.map(i => i.food).join(', ')
+        askMsg = `✅ ${resolvedNames} registrado! Pra completar:\n${pendingLines}`
+      } else {
+        askMsg = `Pra registrar, me diz as quantidades:\n${pendingLines}`
+      }
+
+      await setState(userId, 'awaiting_bulk_quantities', {
+        pending_items: pendingItems,
+        resolved_meal_id: resolvedMealId,
+        meal_type: meal.meal_type,
+        original_message: originalMessage,
+      })
+
+      return { response: askMsg, completed: false }
+    }
   }
 
   // Enrich all meal items with TACO data
