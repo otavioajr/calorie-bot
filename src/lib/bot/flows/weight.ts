@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { User } from '@/lib/db/queries/users'
 import { updateUser } from '@/lib/db/queries/users'
 import { logWeight, getLastWeight } from '@/lib/db/queries/weight'
-import { setState } from '@/lib/bot/state'
+import { setState, clearState } from '@/lib/bot/state'
 import { calculateAll } from '@/lib/calc/tdee'
 import type { ActivityLevel, Goal, Sex } from '@/lib/calc/tdee'
 import { formatWeightUpdate } from '@/lib/utils/formatters'
@@ -102,6 +102,9 @@ export async function handleWeight(
   }
 
   await updateUser(supabase, userId, updatePayload)
+
+  // Clear the awaiting_weight state so subsequent messages are routed normally
+  await clearState(userId)
 
   // Format the response
   const previousWeight = previous ? previous.weightKg : null
