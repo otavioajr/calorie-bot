@@ -622,6 +622,7 @@ async function handleBulkQuantitiesResponse(
   const resolvedMealId = context.contextData.resolved_meal_id as string | null
   const mealType = context.contextData.meal_type as string
   const originalMessage = context.contextData.original_message as string
+  const flow = (context.contextData.flow as string) ?? 'meal_log'
 
   const llm = getLLMProvider()
   const history = await getRecentMessages(supabase, userId)
@@ -656,6 +657,33 @@ async function handleBulkQuantitiesResponse(
 
   const enriched = await enrichItemsWithTaco(supabase, parsedItems, llm, userId)
   await clearState(userId)
+
+  // If this was a query flow, return formatted result without registering
+  if (flow === 'query') {
+    const lines: string[] = []
+    for (const item of enriched) {
+      const display = item.quantityDisplay ?? (item.quantityGrams ? `${item.quantityGrams}g` : '')
+      const qtyPart = display ? `(${display})` : ''
+      const calStr = item.source === 'approximate' ? `~${item.calories}` : `${item.calories}`
+      const indicator = item.source === 'approximate' ? ' ⚠️' : ''
+      const prot = Math.round(item.protein * 10) / 10
+      const carbs = Math.round(item.carbs * 10) / 10
+      const fat = Math.round(item.fat * 10) / 10
+      lines.push(`🔍 ${item.food}${qtyPart ? ' ' + qtyPart : ''}: ${calStr} kcal, ${prot}g proteína | ${carbs}g carbos | ${fat}g gordura${indicator}`)
+    }
+    if (enriched.length > 1) {
+      const totalCal = Math.round(enriched.reduce((s, i) => s + i.calories, 0))
+      const totalProt = Math.round(enriched.reduce((s, i) => s + i.protein, 0) * 10) / 10
+      const totalCarbs = Math.round(enriched.reduce((s, i) => s + i.carbs, 0) * 10) / 10
+      const totalFat = Math.round(enriched.reduce((s, i) => s + i.fat, 0) * 10) / 10
+      lines.push(`📊 Total: ${totalCal} kcal | ${totalProt}g proteína | ${totalCarbs}g carbos | ${totalFat}g gordura`)
+    }
+    const hasEstimated = enriched.some(i => i.source === 'approximate')
+    if (hasEstimated) {
+      lines.push('\n⚠️ Valores com este sinal são estimados. Pra corrigir, me manda as calorias certas (ex: "magic toast são 160 kcal")')
+    }
+    return { response: lines.filter(Boolean).join('\n'), completed: true }
+  }
 
   const mealAnalysis: MealAnalysis = {
     meal_type: mealType as MealAnalysis['meal_type'],
