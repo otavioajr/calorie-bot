@@ -10,6 +10,9 @@ export interface CachedFood {
   typicalPortionGrams: number | null
   source: string
   hitCount: number
+  portionType: string | null
+  defaultGrams: number | null
+  defaultDisplay: string | null
 }
 
 /**
@@ -28,6 +31,9 @@ function rowToCachedFood(row: Record<string, unknown>): CachedFood {
     typicalPortionGrams: row.typical_portion_grams as number | null,
     source: row.source as string,
     hitCount: row.hit_count as number,
+    portionType: (row.portion_type as string) ?? null,
+    defaultGrams: (row.default_grams as number) ?? null,
+    defaultDisplay: (row.default_display as string) ?? null,
   }
 }
 
@@ -87,6 +93,9 @@ export async function cacheFood(
     fatPer100g?: number
     typicalPortionGrams?: number
     source: string
+    portionType?: string
+    defaultGrams?: number
+    defaultDisplay?: string
   }
 ): Promise<void> {
   const normalized = normalizeFoodName(data.foodName)
@@ -101,6 +110,9 @@ export async function cacheFood(
   if (data.carbsPer100g !== undefined) row.carbs_per_100g = data.carbsPer100g
   if (data.fatPer100g !== undefined) row.fat_per_100g = data.fatPer100g
   if (data.typicalPortionGrams !== undefined) row.typical_portion_grams = data.typicalPortionGrams
+  if (data.portionType !== undefined) row.portion_type = data.portionType
+  if (data.defaultGrams !== undefined) row.default_grams = data.defaultGrams
+  if (data.defaultDisplay !== undefined) row.default_display = data.defaultDisplay
 
   const { error } = await supabase
     .from('food_cache')
