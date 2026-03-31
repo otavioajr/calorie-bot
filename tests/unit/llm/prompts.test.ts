@@ -40,6 +40,26 @@ describe('buildAnalyzePrompt', () => {
   })
 })
 
+describe('buildAnalyzePrompt portion classification', () => {
+  it('includes portion_type in the prompt', () => {
+    const prompt = buildAnalyzePrompt()
+    expect(prompt).toContain('portion_type')
+    expect(prompt).toContain('"unit"')
+    expect(prompt).toContain('"bulk"')
+    expect(prompt).toContain('"packaged"')
+  })
+
+  it('includes has_user_quantity in the prompt', () => {
+    const prompt = buildAnalyzePrompt()
+    expect(prompt).toContain('has_user_quantity')
+  })
+
+  it('instructs to set quantity_grams null for bulk without user quantity', () => {
+    const prompt = buildAnalyzePrompt()
+    expect(prompt).toContain('quantity_grams": null')
+  })
+})
+
 describe('buildManualPrompt', () => {
   it('instructs to extract from nutritional table', () => {
     const prompt = buildManualPrompt()
