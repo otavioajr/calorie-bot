@@ -1,6 +1,6 @@
 import { createServiceRoleClient } from '@/lib/db/supabase'
 import { findUserByPhone, createUser, getUserWithSettings } from '@/lib/db/queries/users'
-import { getState, setState, type ConversationContext } from '@/lib/bot/state'
+import { getState, setState, clearState, type ConversationContext } from '@/lib/bot/state'
 import { classifyByRules } from '@/lib/bot/router'
 import { handleOnboarding } from '@/lib/bot/flows/onboarding'
 import { handleMealLog } from '@/lib/bot/flows/meal-log'
@@ -18,7 +18,7 @@ import { downloadAudioMedia, transcribeAudio, AudioTooLargeError } from '@/lib/a
 import { downloadWhatsAppMedia, MediaTooLargeError } from '@/lib/whatsapp/media'
 import { detectMimeType } from '@/lib/whatsapp/mime'
 import { logLLMUsage } from '@/lib/db/queries/llm-usage'
-import { getDailyCalories } from '@/lib/db/queries/meals'
+import { createMeal, getDailyCalories } from '@/lib/db/queries/meals'
 import { saveMessage } from '@/lib/db/queries/message-history'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ImageAnalysis } from '@/lib/llm/schemas/image-analysis'
@@ -334,6 +334,27 @@ export async function handleIncomingImage(
       return
     }
 
+    const imageTotal = Math.round(mealAnalysis.items.reduce((sum, item) => sum + (item.calories ?? 0), 0))
+    const originalMessage = caption || '[imagem]'
+
+    // Save meal to database BEFORE showing confirmation
+    await createMeal(supabase, {
+      userId: user.id,
+      mealType: mealAnalysis.meal_type,
+      totalCalories: imageTotal,
+      originalMessage,
+      llmResponse: mealAnalysis as unknown as Record<string, unknown>,
+      items: mealAnalysis.items.map((item) => ({
+        foodName: item.food,
+        quantityGrams: item.quantity_grams,
+        calories: item.calories ?? 0,
+        proteinG: item.protein ?? 0,
+        carbsG: item.carbs ?? 0,
+        fatG: item.fat ?? 0,
+        source: 'vision' as const,
+      })),
+    })
+
     const dailyConsumed = await getDailyCalories(supabase, user.id, undefined, user.timezone)
     const target = user.dailyCalorieTarget ?? 2000
 
@@ -344,15 +365,10 @@ export async function handleIncomingImage(
         quantityGrams: item.quantity_grams,
         calories: item.calories ?? 0,
       })),
-      Math.round(mealAnalysis.items.reduce((sum, item) => sum + (item.calories ?? 0), 0)),
+      imageTotal,
       dailyConsumed,
       target,
     )
-
-    await setState(user.id, 'awaiting_confirmation', {
-      mealAnalysis: mealAnalysis as unknown as Record<string, unknown>,
-      originalMessage: caption || '[imagem]',
-    })
 
     await sendTextMessage(from, response)
     saveHistory(supabase, user.id, caption || '[imagem de alimento]', response)
@@ -383,7 +399,7 @@ async function handleLabelPortions(
 
   const multipliedItems = mealAnalysis.items.map((item) => ({
     ...item,
-    quantity_grams: Math.round(item.quantity_grams * portions),
+    quantity_grams: Math.round(item.quantity_grams * portions * 10) / 10,
     calories: Math.round((item.calories ?? 0) * portions),
     protein: Math.round((item.protein ?? 0) * portions * 10) / 10,
     carbs: Math.round((item.carbs ?? 0) * portions * 10) / 10,
@@ -395,9 +411,31 @@ async function handleLabelPortions(
     items: multipliedItems,
   }
 
+  const total = Math.round(multipliedItems.reduce((sum, item) => sum + item.calories, 0))
+  const originalMessage = (context.contextData.originalMessage as string) || '[imagem]'
+
+  // Save meal to database BEFORE showing confirmation
+  await createMeal(supabase, {
+    userId,
+    mealType: multipliedAnalysis.meal_type,
+    totalCalories: total,
+    originalMessage,
+    llmResponse: multipliedAnalysis as unknown as Record<string, unknown>,
+    items: multipliedItems.map((item) => ({
+      foodName: item.food,
+      quantityGrams: item.quantity_grams,
+      calories: item.calories,
+      proteinG: item.protein ?? 0,
+      carbsG: item.carbs ?? 0,
+      fatG: item.fat ?? 0,
+      source: 'label' as const,
+    })),
+  })
+
+  await clearState(userId)
+
   const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user.timezone)
   const target = user.dailyCalorieTarget ?? 2000
-  const total = Math.round(multipliedItems.reduce((sum, item) => sum + item.calories, 0))
 
   const response = formatMealBreakdown(
     multipliedAnalysis.meal_type,
@@ -410,11 +448,6 @@ async function handleLabelPortions(
     dailyConsumed,
     target,
   )
-
-  await setState(userId, 'awaiting_confirmation', {
-    mealAnalysis: multipliedAnalysis as unknown as Record<string, unknown>,
-    originalMessage: context.contextData.originalMessage || '[imagem]',
-  })
 
   await sendTextMessage(from, response)
 }
