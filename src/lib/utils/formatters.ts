@@ -62,7 +62,7 @@ export function formatMealBreakdown(
 
   const lowConfItems = items.filter(i => i.confidence === 'low')
   const lowConfNotice = lowConfItems.length > 0
-    ? `\n⚠️ Valores estimados para: ${lowConfItems.map(i => i.food).join(', ')}. Se souber o valor exato, manda "corrigir"`
+    ? `\n⚠️ Valores com este sinal são estimados. Pra corrigir, me manda as calorias certas (ex: "magic toast são 160 kcal")`
     : ''
 
   return [

@@ -71,6 +71,11 @@ export async function handleQuery(
   const itemLines = queryItems.map(formatItem)
   const totalLine = queryItems.length > 1 ? [formatTotal(queryItems)] : []
 
-  const lines = [...itemLines, ...totalLine]
-  return lines.join('\n')
+  const hasEstimated = queryItems.some(i => i.source === 'approximate')
+  const estimatedNotice = hasEstimated
+    ? '\n⚠️ Valores com este sinal são estimados. Pra corrigir, me manda as calorias certas (ex: "magic toast são 160 kcal")'
+    : ''
+
+  const lines = [...itemLines, ...totalLine, estimatedNotice]
+  return lines.filter(Boolean).join('\n')
 }
