@@ -351,7 +351,7 @@ export async function handleIncomingImage(
         proteinG: item.protein ?? 0,
         carbsG: item.carbs ?? 0,
         fatG: item.fat ?? 0,
-        source: 'vision' as const,
+        source: 'manual' as const,
       })),
     })
 
@@ -428,7 +428,7 @@ async function handleLabelPortions(
       proteinG: item.protein ?? 0,
       carbsG: item.carbs ?? 0,
       fatG: item.fat ?? 0,
-      source: 'label' as const,
+      source: 'manual' as const,
     })),
   })
 
