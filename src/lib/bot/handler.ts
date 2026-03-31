@@ -78,8 +78,27 @@ export async function handleIncomingMessage(
           saveHistory(supabase, user.id, text, mealResult.response)
           return
         }
+        case 'awaiting_bulk_quantities': {
+          const mealResult = await handleMealLog(supabase, user.id, text, userSettings, context)
+          await sendTextMessage(from, mealResult.response)
+          saveHistory(supabase, user.id, text, mealResult.response)
+          return
+        }
         case 'awaiting_correction': {
-          const editResponse = await handleEdit(supabase, user.id, text, context)
+          const editResponse = await handleEdit(supabase, user.id, text, context, {
+            timezone: user.timezone,
+            dailyCalorieTarget: user.dailyCalorieTarget,
+          })
+          await sendTextMessage(from, editResponse)
+          saveHistory(supabase, user.id, text, editResponse)
+          return
+        }
+        case 'awaiting_correction_item':
+        case 'awaiting_correction_value': {
+          const editResponse = await handleEdit(supabase, user.id, text, context, {
+            timezone: user.timezone,
+            dailyCalorieTarget: user.dailyCalorieTarget,
+          })
           await sendTextMessage(from, editResponse)
           saveHistory(supabase, user.id, text, editResponse)
           return
@@ -144,7 +163,10 @@ export async function handleIncomingMessage(
         response = await handleQuery(supabase, user.id, text)
         break
       case 'edit':
-        response = await handleEdit(supabase, user.id, text, null)
+        response = await handleEdit(supabase, user.id, text, null, {
+          timezone: user.timezone,
+          dailyCalorieTarget: user.dailyCalorieTarget,
+        })
         break
       case 'weight':
         response = await handleWeight(supabase, user.id, text, user)
@@ -308,7 +330,11 @@ export async function handleIncomingImage(
       confidence: imageResult.confidence,
       references_previous: false,
       reference_query: null,
-      items: imageResult.items,
+      items: imageResult.items.map((item) => ({
+        ...item,
+        portion_type: 'unit' as const,
+        has_user_quantity: false,
+      })),
       unknown_items: imageResult.unknown_items,
       needs_clarification: false,
     }
@@ -318,7 +344,7 @@ export async function handleIncomingImage(
       const labelMsg = [
         '📋 Tabela nutricional detectada!',
         '',
-        `• ${item.food} (porção ${item.quantity_grams}g) — ${Math.round(item.calories ?? 0)} kcal`,
+        `• ${item.food} (porção ${item.quantity_grams ?? 0}g) — ${Math.round(item.calories ?? 0)} kcal`,
         `  P: ${item.protein ?? 0}g | C: ${item.carbs ?? 0}g | G: ${item.fat ?? 0}g`,
         '',
         'Quantas porções você comeu? Responda com o número para eu registrar.',
@@ -346,7 +372,7 @@ export async function handleIncomingImage(
       llmResponse: mealAnalysis as unknown as Record<string, unknown>,
       items: mealAnalysis.items.map((item) => ({
         foodName: item.food,
-        quantityGrams: item.quantity_grams,
+        quantityGrams: item.quantity_grams ?? 0,
         calories: item.calories ?? 0,
         proteinG: item.protein ?? 0,
         carbsG: item.carbs ?? 0,
@@ -362,7 +388,7 @@ export async function handleIncomingImage(
       mealAnalysis.meal_type,
       mealAnalysis.items.map((item) => ({
         food: item.food,
-        quantityGrams: item.quantity_grams,
+        quantityGrams: item.quantity_grams ?? 0,
         calories: item.calories ?? 0,
       })),
       imageTotal,
@@ -399,7 +425,7 @@ async function handleLabelPortions(
 
   const multipliedItems = mealAnalysis.items.map((item) => ({
     ...item,
-    quantity_grams: Math.round(item.quantity_grams * portions * 10) / 10,
+    quantity_grams: Math.round((item.quantity_grams ?? 0) * portions * 10) / 10,
     calories: Math.round((item.calories ?? 0) * portions),
     protein: Math.round((item.protein ?? 0) * portions * 10) / 10,
     carbs: Math.round((item.carbs ?? 0) * portions * 10) / 10,
