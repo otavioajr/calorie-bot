@@ -5,7 +5,7 @@ import { classifyByRules } from '@/lib/bot/router'
 import { handleOnboarding } from '@/lib/bot/flows/onboarding'
 import { handleMealLog } from '@/lib/bot/flows/meal-log'
 import { handleSummary } from '@/lib/bot/flows/summary'
-import { handleQuery } from '@/lib/bot/flows/query'
+import { handleQuery, handleQueryConfirmation } from '@/lib/bot/flows/query'
 import { handleEdit } from '@/lib/bot/flows/edit'
 import { handleWeight } from '@/lib/bot/flows/weight'
 import { handleSettings } from '@/lib/bot/flows/settings'
@@ -72,6 +72,20 @@ export async function handleIncomingMessage(
     const context = await getState(user.id)
     if (context) {
       switch (context.contextType) {
+        case 'awaiting_confirmation': {
+          if (context.contextData.flow === 'query') {
+            const confirmResponse = await handleQueryConfirmation(supabase, user.id, text, context, {
+              timezone: user.timezone,
+              dailyCalorieTarget: user.dailyCalorieTarget,
+            })
+            await sendTextMessage(from, confirmResponse)
+            saveHistory(supabase, user.id, text, confirmResponse)
+            return
+          }
+          // Other confirmation flows — clear state and proceed to intent classification
+          await clearState(user.id)
+          break
+        }
         case 'awaiting_clarification': {
           const mealResult = await handleMealLog(supabase, user.id, text, userSettings, context)
           await sendTextMessage(from, mealResult.response)

@@ -690,6 +690,26 @@ async function handleBulkQuantitiesResponse(
     if (hasEstimated) {
       lines.push('\n⚠️ Valores com este sinal são estimados. Pra corrigir, me manda as calorias certas (ex: "magic toast são 160 kcal")')
     }
+    lines.push('', 'Quer registrar como refeição? Manda "registrar"')
+
+    // Save state so user can register
+    await setState(userId, 'awaiting_confirmation', {
+      flow: 'query',
+      mealType,
+      originalMessage,
+      items: enriched.map(i => ({
+        food: i.food,
+        quantityGrams: i.quantityGrams,
+        quantityDisplay: i.quantityDisplay,
+        calories: i.calories,
+        protein: i.protein,
+        carbs: i.carbs,
+        fat: i.fat,
+        source: i.source,
+        tacoId: i.tacoId,
+      })),
+    })
+
     return { response: lines.filter(Boolean).join('\n'), completed: true }
   }
 

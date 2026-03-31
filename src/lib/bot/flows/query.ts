@@ -1,8 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getLLMProvider } from '@/lib/llm/index'
 import type { MealAnalysis, MealItem } from '@/lib/llm/schemas/meal-analysis'
-import { setState } from '@/lib/bot/state'
+import { setState, clearState } from '@/lib/bot/state'
+import type { ConversationContext } from '@/lib/bot/state'
 import { enrichItemsWithTaco } from '@/lib/bot/flows/meal-log'
+import { createMeal, getDailyCalories } from '@/lib/db/queries/meals'
+import { formatProgress } from '@/lib/utils/formatters'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -129,6 +132,87 @@ export async function handleQuery(
     ? '\n⚠️ Valores com este sinal são estimados. Pra corrigir, me manda as calorias certas (ex: "magic toast são 160 kcal")'
     : ''
 
-  const lines = [...itemLines, ...totalLine, estimatedNotice]
+  const lines = [...itemLines, ...totalLine, estimatedNotice, '', 'Quer registrar como refeição? Manda "registrar"']
+
+  // Save enriched data so we can register if user confirms
+  await setState(userId, 'awaiting_confirmation', {
+    flow: 'query',
+    mealType: meals[0]?.meal_type ?? 'snack',
+    originalMessage: message,
+    items: enrichedItems.map(i => ({
+      food: i.food,
+      quantityGrams: i.quantityGrams,
+      quantityDisplay: i.quantityDisplay,
+      calories: i.calories,
+      protein: i.protein,
+      carbs: i.carbs,
+      fat: i.fat,
+      source: i.source,
+      tacoId: i.tacoId,
+    })),
+  })
+
   return lines.filter(Boolean).join('\n')
+}
+
+// ---------------------------------------------------------------------------
+// handleQueryConfirmation — register query result as meal
+// ---------------------------------------------------------------------------
+
+const REGISTER_PATTERN = /^(registrar|registra|sim|s)$/i
+
+export async function handleQueryConfirmation(
+  supabase: SupabaseClient,
+  userId: string,
+  message: string,
+  context: ConversationContext,
+  user?: { timezone?: string; dailyCalorieTarget?: number | null },
+): Promise<string> {
+  if (!REGISTER_PATTERN.test(message.trim())) {
+    await clearState(userId)
+    return 'Ok, não registrei. Pode me mandar o que comeu quando quiser!'
+  }
+
+  const items = context.contextData.items as Array<{
+    food: string
+    quantityGrams: number
+    quantityDisplay: string | null
+    calories: number
+    protein: number
+    carbs: number
+    fat: number
+    source: string
+    tacoId?: number
+  }>
+  const mealType = context.contextData.mealType as string
+  const originalMessage = context.contextData.originalMessage as string
+
+  const totalCalories = Math.round(items.reduce((sum, i) => sum + i.calories, 0))
+
+  await createMeal(supabase, {
+    userId,
+    mealType,
+    totalCalories,
+    originalMessage,
+    llmResponse: {},
+    items: items.map(i => ({
+      foodName: i.food,
+      quantityGrams: i.quantityGrams,
+      calories: i.calories,
+      proteinG: i.protein,
+      carbsG: i.carbs,
+      fatG: i.fat,
+      source: i.source,
+      tacoId: i.tacoId,
+      confidence: i.source === 'approximate' ? 'low' : 'high',
+      quantityDisplay: i.quantityDisplay ?? undefined,
+    })),
+  })
+
+  await clearState(userId)
+
+  const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user?.timezone)
+  const target = user?.dailyCalorieTarget ?? 2000
+
+  return `✅ Refeição registrada! (${totalCalories} kcal)\n${formatProgress(dailyConsumed, target)}`
 }

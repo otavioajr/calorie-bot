@@ -189,10 +189,10 @@ describe('handleQuery', () => {
       expect(result).toMatch(/17.*gordura|gordura.*17/i)
     })
 
-    it('does NOT include confirmation prompt', async () => {
+    it('offers to register as meal', async () => {
       const result = await handleQuery(supabase, USER_ID, 'quantas calorias tem uma coxinha?')
 
-      expect(result).not.toContain('registrar')
+      expect(result).toContain('registrar')
       expect(result).not.toContain('sim/não')
     })
 
