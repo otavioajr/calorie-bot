@@ -15,6 +15,7 @@ function round(n: number): number {
 interface EnrichedQueryItem {
   food: string
   quantityGrams: number | null
+  quantityDisplay: string | null
   calories: number
   protein: number
   carbs: number
@@ -25,8 +26,8 @@ function formatItem(item: EnrichedQueryItem): string {
   const protStr = `${round(item.protein)}g proteína`
   const carbStr = `${round(item.carbs)}g carbos`
   const fatStr = `${round(item.fat)}g gordura`
-  const qty = item.quantityGrams ? `~${item.quantityGrams}g` : ''
-  const qtyPart = qty ? `(${qty})` : ''
+  const display = item.quantityDisplay || (item.quantityGrams ? `${item.quantityGrams}g` : '')
+  const qtyPart = display ? `(${display})` : ''
 
   return `🔍 ${item.food}${qtyPart ? ' ' + qtyPart : ''}: ${Math.round(item.calories)} kcal, ${protStr} | ${carbStr} | ${fatStr}`
 }
@@ -62,12 +63,13 @@ export async function handleQuery(
     const match = tacoMatches.get(item.food.toLowerCase())
     if (match) {
       const macros = calculateMacros(match, item.quantity_grams ?? 0)
-      return { food: item.food, quantityGrams: item.quantity_grams, ...macros }
+      return { food: item.food, quantityGrams: item.quantity_grams, quantityDisplay: item.quantity_display, ...macros }
     }
     // No TACO match — use LLM values if available, otherwise zeros
     return {
       food: item.food,
       quantityGrams: item.quantity_grams,
+      quantityDisplay: item.quantity_display,
       calories: item.calories ?? 0,
       protein: item.protein ?? 0,
       carbs: item.carbs ?? 0,
