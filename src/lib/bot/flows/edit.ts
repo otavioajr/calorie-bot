@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ConversationContext } from '@/lib/bot/state'
 import { setState, clearState } from '@/lib/bot/state'
+import type { QuoteContext } from '@/lib/bot/quote'
 import {
   deleteMeal,
   getLastMeal,
@@ -11,7 +12,7 @@ import {
   recalculateMealTotal,
   getDailyCalories,
 } from '@/lib/db/queries/meals'
-import type { RecentMeal } from '@/lib/db/queries/meals'
+import type { RecentMeal, MealItemDetail } from '@/lib/db/queries/meals'
 import { getLLMProvider } from '@/lib/llm/index'
 import { buildCorrectionPrompt } from '@/lib/llm/prompts/correction'
 import { CorrectionSchema } from '@/lib/llm/schemas/correction'
@@ -26,6 +27,12 @@ const DELETE_PATTERN = /apaga(r)?\s*(último|ultimo|last)?/i
 const CORRECTION_PATTERN = /^corrigir$/i
 const CONFIRM_PATTERN = /^(sim|s|ok|confirma)$/i
 const REJECT_PATTERN = /^(não|nao|n|cancelar|cancela)$/i
+
+// Quote-based correction patterns
+const QUOTE_DELETE_NO_ITEM = /^(apaga|remove|exclui|deleta)r?$/i
+const QUOTE_DELETE_ITEM = /(?:apaga|remove|exclui|deleta)r?\s+(?:o\s+|a\s+)?(.+)/i
+const QUOTE_RENAME = /(?:era|na verdade era|na real era|na real é|é|eh)\s+(.+?)(?:\s*,?\s*(?:não|nao|e não|e nao)\s+(.+))?$/i
+const QUOTE_QUANTITY = /(?:era|eram|foi|na verdade)\s+(\d+(?:[.,]\d+)?)\s*(?:g|gramas?|ml)?\s*(?:de\s+(.+))?$/i
 
 // ---------------------------------------------------------------------------
 // Meal type display labels
@@ -53,8 +60,14 @@ export async function handleEdit(
   message: string,
   context: ConversationContext | null,
   user?: { timezone?: string; dailyCalorieTarget?: number | null },
+  quoteContext?: QuoteContext,
 ): Promise<string> {
   const trimmed = message.trim()
+
+  // If we have a quote, handle it directly
+  if (quoteContext) {
+    return handleQuotedEdit(supabase, userId, trimmed, quoteContext, user)
+  }
 
   if (context) {
     switch (context.contextType) {
@@ -418,6 +431,189 @@ async function handleNaturalLanguageCorrectionWithMeal(
       await clearState(userId)
       return 'Não entendi a correção. Manda "corrigir" pro menu guiado.'
   }
+}
+
+// ---------------------------------------------------------------------------
+// Quote-based correction flow
+// ---------------------------------------------------------------------------
+
+function findItemByFoodName(
+  items: MealItemDetail[],
+  name: string,
+): MealItemDetail | undefined {
+  const normalize = (s: string) =>
+    s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+  const target = normalize(name)
+
+  return items.find(i => {
+    const n = normalize(i.foodName)
+    return n.includes(target) || target.includes(n)
+  })
+}
+
+async function renameItem(
+  supabase: SupabaseClient,
+  userId: string,
+  mealId: string,
+  targetItem: { id: string; foodName: string; quantityGrams: number; calories: number; proteinG: number; carbsG: number; fatG: number },
+  newFoodName: string,
+  user?: { timezone?: string; dailyCalorieTarget?: number | null },
+): Promise<string> {
+  const llm = getLLMProvider()
+
+  try {
+    const meals = await llm.analyzeMeal(`${newFoodName} ${targetItem.quantityGrams}g`)
+    const newItem = meals[0]?.items[0]
+
+    if (!newItem) {
+      return `Não consegui analisar *${newFoodName}*. Pode tentar de novo?`
+    }
+
+    const oldName = targetItem.foodName
+    const oldCalories = targetItem.calories
+
+    await updateMealItem(supabase, targetItem.id, {
+      quantityGrams: newItem.quantity_grams ?? targetItem.quantityGrams,
+      calories: Math.round(newItem.calories ?? 0),
+      proteinG: newItem.protein ?? 0,
+      carbsG: newItem.carbs ?? 0,
+      fatG: newItem.fat ?? 0,
+      foodName: newItem.food,
+    })
+
+    const newTotal = await recalculateMealTotal(supabase, mealId)
+    await clearState(userId)
+    const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user?.timezone)
+    const target = user?.dailyCalorieTarget ?? 2000
+
+    return [
+      '✏️ Corrigido!',
+      `  ${oldName} ${targetItem.quantityGrams}g → ${newItem.food} ${newItem.quantity_grams ?? targetItem.quantityGrams}g`,
+      `  ${oldCalories} kcal → ${Math.round(newItem.calories ?? 0)} kcal`,
+      '',
+      `📊 Novo total da refeição: ${newTotal} kcal`,
+      formatProgress(dailyConsumed, target),
+    ].join('\n')
+  } catch {
+    return `Não consegui analisar *${newFoodName}*. Pode tentar de novo?`
+  }
+}
+
+async function handleQuotedEdit(
+  supabase: SupabaseClient,
+  userId: string,
+  message: string,
+  quoteContext: QuoteContext,
+  user?: { timezone?: string; dailyCalorieTarget?: number | null },
+): Promise<string> {
+  if (quoteContext.resourceType !== 'meal' || !quoteContext.resourceId) {
+    return 'Ainda não consigo fazer isso com mensagens citadas 😅 Mas posso te ajudar com outra coisa! Digite *menu* para ver as opções.'
+  }
+
+  const meal = await getMealWithItems(supabase, quoteContext.resourceId)
+  if (!meal || meal.items.length === 0) {
+    return 'Não encontrei essa refeição. Pode já ter sido apagada.'
+  }
+
+  // Delete entire meal (no item specified)
+  if (QUOTE_DELETE_NO_ITEM.test(message)) {
+    await deleteMeal(supabase, quoteContext.resourceId)
+    await clearState(userId)
+    const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user?.timezone)
+    const target = user?.dailyCalorieTarget ?? 2000
+    return `Refeição apagada! ✅\n${formatProgress(dailyConsumed, target)}`
+  }
+
+  // Delete specific item
+  const deleteItemMatch = QUOTE_DELETE_ITEM.exec(message)
+  if (deleteItemMatch) {
+    const itemName = deleteItemMatch[1].trim()
+    const targetItem = findItemByFoodName(meal.items, itemName)
+
+    if (!targetItem) {
+      const itemList = meal.items.map(i => i.foodName).join(', ')
+      return `Não encontrei *${itemName}* nessa refeição. Os itens são: ${itemList}. Qual você quer apagar?`
+    }
+
+    await removeMealItem(supabase, targetItem.id)
+    const newTotal = await recalculateMealTotal(supabase, quoteContext.resourceId)
+    await clearState(userId)
+    const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user?.timezone)
+    const target = user?.dailyCalorieTarget ?? 2000
+    return `✅ ${targetItem.foodName} removido! Novo total: ${newTotal} kcal\n${formatProgress(dailyConsumed, target)}`
+  }
+
+  // Rename food item ("era quinoa, não arroz" or "era quinoa")
+  const renameMatch = QUOTE_RENAME.exec(message)
+  if (renameMatch) {
+    const newFood = renameMatch[1].trim()
+    const oldFood = renameMatch[2]?.trim()
+
+    let targetItem: typeof meal.items[0] | undefined
+
+    if (oldFood) {
+      targetItem = findItemByFoodName(meal.items, oldFood)
+    } else if (meal.items.length === 1) {
+      targetItem = meal.items[0]
+    }
+
+    if (!targetItem) {
+      const itemList = meal.items.map(i => i.foodName).join(', ')
+      await setState(userId, 'awaiting_correction_item', {
+        mealId: quoteContext.resourceId,
+        mealType: meal.mealType,
+        items: meal.items as unknown as Record<string, unknown>[],
+        renameTarget: newFood,
+      })
+      return `Não encontrei *${oldFood || 'o item'}* nessa refeição. Os itens são: ${itemList}. Qual você quer corrigir?`
+    }
+
+    return renameItem(supabase, userId, quoteContext.resourceId, targetItem, newFood, user)
+  }
+
+  // Quantity correction ("era 200g" or "era 200g de arroz")
+  const qtyMatch = QUOTE_QUANTITY.exec(message)
+  if (qtyMatch) {
+    const newGrams = parseFloat(qtyMatch[1].replace(',', '.'))
+    const itemName = qtyMatch[2]?.trim()
+
+    let targetItem: typeof meal.items[0] | undefined
+
+    if (itemName) {
+      targetItem = findItemByFoodName(meal.items, itemName)
+    } else if (meal.items.length === 1) {
+      targetItem = meal.items[0]
+    }
+
+    if (!targetItem) {
+      const itemList = meal.items.map((item, idx) => `${idx + 1}️⃣ ${item.foodName} (${item.quantityGrams}g)`).join('\n')
+      return `Qual item quer corrigir?\n\n${itemList}`
+    }
+
+    const ratio = targetItem.quantityGrams > 0 ? newGrams / targetItem.quantityGrams : 1
+    const newCalories = Math.round(targetItem.calories * ratio)
+    const newProtein = Math.round(targetItem.proteinG * ratio * 10) / 10
+    const newCarbs = Math.round(targetItem.carbsG * ratio * 10) / 10
+    const newFat = Math.round(targetItem.fatG * ratio * 10) / 10
+
+    await updateMealItem(supabase, targetItem.id, {
+      quantityGrams: newGrams,
+      quantityDisplay: `${newGrams}g`,
+      calories: newCalories,
+      proteinG: newProtein,
+      carbsG: newCarbs,
+      fatG: newFat,
+    })
+
+    await recalculateMealTotal(supabase, quoteContext.resourceId)
+    await clearState(userId)
+    const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user?.timezone)
+    const target = user?.dailyCalorieTarget ?? 2000
+    return `✅ ${targetItem.foodName} atualizado: ${targetItem.quantityGrams}g → ${newGrams}g (${targetItem.calories} → ${newCalories} kcal)\n${formatProgress(dailyConsumed, target)}`
+  }
+
+  // Fall through to natural language correction scoped to the quoted meal
+  return handleNaturalLanguageCorrectionWithMeal(supabase, userId, message, quoteContext.resourceId, meal.items, user)
 }
 
 // ---------------------------------------------------------------------------

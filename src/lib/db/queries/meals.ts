@@ -464,6 +464,7 @@ export async function updateMealItem(
     proteinG: number
     carbsG: number
     fatG: number
+    foodName?: string
   },
 ): Promise<void> {
   const row: Record<string, unknown> = {
@@ -475,6 +476,9 @@ export async function updateMealItem(
   }
   if (update.quantityDisplay !== undefined) {
     row.quantity_display = update.quantityDisplay
+  }
+  if (update.foodName !== undefined) {
+    row.food_name = update.foodName
   }
 
   const { error } = await supabase

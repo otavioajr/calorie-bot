@@ -17,6 +17,7 @@ const {
   mockRecalculateMealTotal,
   mockGetDailyCalories,
   mockLLMChat,
+  mockAnalyzeMeal,
 } = vi.hoisted(() => {
   return {
     mockDeleteMeal: vi.fn().mockResolvedValue(undefined),
@@ -30,6 +31,7 @@ const {
     mockRecalculateMealTotal: vi.fn().mockResolvedValue(500),
     mockGetDailyCalories: vi.fn().mockResolvedValue(1200),
     mockLLMChat: vi.fn(),
+    mockAnalyzeMeal: vi.fn(),
   }
 })
 
@@ -50,7 +52,7 @@ vi.mock('@/lib/bot/state', () => ({
 }))
 
 vi.mock('@/lib/llm/index', () => ({
-  getLLMProvider: () => ({ chat: mockLLMChat }),
+  getLLMProvider: () => ({ chat: mockLLMChat, analyzeMeal: mockAnalyzeMeal }),
 }))
 
 vi.mock('@/lib/utils/formatters', () => ({
@@ -247,6 +249,65 @@ describe('handleEdit', () => {
 
       expect(result).toMatch(/nenhuma|não.*encontrei|vazio/i)
     })
+  })
+})
+
+describe('handleEdit with quoteContext', () => {
+  const quoteContext = {
+    quotedMessageId: 'wamid.quoted1',
+    direction: 'outgoing' as const,
+    resourceType: 'meal' as const,
+    resourceId: 'meal-quote-1',
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetMealWithItems.mockResolvedValue({
+      id: 'meal-quote-1',
+      mealType: 'lunch',
+      totalCalories: 800,
+      registeredAt: '2024-03-21T12:00:00Z',
+      items: [
+        { id: 'item-1', foodName: 'Arroz branco', quantityGrams: 150, quantityDisplay: '150g', calories: 195, proteinG: 4, carbsG: 42, fatG: 0.5 },
+        { id: 'item-2', foodName: 'Feijão preto', quantityGrams: 100, quantityDisplay: '100g', calories: 77, proteinG: 5, carbsG: 14, fatG: 0.5 },
+      ],
+    })
+  })
+
+  it('deletes entire meal when user says "apaga" with quote', async () => {
+    const result = await handleEdit(
+      buildSupabase(), USER_ID, 'apaga', null,
+      { timezone: 'America/Sao_Paulo', dailyCalorieTarget: 2000 },
+      quoteContext,
+    )
+    expect(mockDeleteMeal).toHaveBeenCalledWith(expect.anything(), 'meal-quote-1')
+    expect(result).toContain('apagada')
+  })
+
+  it('removes specific item when user says "apaga o arroz" with quote', async () => {
+    mockRecalculateMealTotal.mockResolvedValue(77)
+    const result = await handleEdit(
+      buildSupabase(), USER_ID, 'apaga o arroz', null,
+      { timezone: 'America/Sao_Paulo', dailyCalorieTarget: 2000 },
+      quoteContext,
+    )
+    expect(mockRemoveMealItem).toHaveBeenCalledWith(expect.anything(), 'item-1')
+    expect(result).toContain('removido')
+  })
+
+  it('returns fallback when quoteContext has no meal resource', async () => {
+    const helpQuote = {
+      quotedMessageId: 'wamid.help1',
+      direction: 'outgoing' as const,
+      resourceType: null,
+      resourceId: null,
+    }
+    const result = await handleEdit(
+      buildSupabase(), USER_ID, 'apaga', null,
+      { timezone: 'America/Sao_Paulo', dailyCalorieTarget: 2000 },
+      helpQuote,
+    )
+    expect(result).toContain('não consigo')
   })
 })
 
