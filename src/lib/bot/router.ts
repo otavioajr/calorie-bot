@@ -1,5 +1,6 @@
 export type IntentType =
   | 'meal_log'
+  | 'meal_detail'
   | 'summary'
   | 'edit'
   | 'query'
@@ -37,6 +38,22 @@ const SETTINGS_KEYWORDS: readonly string[] = [
   'mudar meta',
   'trocar modo',
   'trocar objetivo',
+]
+
+const MEAL_DETAIL_KEYWORDS: readonly string[] = [
+  'o que comi no',
+  'o que eu comi no',
+  'o que comi de',
+  'o que eu comi de',
+  'que comi no',
+  'que eu comi no',
+  'comi no cafe',
+  'comi no almoco',
+  'comi no jantar',
+  'comi no lanche',
+  'comi na ceia',
+  'que comi de',
+  'que eu comi de',
 ]
 
 const SUMMARY_KEYWORDS: readonly string[] = [
@@ -117,13 +134,14 @@ export function isCancelCommand(message: string): boolean {
  * Priority order:
  * 1. help       — exact match
  * 2. settings
- * 3. summary
- * 4. edit
- * 5. weight
- * 5.5. recalculate
- * 6. query
- * 7. user_data
- * 8. null       — no rule matched
+ * 3. meal_detail (before summary to avoid "que comi" matching "quanto comi")
+ * 4. summary
+ * 5. edit
+ * 6. weight
+ * 6.5. recalculate
+ * 7. query
+ * 8. user_data
+ * 9. null       — no rule matched
  */
 export function classifyByRules(message: string): IntentType | null {
   const normalized = normalize(message)
@@ -138,36 +156,41 @@ export function classifyByRules(message: string): IntentType | null {
     if (normalized.includes(kw)) return 'settings'
   }
 
-  // 3. summary
+  // 3. meal_detail (before summary to avoid "que comi" matching "quanto comi")
+  for (const kw of MEAL_DETAIL_KEYWORDS) {
+    if (normalized.includes(kw)) return 'meal_detail'
+  }
+
+  // 4. summary
   for (const kw of SUMMARY_KEYWORDS) {
     if (normalized.includes(kw)) return 'summary'
   }
 
-  // 4. edit
+  // 5. edit
   for (const kw of EDIT_KEYWORDS) {
     if (normalized.includes(kw)) return 'edit'
   }
 
-  // 5. weight
+  // 6. weight
   for (const kw of WEIGHT_KEYWORDS) {
     if (normalized.includes(kw)) return 'weight'
   }
 
-  // 5.5. recalculate
+  // 6.5. recalculate
   for (const kw of RECALCULATE_KEYWORDS) {
     if (normalized.includes(kw)) return 'recalculate'
   }
 
-  // 6. query
+  // 7. query
   for (const kw of QUERY_KEYWORDS) {
     if (normalized.includes(kw)) return 'query'
   }
 
-  // 7. user_data
+  // 8. user_data
   for (const kw of USER_DATA_KEYWORDS) {
     if (normalized.includes(kw)) return 'user_data'
   }
 
-  // 8. no rule matched — LLM fallback
+  // 9. no rule matched — LLM fallback
   return null
 }

@@ -4,6 +4,7 @@ import { DecomposedItem } from './schemas/decomposition'
 
 export type IntentType =
   | 'meal_log'
+  | 'meal_detail'
   | 'summary'
   | 'edit'
   | 'query'

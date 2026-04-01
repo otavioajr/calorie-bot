@@ -173,7 +173,7 @@ describe('MealItemSchema portion fields', () => {
 })
 
 describe('IntentClassificationSchema', () => {
-  const validIntents = ['meal_log', 'summary', 'edit', 'query', 'weight', 'help', 'settings', 'out_of_scope'] as const
+  const validIntents = ['meal_log', 'meal_detail', 'summary', 'edit', 'query', 'weight', 'help', 'settings', 'out_of_scope'] as const
 
   it('parses all valid intent types', () => {
     for (const intent of validIntents) {

@@ -215,6 +215,41 @@ describe('classifyByRules', () => {
     })
   })
 
+  // --- MEAL_DETAIL ---
+  describe('meal_detail intent', () => {
+    it('returns meal_detail for "o que comi no café da manhã?"', () => {
+      expect(classifyByRules('o que comi no café da manhã?')).toBe<IntentType>('meal_detail')
+    })
+
+    it('returns meal_detail for "o que eu comi no almoço?"', () => {
+      expect(classifyByRules('o que eu comi no almoço?')).toBe<IntentType>('meal_detail')
+    })
+
+    it('returns meal_detail for "o que comi no jantar ontem?"', () => {
+      expect(classifyByRules('o que comi no jantar ontem?')).toBe<IntentType>('meal_detail')
+    })
+
+    it('returns meal_detail for "comi no cafe da manha"', () => {
+      expect(classifyByRules('comi no cafe da manha')).toBe<IntentType>('meal_detail')
+    })
+
+    it('returns meal_detail for "o que comi de lanche?"', () => {
+      expect(classifyByRules('o que comi de lanche?')).toBe<IntentType>('meal_detail')
+    })
+
+    it('returns meal_detail for "O que eu comi no almoço segunda?"', () => {
+      expect(classifyByRules('O que eu comi no almoço segunda?')).toBe<IntentType>('meal_detail')
+    })
+
+    it('does NOT match "quanto comi hoje" (should be summary)', () => {
+      expect(classifyByRules('quanto comi hoje')).toBe<IntentType>('summary')
+    })
+
+    it('does NOT match "comi um pão de queijo" (should be null/meal_log)', () => {
+      expect(classifyByRules('comi um pão de queijo')).toBeNull()
+    })
+  })
+
   // --- NULL (LLM fallback) ---
   describe('returns null when no rule matches (LLM fallback)', () => {
     it('returns null for "almocei arroz e feijão"', () => {
