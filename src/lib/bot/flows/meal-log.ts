@@ -79,6 +79,24 @@ async function pickBestVariant(
     return { match: variants[0], usedDefault: false }
   }
 
+  // Check if the user's food name already specifies a variant
+  const norm = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  const nameNorm = norm(foodName)
+  const variantMatch = variants.find(v => {
+    // Extract the type keyword from the variant (first comma-separated token)
+    const variantType = norm(v.foodVariant.split(',')[0].trim())
+    // Only match if the type keyword is specific enough (>=4 chars) and present in the food name
+    if (variantType.length >= 4 && nameNorm.includes(variantType)) {
+      return true
+    }
+    // Also check if the full food_name matches
+    const vNameNorm = norm(v.foodName)
+    return vNameNorm.includes(nameNorm) || nameNorm.includes(vNameNorm)
+  })
+  if (variantMatch) {
+    return { match: variantMatch, usedDefault: false }
+  }
+
   const learned = await getLearnedDefault(supabase, foodName)
   if (learned) {
     const learnedFood = variants.find(v => v.id === learned.tacoId)
