@@ -139,7 +139,7 @@ export async function handleIncomingMessage(
               const editResponse = await handleEdit(supabase, user.id, gatekeeper.corrected_message, null, {
                 timezone: user.timezone,
                 dailyCalorieTarget: user.dailyCalorieTarget,
-              })
+              }, quoteContext ?? undefined)
 
               // After correction, refresh recent_meal state with updated items
               const updatedMeal = await getMealWithItems(supabase, recentMealId)
@@ -172,8 +172,8 @@ export async function handleIncomingMessage(
               saveHistory(supabase, user.id, text, confirmMsg)
               return
             }
-          } catch {
-            // Gatekeeper failed — fall through to normal classification
+          } catch (err) {
+            console.error('[handler] recent_meal gatekeeper failed:', err)
           }
           // "other" — clear state and continue to intent classification
           await clearState(user.id)
@@ -197,18 +197,18 @@ export async function handleIncomingMessage(
           const mealResult = await handleMealLog(supabase, user.id, text, userSettings, context)
           const clarSentId = await sendTextMessage(from, mealResult.response)
           saveHistory(supabase, user.id, text, mealResult.response)
-          if (mealResult.completed && mealResult.mealId) {
-            saveBotMessages(supabase, user.id, messageId, clarSentId, 'meal', mealResult.mealId)
-          }
+          saveBotMessages(supabase, user.id, messageId, clarSentId,
+            mealResult.completed && mealResult.mealId ? 'meal' : null,
+            mealResult.mealId ?? null)
           return
         }
         case 'awaiting_bulk_quantities': {
           const mealResult = await handleMealLog(supabase, user.id, text, userSettings, context)
           const bulkSentId = await sendTextMessage(from, mealResult.response)
           saveHistory(supabase, user.id, text, mealResult.response)
-          if (mealResult.completed && mealResult.mealId) {
-            saveBotMessages(supabase, user.id, messageId, bulkSentId, 'meal', mealResult.mealId)
-          }
+          saveBotMessages(supabase, user.id, messageId, bulkSentId,
+            mealResult.completed && mealResult.mealId ? 'meal' : null,
+            mealResult.mealId ?? null)
           return
         }
         case 'awaiting_correction': {
@@ -274,6 +274,18 @@ export async function handleIncomingMessage(
 
     // Quote with meal resource → always route to edit flow (correction context)
     if (quoteContext?.resourceType === 'meal' && quoteContext.resourceId) {
+      const editResponse = await handleEdit(supabase, user.id, text, null, {
+        timezone: user.timezone,
+        dailyCalorieTarget: user.dailyCalorieTarget,
+      }, quoteContext)
+      const sentId = await sendTextMessage(from, editResponse, quotedMessageId)
+      saveHistory(supabase, user.id, text, editResponse)
+      saveBotMessages(supabase, user.id, messageId, sentId, null, null)
+      return
+    }
+
+    // Quote exists but no meal resource — route edit intents to edit flow with quote
+    if (quoteContext && (intent === 'edit' || intent === 'meal_log')) {
       const editResponse = await handleEdit(supabase, user.id, text, null, {
         timezone: user.timezone,
         dailyCalorieTarget: user.dailyCalorieTarget,

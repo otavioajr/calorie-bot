@@ -1312,6 +1312,7 @@ describe('handleIncomingMessage — recent_meal context', () => {
       'corrigir o magic toast para 93kcal',
       null,
       expect.objectContaining({ timezone: 'America/Sao_Paulo' }),
+      undefined,
     )
     expect(mockSendTextMessage).toHaveBeenCalledWith('+5511999999999', '✅ Magic Toast: 120 → 93 kcal')
   })
