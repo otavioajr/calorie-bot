@@ -195,14 +195,20 @@ export async function handleIncomingMessage(
         }
         case 'awaiting_clarification': {
           const mealResult = await handleMealLog(supabase, user.id, text, userSettings, context)
-          await sendTextMessage(from, mealResult.response)
+          const clarSentId = await sendTextMessage(from, mealResult.response)
           saveHistory(supabase, user.id, text, mealResult.response)
+          if (mealResult.completed && mealResult.mealId) {
+            saveBotMessages(supabase, user.id, messageId, clarSentId, 'meal', mealResult.mealId)
+          }
           return
         }
         case 'awaiting_bulk_quantities': {
           const mealResult = await handleMealLog(supabase, user.id, text, userSettings, context)
-          await sendTextMessage(from, mealResult.response)
+          const bulkSentId = await sendTextMessage(from, mealResult.response)
           saveHistory(supabase, user.id, text, mealResult.response)
+          if (mealResult.completed && mealResult.mealId) {
+            saveBotMessages(supabase, user.id, messageId, bulkSentId, 'meal', mealResult.mealId)
+          }
           return
         }
         case 'awaiting_correction': {
@@ -264,6 +270,18 @@ export async function handleIncomingMessage(
         // LLM failed — default to assuming it's a meal log
         intent = 'meal_log'
       }
+    }
+
+    // Quote with meal resource → always route to edit flow (correction context)
+    if (quoteContext?.resourceType === 'meal' && quoteContext.resourceId) {
+      const editResponse = await handleEdit(supabase, user.id, text, null, {
+        timezone: user.timezone,
+        dailyCalorieTarget: user.dailyCalorieTarget,
+      }, quoteContext)
+      const sentId = await sendTextMessage(from, editResponse, quotedMessageId)
+      saveHistory(supabase, user.id, text, editResponse)
+      saveBotMessages(supabase, user.id, messageId, sentId, null, null)
+      return
     }
 
     // Quote fallback: if quote has no applicable flow
