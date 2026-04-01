@@ -295,6 +295,12 @@ export async function handleIncomingMessage(
         console.log('[handler] Starting meal log...')
         const result = await handleMealLog(supabase, user.id, text, userSettings, null)
         console.log('[handler] Meal log done, completed:', result.completed)
+        if (result.completed && result.mealId) {
+          const sentId = await sendTextMessage(from, result.response, quoteContext ? quotedMessageId : undefined)
+          saveHistory(supabase, user.id, text, result.response)
+          saveBotMessages(supabase, user.id, messageId, sentId, 'meal', result.mealId)
+          return
+        }
         response = result.response
         break
       }

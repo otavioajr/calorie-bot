@@ -28,6 +28,7 @@ function getUserLocalTime(timezone?: string): string {
 export interface MealLogResult {
   response: string
   completed: boolean
+  mealId?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -576,7 +577,7 @@ async function handleHistorySelection(
   const target = user.dailyCalorieTarget ?? 2000
   const response = buildReceiptResponse(meals, enrichedMeals, dailyConsumed, target)
 
-  return { response, completed: true }
+  return { response, completed: true, mealId: mealIds[mealIds.length - 1] }
 }
 
 // ---------------------------------------------------------------------------
@@ -806,6 +807,8 @@ async function handleBulkQuantitiesResponse(
     needs_clarification: false,
   }
 
+  let savedMealId: string | null = resolvedMealId
+
   if (resolvedMealId) {
     const itemRows = enriched.map((item) => ({
       meal_id: resolvedMealId,
@@ -825,8 +828,9 @@ async function handleBulkQuantitiesResponse(
     if (error) throw new Error(`Failed to add items to meal: ${error.message}`)
     await recalculateMealTotal(supabase, resolvedMealId)
   } else {
-    const mealIds = await saveMeals(supabase, userId, [mealAnalysis], [enriched], originalMessage)
-    await saveRecentMealState(supabase, userId, mealIds[mealIds.length - 1])
+    const newMealIds = await saveMeals(supabase, userId, [mealAnalysis], [enriched], originalMessage)
+    savedMealId = newMealIds[newMealIds.length - 1] ?? null
+    await saveRecentMealState(supabase, userId, savedMealId ?? '')
   }
 
   for (const item of enriched) {
@@ -851,6 +855,7 @@ async function handleBulkQuantitiesResponse(
       return {
         response: formatMealBreakdown(fullMeal.mealType, receiptItems, fullMeal.totalCalories, dailyConsumed, target),
         completed: true,
+        mealId: resolvedMealId,
       }
     }
   }
@@ -865,6 +870,7 @@ async function handleBulkQuantitiesResponse(
       target,
     ),
     completed: true,
+    mealId: savedMealId ?? undefined,
   }
 }
 
@@ -938,7 +944,7 @@ async function analyzeAndRegister(
         const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user.timezone)
         const target = user.dailyCalorieTarget ?? 2000
         const response = buildReceiptResponse(meals, enrichedMeals, dailyConsumed, target)
-        return { response, completed: true }
+        return { response, completed: true, mealId: mealIds[mealIds.length - 1] }
       }
       // Multiple matches — present options
       const options = matches.map((m, i) => {
@@ -1029,5 +1035,5 @@ async function analyzeAndRegister(
 
   const response = buildReceiptResponse(meals, enrichedMeals, dailyConsumed, target)
 
-  return { response, completed: true }
+  return { response, completed: true, mealId: mealIds[mealIds.length - 1] }
 }
