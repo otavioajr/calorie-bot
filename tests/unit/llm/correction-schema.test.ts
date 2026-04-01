@@ -53,3 +53,48 @@ describe('CorrectionSchema', () => {
     expect(result.action).toBe('add_item')
   })
 })
+
+describe('CorrectionSchema update_value', () => {
+  it('parses update_value action with new_value field', () => {
+    const input = {
+      action: 'update_value',
+      target_food: 'Magic Toast',
+      new_value: { field: 'calories', amount: 93 },
+      confidence: 'high',
+    }
+    const result = CorrectionSchema.parse(input)
+    expect(result.action).toBe('update_value')
+    expect(result.new_value).toEqual({ field: 'calories', amount: 93 })
+  })
+
+  it('parses update_value for protein', () => {
+    const input = {
+      action: 'update_value',
+      target_food: 'Arroz branco',
+      new_value: { field: 'protein', amount: 5 },
+      confidence: 'high',
+    }
+    const result = CorrectionSchema.parse(input)
+    expect(result.new_value).toEqual({ field: 'protein', amount: 5 })
+  })
+
+  it('rejects update_value with invalid field', () => {
+    const input = {
+      action: 'update_value',
+      target_food: 'Arroz',
+      new_value: { field: 'fiber', amount: 5 },
+      confidence: 'high',
+    }
+    expect(() => CorrectionSchema.parse(input)).toThrow()
+  })
+
+  it('allows new_value to be null for non-update_value actions', () => {
+    const input = {
+      action: 'remove_item',
+      target_food: 'Queijo',
+      confidence: 'high',
+    }
+    const result = CorrectionSchema.parse(input)
+    expect(result.new_value).toBeNull()
+  })
+})
