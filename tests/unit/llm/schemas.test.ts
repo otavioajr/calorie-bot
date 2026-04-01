@@ -108,9 +108,10 @@ describe('MealItemSchema', () => {
     expect(result.quantity_grams).toBe(150)
   })
 
-  it('rejects zero quantity_grams', () => {
-    const invalid = { ...validItem, quantity_grams: 0 }
-    expect(() => MealItemSchema.parse(invalid)).toThrow()
+  it('accepts zero quantity_grams', () => {
+    const item = { ...validItem, quantity_grams: 0 }
+    const result = MealItemSchema.parse(item)
+    expect(result.quantity_grams).toBe(0)
   })
 
   it('rejects negative quantity_grams', () => {
