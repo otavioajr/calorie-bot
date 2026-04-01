@@ -337,3 +337,93 @@ export function formatDefaultNotice(defaults: Array<{ foodBase: string; foodVari
   const list = defaults.map(d => `${d.foodBase.toLowerCase()} ${d.foodVariant.split(',')[0]}`).join(', ')
   return `\nℹ️ Usei como padrão: ${list}. Se algum for diferente, me diz qual!`
 }
+
+// ---------------------------------------------------------------------------
+// formatMealDetail
+// ---------------------------------------------------------------------------
+
+const MEAL_TYPE_EMOJI: Record<string, string> = {
+  breakfast: '☕',
+  lunch: '🍽️',
+  snack: '🍎',
+  dinner: '🌙',
+  supper: '🌙',
+}
+
+interface MealDetailForFormat {
+  mealType: string
+  registeredAt: string
+  totalCalories: number
+  items: Array<{
+    foodName: string
+    quantityGrams: number
+    quantityDisplay: string | null
+    calories: number
+  }>
+}
+
+export function formatMealDetail(
+  mealType: string | null,
+  dateStr: string,
+  meals: MealDetailForFormat[],
+): string {
+  if (meals.length === 0) {
+    if (mealType) {
+      const typeName = translateMealType(mealType).toLowerCase()
+      return `Não encontrei nenhum registro de ${typeName} em ${dateStr} ${MEAL_TYPE_EMOJI[mealType] ?? '🍽️'}`
+    }
+    return `Não encontrei nenhum registro de refeição em ${dateStr} 🍽️`
+  }
+
+  const emoji = mealType
+    ? (MEAL_TYPE_EMOJI[mealType] ?? '🍽️')
+    : '📋'
+  const title = mealType
+    ? translateMealType(mealType)
+    : 'Refeições'
+
+  // Single meal — simple format
+  if (meals.length === 1) {
+    const meal = meals[0]
+    const itemLines = meal.items
+      .map((item) => {
+        const display = item.quantityDisplay || `${item.quantityGrams}g`
+        return `• ${item.foodName} (${display}) — ${item.calories} kcal`
+      })
+      .join('\n')
+
+    return [
+      `${emoji} ${title} (${dateStr}):`,
+      '',
+      itemLines,
+      '',
+      `Total: ${meal.totalCalories} kcal`,
+    ].join('\n')
+  }
+
+  // Multiple meals — numbered format
+  const sections = meals.map((meal, index) => {
+    const itemLines = meal.items
+      .map((item) => {
+        const display = item.quantityDisplay || `${item.quantityGrams}g`
+        return `• ${item.foodName} (${display}) — ${item.calories} kcal`
+      })
+      .join('\n')
+
+    const sectionTitle = mealType
+      ? `${index + 1}a refeição:`
+      : `${MEAL_TYPE_EMOJI[meal.mealType] ?? '🍽️'} ${translateMealType(meal.mealType)}:`
+
+    return `${sectionTitle}\n${itemLines}\nTotal: ${meal.totalCalories} kcal`
+  })
+
+  const grandTotal = meals.reduce((sum, meal) => sum + meal.totalCalories, 0)
+
+  return [
+    `${emoji} ${title} (${dateStr}):`,
+    '',
+    ...sections,
+    '',
+    `Total geral: ${grandTotal} kcal`,
+  ].join('\n')
+}

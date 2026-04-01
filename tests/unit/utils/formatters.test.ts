@@ -10,6 +10,7 @@ import {
   formatSettingsMenu,
   formatOutOfScope,
   formatError,
+  formatMealDetail,
 } from '@/lib/utils/formatters'
 import type { MealItem, DailyMealSummary, DailyEntry } from '@/lib/utils/formatters'
 
@@ -443,5 +444,92 @@ describe('formatError', () => {
   it('returns exact text', () => {
     const result = formatError()
     expect(result).toBe('Ops, tive um probleminha aqui 😅 Tenta de novo em alguns segundos?')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// formatMealDetail
+// ---------------------------------------------------------------------------
+describe('formatMealDetail', () => {
+  it('formats a single meal with items', () => {
+    const result = formatMealDetail('breakfast', '28/03', [
+      {
+        mealType: 'breakfast',
+        registeredAt: '2026-03-28T11:00:00Z',
+        totalCalories: 452,
+        items: [
+          { foodName: 'Pão francês', quantityGrams: 100, quantityDisplay: '2 un', calories: 300 },
+          { foodName: 'Manteiga', quantityGrams: 10, quantityDisplay: null, calories: 72 },
+          { foodName: 'Café com leite', quantityGrams: 200, quantityDisplay: '200ml', calories: 80 },
+        ],
+      },
+    ])
+    expect(result).toContain('Café da manhã')
+    expect(result).toContain('28/03')
+    expect(result).toContain('Pão francês')
+    expect(result).toContain('2 un')
+    expect(result).toContain('300 kcal')
+    expect(result).toContain('Manteiga')
+    expect(result).toContain('10g')
+    expect(result).toContain('72 kcal')
+    expect(result).toContain('Café com leite')
+    expect(result).toContain('200ml')
+    expect(result).toContain('Total: 452 kcal')
+  })
+
+  it('formats multiple meals of the same type', () => {
+    const result = formatMealDetail('snack', '28/03', [
+      {
+        mealType: 'snack',
+        registeredAt: '2026-03-28T15:00:00Z',
+        totalCalories: 372,
+        items: [
+          { foodName: 'Pão francês', quantityGrams: 100, quantityDisplay: '2 un', calories: 300 },
+          { foodName: 'Manteiga', quantityGrams: 10, quantityDisplay: null, calories: 72 },
+        ],
+      },
+      {
+        mealType: 'snack',
+        registeredAt: '2026-03-28T17:00:00Z',
+        totalCalories: 89,
+        items: [
+          { foodName: 'Banana', quantityGrams: 100, quantityDisplay: '1 un', calories: 89 },
+        ],
+      },
+    ])
+    expect(result).toContain('1a refeição')
+    expect(result).toContain('2a refeição')
+    expect(result).toContain('Total geral: 461 kcal')
+  })
+
+  it('returns not-found message when meals array is empty', () => {
+    const result = formatMealDetail('breakfast', '28/03', [])
+    expect(result).toContain('Não encontrei')
+    expect(result).toContain('café da manhã')
+    expect(result).toContain('28/03')
+  })
+
+  it('formats all meal types when mealType is null', () => {
+    const result = formatMealDetail(null, '28/03', [
+      {
+        mealType: 'breakfast',
+        registeredAt: '2026-03-28T11:00:00Z',
+        totalCalories: 300,
+        items: [
+          { foodName: 'Pão', quantityGrams: 50, quantityDisplay: null, calories: 300 },
+        ],
+      },
+      {
+        mealType: 'lunch',
+        registeredAt: '2026-03-28T14:00:00Z',
+        totalCalories: 500,
+        items: [
+          { foodName: 'Arroz', quantityGrams: 150, quantityDisplay: null, calories: 500 },
+        ],
+      },
+    ])
+    expect(result).toContain('Café da manhã')
+    expect(result).toContain('Almoço')
+    expect(result).toContain('Total geral: 800 kcal')
   })
 })
