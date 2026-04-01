@@ -532,4 +532,10 @@ describe('formatMealDetail', () => {
     expect(result).toContain('Almoço')
     expect(result).toContain('Total geral: 800 kcal')
   })
+
+  it('returns generic not-found message when mealType is null and no meals', () => {
+    const result = formatMealDetail(null, '28/03', [])
+    expect(result).toContain('Não encontrei nenhum registro de refeição')
+    expect(result).toContain('28/03')
+  })
 })
