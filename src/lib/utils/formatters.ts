@@ -262,7 +262,7 @@ export function formatOnboardingComplete(
 // formatHelpMenu
 // ---------------------------------------------------------------------------
 export function formatHelpMenu(): string {
-  return `📋 O que posso fazer:\n\n🍽️ Registrar refeição — me conta o que comeu\n📊 Resumo do dia — 'como tô hoje?'\n📈 Resumo da semana — 'resumo da semana'\n⚖️ Registrar peso — 'pesei Xkg'\n🔍 Consulta — 'quantas calorias tem...'\n✏️ Corrigir — 'corrigir' ou 'apagar último'\n⚙️ Configurações — 'config'\n❓ Meus dados — 'meus dados'\n\nOu só me manda o que comeu que eu resolvo! 😉`
+  return `📋 O que posso fazer:\n\n🍽️ Registrar refeição — me conta o que comeu\n🔎 O que comi? — 'o que comi no almoço?'\n📊 Resumo do dia — 'como tô hoje?'\n📈 Resumo da semana — 'resumo da semana'\n⚖️ Registrar peso — 'pesei Xkg'\n🔍 Consulta — 'quantas calorias tem...'\n✏️ Corrigir — 'corrigir' ou 'apagar último'\n⚙️ Configurações — 'config'\n❓ Meus dados — 'meus dados'\n\nOu só me manda o que comeu que eu resolvo! 😉`
 }
 
 // ---------------------------------------------------------------------------

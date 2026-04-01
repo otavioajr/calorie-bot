@@ -11,6 +11,7 @@ import { handleWeight } from '@/lib/bot/flows/weight'
 import { handleSettings } from '@/lib/bot/flows/settings'
 import { handleHelp, handleUserData } from '@/lib/bot/flows/help'
 import { handleRecalculate } from '@/lib/bot/flows/recalculate'
+import { handleMealDetail } from '@/lib/bot/flows/meal-detail'
 import { getLLMProvider } from '@/lib/llm/index'
 import { sendTextMessage } from '@/lib/whatsapp/client'
 import { formatOutOfScope, formatError, formatMealBreakdown } from '@/lib/utils/formatters'
@@ -241,6 +242,11 @@ export async function handleIncomingMessage(
       }
       case 'summary':
         response = await handleSummary(supabase, user.id, text, { dailyCalorieTarget: user.dailyCalorieTarget, timezone: user.timezone })
+        break
+      case 'meal_detail':
+        response = await handleMealDetail(supabase, user.id, text, {
+          timezone: user.timezone,
+        })
         break
       case 'query':
         response = await handleQuery(supabase, user.id, text)
