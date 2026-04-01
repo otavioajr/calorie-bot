@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createServiceRoleClient } from '@/lib/db/supabase'
+import { cleanupOldMessages } from '@/lib/db/queries/bot-messages'
 import { sendTextMessage } from '@/lib/whatsapp/client'
 import { createMeal } from '@/lib/db/queries/meals'
 import { getDailyCalories } from '@/lib/db/queries/meals'
@@ -403,6 +404,16 @@ export async function POST(request: Request) {
     // --- Step 6: Cleanup processed_messages older than 24h ---
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
     await supabase.from('processed_messages').delete().lt('processed_at', cutoff)
+
+    // --- Step 7: Cleanup old bot_messages (30-day retention) ---
+    try {
+      const deletedCount = await cleanupOldMessages(supabase, 30)
+      if (deletedCount > 0) {
+        console.log(`[cron] Cleaned up ${deletedCount} old bot_messages`)
+      }
+    } catch (err) {
+      console.error('[cron] bot_messages cleanup failed:', err)
+    }
 
     return NextResponse.json({
       success: true,
