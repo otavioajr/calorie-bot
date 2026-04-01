@@ -640,7 +640,16 @@ async function handleBulkQuantitiesResponse(
 
   const quantityPrompt = `O usuário estava informando as quantidades de: ${pendingNames}.\nResposta do usuário: "${message}"\n\nIdentifique as quantidades mencionadas para cada alimento.`
 
-  const meals: MealAnalysis[] = await llm.analyzeMeal(quantityPrompt, history, currentTime)
+  let meals: MealAnalysis[]
+  try {
+    meals = await llm.analyzeMeal(quantityPrompt, history, currentTime)
+  } catch (err) {
+    console.error('[handleBulkQuantities] LLM analyzeMeal failed:', err)
+    return {
+      response: 'Não entendi as quantidades. Pode repetir? (ex: "1 escumadeira de arroz e 200ml de leite")',
+      completed: false,
+    }
+  }
 
   if (!meals.length || !meals[0].items.length) {
     return {
@@ -649,17 +658,26 @@ async function handleBulkQuantitiesResponse(
     }
   }
 
-  // Only keep items that match the pending foods — ignore extras the LLM may hallucinate from history
-  const pendingFoodSet = new Set(pendingItems.map(p => p.food.toLowerCase()))
-  const relevantItems = meals[0].items.filter(i => pendingFoodSet.has(i.food.toLowerCase()))
+  // Match LLM-returned items to pending foods using fuzzy matching
+  // (the LLM may return a slightly different food name than what's stored)
+  const relevantItems = meals[0].items.filter(i => {
+    const itemName = i.food.toLowerCase()
+    return pendingItems.some(p => {
+      const pendingName = p.food.toLowerCase()
+      return pendingName === itemName
+        || pendingName.includes(itemName)
+        || itemName.includes(pendingName)
+    })
+  })
 
-  // Check if all PENDING items got resolved
-  const resolvedFoodSet = new Set(
-    relevantItems
-      .filter(i => i.quantity_grams !== null && i.quantity_grams !== undefined && i.quantity_grams > 0)
-      .map(i => i.food.toLowerCase()),
-  )
-  const stillMissing = pendingItems.filter(p => !resolvedFoodSet.has(p.food.toLowerCase()))
+  // Check if all PENDING items got resolved (fuzzy name matching)
+  const resolvedNames = relevantItems
+    .filter(i => i.quantity_grams !== null && i.quantity_grams !== undefined && i.quantity_grams > 0)
+    .map(i => i.food.toLowerCase())
+  const stillMissing = pendingItems.filter(p => {
+    const pendingName = p.food.toLowerCase()
+    return !resolvedNames.some(r => r === pendingName || r.includes(pendingName) || pendingName.includes(r))
+  })
 
   if (stillMissing.length > 0) {
     const missingLines = stillMissing.map(p => `• ${p.food}`).join('\n')
