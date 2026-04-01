@@ -640,7 +640,16 @@ async function handleBulkQuantitiesResponse(
 
   const quantityPrompt = `O usuário estava informando as quantidades de: ${pendingNames}.\nResposta do usuário: "${message}"\n\nIdentifique as quantidades mencionadas para cada alimento.`
 
-  const meals: MealAnalysis[] = await llm.analyzeMeal(quantityPrompt, history, currentTime)
+  let meals: MealAnalysis[]
+  try {
+    meals = await llm.analyzeMeal(quantityPrompt, history, currentTime)
+  } catch (err) {
+    console.error('[meal-log] LLM failed in bulk quantities response:', err)
+    return {
+      response: 'Não entendi as quantidades. Pode repetir? (ex: "1 escumadeira de arroz e 200ml de leite")',
+      completed: false,
+    }
+  }
 
   if (!meals.length || !meals[0].items.length) {
     return {
