@@ -11,6 +11,12 @@ const {
   mockGetRecentMeals,
   mockSetState,
   mockClearState,
+  mockGetMealWithItems,
+  mockUpdateMealItem,
+  mockRemoveMealItem,
+  mockRecalculateMealTotal,
+  mockGetDailyCalories,
+  mockLLMChat,
 } = vi.hoisted(() => {
   return {
     mockDeleteMeal: vi.fn().mockResolvedValue(undefined),
@@ -18,6 +24,12 @@ const {
     mockGetRecentMeals: vi.fn().mockResolvedValue([]),
     mockSetState: vi.fn().mockResolvedValue(undefined),
     mockClearState: vi.fn().mockResolvedValue(undefined),
+    mockGetMealWithItems: vi.fn(),
+    mockUpdateMealItem: vi.fn().mockResolvedValue(undefined),
+    mockRemoveMealItem: vi.fn().mockResolvedValue(undefined),
+    mockRecalculateMealTotal: vi.fn().mockResolvedValue(500),
+    mockGetDailyCalories: vi.fn().mockResolvedValue(1200),
+    mockLLMChat: vi.fn(),
   }
 })
 
@@ -25,11 +37,24 @@ vi.mock('@/lib/db/queries/meals', () => ({
   deleteMeal: mockDeleteMeal,
   getLastMeal: mockGetLastMeal,
   getRecentMeals: mockGetRecentMeals,
+  getMealWithItems: mockGetMealWithItems,
+  updateMealItem: mockUpdateMealItem,
+  removeMealItem: mockRemoveMealItem,
+  recalculateMealTotal: mockRecalculateMealTotal,
+  getDailyCalories: mockGetDailyCalories,
 }))
 
 vi.mock('@/lib/bot/state', () => ({
   setState: mockSetState,
   clearState: mockClearState,
+}))
+
+vi.mock('@/lib/llm/index', () => ({
+  getLLMProvider: () => ({ chat: mockLLMChat }),
+}))
+
+vi.mock('@/lib/utils/formatters', () => ({
+  formatProgress: vi.fn().mockReturnValue('📊 Hoje: 1200 / 2000 kcal'),
 }))
 
 import { handleEdit } from '@/lib/bot/flows/edit'
@@ -222,5 +247,57 @@ describe('handleEdit', () => {
 
       expect(result).toMatch(/nenhuma|não.*encontrei|vazio/i)
     })
+  })
+})
+
+describe('handleEdit — update_value via natural language', () => {
+  let supabase: SupabaseClient
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    supabase = buildSupabase()
+  })
+
+  it('updates calories directly when LLM returns update_value', async () => {
+    mockLLMChat.mockResolvedValue(JSON.stringify({
+      action: 'update_value',
+      target_food: 'Magic Toast',
+      new_value: { field: 'calories', amount: 93 },
+      confidence: 'high',
+      target_meal_type: null,
+      new_quantity: null,
+      new_food: null,
+    }))
+
+    mockGetRecentMeals.mockResolvedValue([
+      { id: 'meal-1', mealType: 'breakfast', totalCalories: 290, registeredAt: '2024-03-21T08:00:00Z' },
+    ])
+
+    mockGetMealWithItems.mockResolvedValue({
+      id: 'meal-1',
+      mealType: 'breakfast',
+      totalCalories: 290,
+      registeredAt: '2024-03-21T08:00:00Z',
+      items: [
+        { id: 'item-1', foodName: 'Magic Toast', quantityGrams: 30, calories: 120, proteinG: 3, carbsG: 20, fatG: 3 },
+        { id: 'item-2', foodName: 'Queijo cottage', quantityGrams: 25, calories: 9, proteinG: 1.5, carbsG: 0.3, fatG: 0.2 },
+      ],
+    })
+
+    const result = await handleEdit(
+      supabase,
+      USER_ID,
+      'O magic toast é 93kcal',
+      null,
+      { timezone: 'America/Sao_Paulo', dailyCalorieTarget: 2000 },
+    )
+
+    expect(mockUpdateMealItem).toHaveBeenCalledWith(
+      expect.anything(),
+      'item-1',
+      expect.objectContaining({ calories: 93 }),
+    )
+    expect(result).toContain('Magic Toast')
+    expect(result).toContain('93')
   })
 })

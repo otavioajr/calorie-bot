@@ -376,6 +376,44 @@ async function handleNaturalLanguageCorrectionWithMeal(
       return 'Refeição apagada! ✅'
     }
 
+    case 'update_value': {
+      if (!targetItem || !correction.new_value) {
+        await clearState(userId)
+        return 'Não entendi qual item corrigir ou o novo valor. Tenta "corrigir" pro menu guiado.'
+      }
+      const { field, amount } = correction.new_value
+      const updateData = {
+        quantityGrams: targetItem.quantityGrams,
+        calories: targetItem.calories,
+        proteinG: targetItem.proteinG ?? 0,
+        carbsG: targetItem.carbsG ?? 0,
+        fatG: targetItem.fatG ?? 0,
+      }
+      const fieldMap: Record<string, string> = {
+        calories: 'calories',
+        protein: 'proteinG',
+        carbs: 'carbsG',
+        fat: 'fatG',
+      }
+      const fieldLabels: Record<string, string> = {
+        calories: 'kcal',
+        protein: 'g proteína',
+        carbs: 'g carboidratos',
+        fat: 'g gordura',
+      }
+      const key = fieldMap[field] as keyof typeof updateData
+      const oldValue = updateData[key]
+      updateData[key] = amount
+
+      await updateMealItem(supabase, targetItem.id, updateData)
+      await recalculateMealTotal(supabase, mealId)
+      await clearState(userId)
+
+      const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user?.timezone)
+      const target = user?.dailyCalorieTarget ?? 2000
+      return `✅ ${targetItem.foodName}: ${oldValue} → ${amount} ${fieldLabels[field]}\n${formatProgress(dailyConsumed, target)}`
+    }
+
     default:
       await clearState(userId)
       return 'Não entendi a correção. Manda "corrigir" pro menu guiado.'
