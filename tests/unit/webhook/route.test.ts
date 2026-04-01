@@ -321,6 +321,7 @@ describe('POST /api/webhook/whatsapp', () => {
       '5511999887766',
       'wamid.abc123',
       'almocei arroz e feijão',
+      undefined,
     )
   })
 
@@ -364,6 +365,7 @@ describe('POST — audio messages', () => {
       '5511999887766',
       'wamid.audio789',
       'media_audio_123',
+      undefined,
     )
   })
 
@@ -416,6 +418,7 @@ describe('POST — image messages', () => {
       'wamid.image456',
       'media_image_456',
       undefined,
+      undefined,
     )
   })
 
@@ -431,6 +434,7 @@ describe('POST — image messages', () => {
       'wamid.image456',
       'media_image_456',
       'tabela nutricional',
+      undefined,
     )
   })
 

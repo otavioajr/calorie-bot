@@ -37,7 +37,8 @@ function saveHistory(supabase: SupabaseClient, userId: string, userMsg: string, 
 export async function handleIncomingMessage(
   from: string,
   messageId: string,
-  text: string
+  text: string,
+  quotedMessageId?: string,
 ): Promise<void> {
   const supabase = createServiceRoleClient()
 
@@ -297,7 +298,8 @@ export async function handleIncomingMessage(
 export async function handleIncomingAudio(
   from: string,
   messageId: string,
-  audioId: string
+  audioId: string,
+  quotedMessageId?: string,
 ): Promise<void> {
   const supabase = createServiceRoleClient()
 
@@ -342,7 +344,7 @@ export async function handleIncomingAudio(
     }
 
     await sendTextMessage(from, `🎤 Entendi: *${transcription}*\n\n⏳ Registrando...`)
-    await handleIncomingMessage(from, messageId, transcription)
+    await handleIncomingMessage(from, messageId, transcription, quotedMessageId)
   } catch (err) {
     console.error('[handler] Audio error:', err)
     await sendTextMessage(from, formatError()).catch((sendErr) => {
@@ -356,6 +358,7 @@ export async function handleIncomingImage(
   messageId: string,
   imageId: string,
   caption?: string,
+  quotedMessageId?: string,
 ): Promise<void> {
   const supabase = createServiceRoleClient()
 

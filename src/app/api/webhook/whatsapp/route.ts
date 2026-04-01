@@ -46,15 +46,15 @@ export async function POST(request: Request) {
     }
 
     if (event.type === 'text' && event.text) {
-      await handleIncomingMessage(event.from, event.messageId, event.text)
+      await handleIncomingMessage(event.from, event.messageId, event.text, event.quotedMessageId)
     }
 
     if (event.type === 'audio' && event.audioId) {
-      await handleIncomingAudio(event.from, event.messageId, event.audioId)
+      await handleIncomingAudio(event.from, event.messageId, event.audioId, event.quotedMessageId)
     }
 
     if (event.type === 'image' && event.imageId) {
-      await handleIncomingImage(event.from, event.messageId, event.imageId, event.caption)
+      await handleIncomingImage(event.from, event.messageId, event.imageId, event.caption, event.quotedMessageId)
     }
 
     return new Response('OK', { status: 200 })
