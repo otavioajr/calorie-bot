@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { classifyByRules } from '@/lib/bot/router'
+import { classifyByRules, isCancelCommand } from '@/lib/bot/router'
 import type { IntentType } from '@/lib/bot/router'
 
 describe('classifyByRules', () => {
@@ -243,6 +243,40 @@ describe('classifyByRules', () => {
 
     it('returns null for "tudo bem?"', () => {
       expect(classifyByRules('tudo bem?')).toBeNull()
+    })
+  })
+
+  // --- CANCEL COMMAND ---
+  describe('isCancelCommand', () => {
+    it.each([
+      'parar', 'para', 'cancelar', 'cancela',
+      'sair', 'desistir', 'voltar', 'chega',
+    ])('returns true for "%s"', (word) => {
+      expect(isCancelCommand(word)).toBe(true)
+    })
+
+    it('is case insensitive — "PARAR"', () => {
+      expect(isCancelCommand('PARAR')).toBe(true)
+    })
+
+    it('trims whitespace — "  cancelar  "', () => {
+      expect(isCancelCommand('  cancelar  ')).toBe(true)
+    })
+
+    it('handles accents — "saír"', () => {
+      expect(isCancelCommand('saír')).toBe(true)
+    })
+
+    it('returns false for non-cancel messages', () => {
+      expect(isCancelCommand('comi arroz')).toBe(false)
+    })
+
+    it('returns false for partial matches — "parar de comer"', () => {
+      expect(isCancelCommand('parar de comer')).toBe(false)
+    })
+
+    it('returns false for empty string', () => {
+      expect(isCancelCommand('')).toBe(false)
     })
   })
 

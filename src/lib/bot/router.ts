@@ -91,6 +91,25 @@ const USER_DATA_KEYWORDS: readonly string[] = [
   'minhas info',
 ]
 
+const CANCEL_EXACT: ReadonlySet<string> = new Set([
+  'parar',
+  'para',
+  'cancelar',
+  'cancela',
+  'sair',
+  'desistir',
+  'voltar',
+  'chega',
+])
+
+/**
+ * Returns true when the message is a cancel/stop command.
+ * Uses the same normalize() as intent classification (trim + lowercase + no accents).
+ */
+export function isCancelCommand(message: string): boolean {
+  return CANCEL_EXACT.has(normalize(message))
+}
+
 /**
  * Pure, synchronous rules-based intent classifier.
  * Returns null when no rule matches (LLM fallback will classify).

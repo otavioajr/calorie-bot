@@ -1,7 +1,7 @@
 import { createServiceRoleClient } from '@/lib/db/supabase'
 import { findUserByPhone, createUser, getUserWithSettings } from '@/lib/db/queries/users'
 import { getState, setState, clearState, type ConversationContext } from '@/lib/bot/state'
-import { classifyByRules } from '@/lib/bot/router'
+import { classifyByRules, isCancelCommand } from '@/lib/bot/router'
 import { handleOnboarding } from '@/lib/bot/flows/onboarding'
 import { handleMealLog } from '@/lib/bot/flows/meal-log'
 import { handleSummary } from '@/lib/bot/flows/summary'
@@ -70,6 +70,16 @@ export async function handleIncomingMessage(
 
     // 3. Check for active conversation context
     const context = await getState(user.id)
+
+    // 3.1 Cancel command — escape any active flow
+    if (context && isCancelCommand(text)) {
+      await clearState(user.id)
+      const cancelMsg = 'Tudo bem, cancelei! 👍 Me manda o que precisar.'
+      await sendTextMessage(from, cancelMsg)
+      saveHistory(supabase, user.id, text, cancelMsg)
+      return
+    }
+
     if (context) {
       switch (context.contextType) {
         case 'awaiting_confirmation': {
