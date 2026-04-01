@@ -93,6 +93,7 @@ vi.mock('@/lib/bot/state', () => ({
 
 vi.mock('@/lib/bot/router', () => ({
   classifyByRules: mockClassifyByRules,
+  isCancelCommand: vi.fn().mockReturnValue(false),
 }))
 
 vi.mock('@/lib/bot/flows/onboarding', () => ({
@@ -166,8 +167,9 @@ vi.mock('@/lib/whatsapp/mime', () => ({
 }))
 
 vi.mock('@/lib/db/queries/meals', () => ({
-  createMeal: vi.fn(),
+  createMeal: vi.fn().mockResolvedValue('mock-meal-id'),
   getDailyCalories: mockGetDailyCalories,
+  getMealWithItems: vi.fn().mockResolvedValue(null),
 }))
 
 vi.mock('@/lib/db/queries/message-history', () => ({

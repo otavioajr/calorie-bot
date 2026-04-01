@@ -3,7 +3,7 @@ import { getLLMProvider } from '@/lib/llm/index'
 import type { MealAnalysis, MealItem } from '@/lib/llm/schemas/meal-analysis'
 import { setState, clearState } from '@/lib/bot/state'
 import type { ConversationContext } from '@/lib/bot/state'
-import { createMeal, getDailyCalories, getDailyMacros, getLastMeal, recalculateMealTotal, getMealWithItems } from '@/lib/db/queries/meals'
+import { createMeal, getDailyCalories, getDailyMacros, recalculateMealTotal, getMealWithItems } from '@/lib/db/queries/meals'
 import { formatMealBreakdown, formatMultiMealBreakdown, formatProgress, formatSearchFeedback, formatDefaultNotice } from '@/lib/utils/formatters'
 import { getRecentMessages } from '@/lib/db/queries/message-history'
 import { fuzzyMatchTacoMultiple, calculateMacros, matchTacoByBase, getLearnedDefault, recordTacoUsage } from '@/lib/db/queries/taco'
@@ -569,8 +569,8 @@ async function handleHistorySelection(
   }]]
 
   // Register directly
-  await saveMeals(supabase, userId, meals, enrichedMeals, originalMessage)
-  await clearState(userId)
+  const mealIds = await saveMeals(supabase, userId, meals, enrichedMeals, originalMessage)
+  await saveRecentMealState(supabase, userId, mealIds[mealIds.length - 1])
 
   const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user.timezone)
   const target = user.dailyCalorieTarget ?? 2000
@@ -589,12 +589,13 @@ async function saveMeals(
   meals: MealAnalysis[],
   enrichedMeals: EnrichedItem[][],
   originalMessage: string,
-): Promise<void> {
+): Promise<string[]> {
+  const mealIds: string[] = []
   for (let i = 0; i < meals.length; i++) {
     const analysis = meals[i]
     const items = enrichedMeals[i] ?? []
 
-    await createMeal(supabase, {
+    const mealId = await createMeal(supabase, {
       userId,
       mealType: analysis.meal_type,
       totalCalories: totalCaloriesFromEnriched(items),
@@ -613,6 +614,7 @@ async function saveMeals(
         quantityDisplay: item.quantityDisplay ?? undefined,
       })),
     })
+    mealIds.push(mealId)
   }
 
   // Record TACO usage for default learning
@@ -624,6 +626,36 @@ async function saveMeals(
       }
     }
   }
+
+  return mealIds
+}
+
+// ---------------------------------------------------------------------------
+// Save recent_meal context state after registration
+// ---------------------------------------------------------------------------
+
+async function saveRecentMealState(
+  supabase: SupabaseClient,
+  userId: string,
+  mealId: string,
+): Promise<void> {
+  const mealWithItems = await getMealWithItems(supabase, mealId)
+  if (!mealWithItems || mealWithItems.items.length === 0) return
+
+  await setState(userId, 'recent_meal', {
+    mealId,
+    mealType: mealWithItems.mealType,
+    items: mealWithItems.items.map(i => ({
+      id: i.id,
+      foodName: i.foodName,
+      quantityGrams: i.quantityGrams,
+      quantityDisplay: i.quantityDisplay,
+      calories: i.calories,
+      proteinG: i.proteinG,
+      carbsG: i.carbsG,
+      fatG: i.fatG,
+    })),
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -793,7 +825,8 @@ async function handleBulkQuantitiesResponse(
     if (error) throw new Error(`Failed to add items to meal: ${error.message}`)
     await recalculateMealTotal(supabase, resolvedMealId)
   } else {
-    await saveMeals(supabase, userId, [mealAnalysis], [enriched], originalMessage)
+    const mealIds = await saveMeals(supabase, userId, [mealAnalysis], [enriched], originalMessage)
+    await saveRecentMealState(supabase, userId, mealIds[mealIds.length - 1])
   }
 
   for (const item of enriched) {
@@ -900,7 +933,8 @@ async function analyzeAndRegister(
           source: 'user_history',
           tacoId: match.tacoId ?? undefined,
         }]]
-        await saveMeals(supabase, userId, meals, enrichedMeals, originalMessage)
+        const mealIds = await saveMeals(supabase, userId, meals, enrichedMeals, originalMessage)
+        await saveRecentMealState(supabase, userId, mealIds[mealIds.length - 1])
         const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user.timezone)
         const target = user.dailyCalorieTarget ?? 2000
         const response = buildReceiptResponse(meals, enrichedMeals, dailyConsumed, target)
@@ -952,9 +986,9 @@ async function analyzeAndRegister(
       if (resolvedItems.length > 0) {
         const enriched = await enrichItemsWithTaco(supabase, resolvedItems, llm, userId)
         const partialAnalysis: MealAnalysis = { ...meal, items: resolvedItems }
-        await saveMeals(supabase, userId, [partialAnalysis], [enriched], originalMessage)
-        const lastMeal = await getLastMeal(supabase, userId)
-        resolvedMealId = lastMeal?.id ?? null
+        const savedIds = await saveMeals(supabase, userId, [partialAnalysis], [enriched], originalMessage)
+        resolvedMealId = savedIds[savedIds.length - 1] ?? null
+        if (resolvedMealId) await saveRecentMealState(supabase, userId, resolvedMealId)
       }
 
       const defaultExample = 'ex: quantidade em g, ml, colheres, etc.'
@@ -987,7 +1021,8 @@ async function analyzeAndRegister(
   }
 
   // Register immediately
-  await saveMeals(supabase, userId, meals, enrichedMeals, originalMessage)
+  const mealIds = await saveMeals(supabase, userId, meals, enrichedMeals, originalMessage)
+  await saveRecentMealState(supabase, userId, mealIds[mealIds.length - 1])
 
   const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user.timezone)
   const target = user.dailyCalorieTarget ?? 2000

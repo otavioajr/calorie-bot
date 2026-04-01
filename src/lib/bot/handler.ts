@@ -18,7 +18,7 @@ import { downloadAudioMedia, transcribeAudio, AudioTooLargeError } from '@/lib/a
 import { downloadWhatsAppMedia, MediaTooLargeError } from '@/lib/whatsapp/media'
 import { detectMimeType } from '@/lib/whatsapp/mime'
 import { logLLMUsage } from '@/lib/db/queries/llm-usage'
-import { createMeal, getDailyCalories } from '@/lib/db/queries/meals'
+import { createMeal, getDailyCalories, getMealWithItems } from '@/lib/db/queries/meals'
 import { saveMessage } from '@/lib/db/queries/message-history'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ImageAnalysis } from '@/lib/llm/schemas/image-analysis'
@@ -388,7 +388,7 @@ export async function handleIncomingImage(
     const originalMessage = caption || '[imagem]'
 
     // Save meal to database BEFORE showing confirmation
-    await createMeal(supabase, {
+    const mealId = await createMeal(supabase, {
       userId: user.id,
       mealType: mealAnalysis.meal_type,
       totalCalories: imageTotal,
@@ -404,6 +404,25 @@ export async function handleIncomingImage(
         source: 'manual' as const,
       })),
     })
+
+    // Save recent_meal state for contextual corrections
+    const mealWithItems = await getMealWithItems(supabase, mealId)
+    if (mealWithItems && mealWithItems.items.length > 0) {
+      await setState(user.id, 'recent_meal', {
+        mealId,
+        mealType: mealWithItems.mealType,
+        items: mealWithItems.items.map(i => ({
+          id: i.id,
+          foodName: i.foodName,
+          quantityGrams: i.quantityGrams,
+          quantityDisplay: i.quantityDisplay,
+          calories: i.calories,
+          proteinG: i.proteinG,
+          carbsG: i.carbsG,
+          fatG: i.fatG,
+        })),
+      })
+    }
 
     const dailyConsumed = await getDailyCalories(supabase, user.id, undefined, user.timezone)
     const target = user.dailyCalorieTarget ?? 2000
@@ -465,7 +484,7 @@ async function handleLabelPortions(
   const originalMessage = (context.contextData.originalMessage as string) || '[imagem]'
 
   // Save meal to database BEFORE showing confirmation
-  await createMeal(supabase, {
+  const labelMealId = await createMeal(supabase, {
     userId,
     mealType: multipliedAnalysis.meal_type,
     totalCalories: total,
@@ -482,7 +501,26 @@ async function handleLabelPortions(
     })),
   })
 
-  await clearState(userId)
+  // Replace clearState with recent_meal state for contextual corrections
+  const labelMealWithItems = await getMealWithItems(supabase, labelMealId)
+  if (labelMealWithItems && labelMealWithItems.items.length > 0) {
+    await setState(userId, 'recent_meal', {
+      mealId: labelMealId,
+      mealType: labelMealWithItems.mealType,
+      items: labelMealWithItems.items.map(i => ({
+        id: i.id,
+        foodName: i.foodName,
+        quantityGrams: i.quantityGrams,
+        quantityDisplay: i.quantityDisplay,
+        calories: i.calories,
+        proteinG: i.proteinG,
+        carbsG: i.carbsG,
+        fatG: i.fatG,
+      })),
+    })
+  } else {
+    await clearState(userId)
+  }
 
   const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user.timezone)
   const target = user.dailyCalorieTarget ?? 2000

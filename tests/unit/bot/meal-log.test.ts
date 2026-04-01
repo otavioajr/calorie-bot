@@ -87,6 +87,8 @@ vi.mock('@/lib/db/queries/meals', () => ({
   createMeal: mockCreateMeal,
   getDailyCalories: mockGetDailyCalories,
   getDailyMacros: mockGetDailyMacros,
+  getMealWithItems: vi.fn().mockResolvedValue(null),
+  recalculateMealTotal: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('@/lib/utils/formatters', () => ({
