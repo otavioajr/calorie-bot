@@ -7,6 +7,60 @@ import { enrichItemsWithTaco } from '@/lib/bot/flows/meal-log'
 import { createMeal, getDailyCalories } from '@/lib/db/queries/meals'
 import { formatProgress } from '@/lib/utils/formatters'
 
+export async function registerFromQuotedQuery(
+  supabase: SupabaseClient,
+  userId: string,
+  quoteContext: { metadata?: Record<string, unknown> },
+  user?: { timezone?: string; dailyCalorieTarget?: number | null },
+): Promise<string> {
+  const metadata = quoteContext.metadata
+  if (!metadata?.items || !Array.isArray(metadata.items)) {
+    return 'Não encontrei os dados dessa consulta. Manda de novo o que quer registrar?'
+  }
+
+  const items = metadata.items as Array<{
+    food: string
+    quantityGrams: number
+    quantityDisplay?: string | null
+    calories: number
+    protein: number
+    carbs: number
+    fat: number
+    source: string
+    tacoId?: number
+  }>
+
+  const mealType = (metadata.mealType as string) || 'snack'
+  const originalMessage = (metadata.originalMessage as string) || '[query registrada]'
+  const totalCalories = Math.round(items.reduce((sum, i) => sum + i.calories, 0))
+
+  await createMeal(supabase, {
+    userId,
+    mealType,
+    totalCalories,
+    originalMessage,
+    llmResponse: {},
+    items: items.map(i => ({
+      foodName: i.food,
+      quantityGrams: i.quantityGrams,
+      calories: i.calories,
+      proteinG: i.protein,
+      carbsG: i.carbs,
+      fatG: i.fat,
+      source: i.source,
+      tacoId: i.tacoId,
+      confidence: i.source === 'approximate' ? 'low' : 'high',
+      quantityDisplay: i.quantityDisplay ?? undefined,
+    })),
+  })
+
+  await clearState(userId)
+  const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user?.timezone)
+  const target = user?.dailyCalorieTarget ?? 2000
+
+  return `✅ Refeição registrada! (${totalCalories} kcal)\n${formatProgress(dailyConsumed, target)}`
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

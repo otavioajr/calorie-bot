@@ -281,6 +281,17 @@ export async function handleIncomingMessage(
     let response: string
     switch (intent) {
       case 'meal_log': {
+        // If user quoted a query and wants to register it
+        if (quoteContext?.resourceType === 'query' && quoteContext.metadata) {
+          const registerResponse = await registerFromQuotedQuery(supabase, user.id, quoteContext, {
+            timezone: user.timezone,
+            dailyCalorieTarget: user.dailyCalorieTarget,
+          })
+          const sentId = await sendTextMessage(from, registerResponse, quotedMessageId)
+          saveHistory(supabase, user.id, text, registerResponse)
+          saveBotMessages(supabase, user.id, messageId, sentId, 'meal', null)
+          return
+        }
         console.log('[handler] Starting meal log...')
         const result = await handleMealLog(supabase, user.id, text, userSettings, null)
         console.log('[handler] Meal log done, completed:', result.completed)
@@ -302,9 +313,18 @@ export async function handleIncomingMessage(
           timezone: user.timezone,
         })
         break
-      case 'query':
+      case 'query': {
         response = await handleQuery(supabase, user.id, text)
-        break
+        // Query data is in the awaiting_confirmation state — capture for bot_messages
+        const queryState = await getState(user.id)
+        const queryMetadata = queryState?.contextType === 'awaiting_confirmation'
+          ? (queryState.contextData as Record<string, unknown>)
+          : null
+        const sentId = await sendTextMessage(from, response, quoteContext ? quotedMessageId : undefined)
+        saveHistory(supabase, user.id, text, response)
+        saveBotMessages(supabase, user.id, messageId, sentId, 'query', null, queryMetadata)
+        return
+      }
       case 'edit':
         response = await handleEdit(supabase, user.id, text, null, {
           timezone: user.timezone,
