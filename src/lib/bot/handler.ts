@@ -23,6 +23,8 @@ import { saveMessage } from '@/lib/db/queries/message-history'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ImageAnalysis } from '@/lib/llm/schemas/image-analysis'
 import type { MealAnalysis } from '@/lib/llm/schemas/meal-analysis'
+import { buildContextualCorrectionPrompt } from '@/lib/llm/prompts/contextual-correction'
+import type { RecentMealItem } from '@/lib/llm/prompts/contextual-correction'
 
 const MAX_IMAGE_SIZE = 5_242_880 // 5MB
 
@@ -82,6 +84,55 @@ export async function handleIncomingMessage(
 
     if (context) {
       switch (context.contextType) {
+        case 'recent_meal': {
+          // LLM gatekeeper: is this a correction of the recent meal?
+          const recentItems = context.contextData.items as unknown as RecentMealItem[]
+          const recentMealId = context.contextData.mealId as string
+          try {
+            const llm = getLLMProvider()
+            const gatekeeperRaw = await llm.chat(
+              buildContextualCorrectionPrompt(recentItems, text),
+              'Você detecta correções de refeições. Responda APENAS com JSON válido.',
+              true,
+            )
+            const gatekeeper = JSON.parse(gatekeeperRaw.trim()) as { is_correction: boolean; corrected_message?: string }
+
+            if (gatekeeper.is_correction && gatekeeper.corrected_message) {
+              const editResponse = await handleEdit(supabase, user.id, gatekeeper.corrected_message, null, {
+                timezone: user.timezone,
+                dailyCalorieTarget: user.dailyCalorieTarget,
+              })
+
+              // After correction, refresh recent_meal state with updated items
+              const updatedMeal = await getMealWithItems(supabase, recentMealId)
+              if (updatedMeal && updatedMeal.items.length > 0) {
+                await setState(user.id, 'recent_meal', {
+                  mealId: recentMealId,
+                  mealType: updatedMeal.mealType,
+                  items: updatedMeal.items.map(i => ({
+                    id: i.id,
+                    foodName: i.foodName,
+                    quantityGrams: i.quantityGrams,
+                    quantityDisplay: i.quantityDisplay,
+                    calories: i.calories,
+                    proteinG: i.proteinG,
+                    carbsG: i.carbsG,
+                    fatG: i.fatG,
+                  })),
+                })
+              }
+
+              await sendTextMessage(from, editResponse)
+              saveHistory(supabase, user.id, text, editResponse)
+              return
+            }
+          } catch {
+            // Gatekeeper failed — fall through to normal classification
+          }
+          // Not a correction — clear state and continue to intent classification
+          await clearState(user.id)
+          break
+        }
         case 'awaiting_confirmation': {
           if (context.contextData.flow === 'query') {
             const confirmResponse = await handleQueryConfirmation(supabase, user.id, text, context, {

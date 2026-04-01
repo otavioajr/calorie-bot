@@ -176,6 +176,10 @@ vi.mock('@/lib/db/queries/message-history', () => ({
   saveMessage: mockSaveMessage,
 }))
 
+vi.mock('@/lib/llm/prompts/contextual-correction', () => ({
+  buildContextualCorrectionPrompt: vi.fn().mockReturnValue('gatekeeper prompt'),
+}))
+
 // ---------------------------------------------------------------------------
 // Import after mocks are registered
 // ---------------------------------------------------------------------------
@@ -1221,5 +1225,104 @@ describe('handleIncomingMessage — message history', () => {
     await handleIncomingMessage('5511999999999', 'msg-1', 'oi')
 
     expect(mockSaveMessage).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Test 11: recent_meal context with LLM gatekeeper
+// ---------------------------------------------------------------------------
+
+describe('handleIncomingMessage — recent_meal context', () => {
+  const onboardedUser = {
+    id: 'user-123',
+    phone: '+5511999999999',
+    onboardingComplete: true,
+    onboardingStep: 8,
+    calorieMode: 'approximate',
+    dailyCalorieTarget: 2000,
+    dailyProteinG: null,
+    dailyFatG: null,
+    dailyCarbsG: null,
+    timezone: 'America/Sao_Paulo',
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockFindUserByPhone.mockResolvedValue(onboardedUser)
+    mockCreateServiceRoleClient.mockReturnValue({})
+  })
+
+  it('routes to edit when gatekeeper detects correction', async () => {
+    mockGetState.mockResolvedValue({
+      id: 'ctx-1',
+      userId: 'user-123',
+      contextType: 'recent_meal',
+      contextData: {
+        mealId: 'meal-1',
+        mealType: 'breakfast',
+        items: [
+          { id: 'item-1', foodName: 'Magic Toast', quantityGrams: 30, quantityDisplay: '1 pacote', calories: 120, proteinG: 3, carbsG: 20, fatG: 3 },
+        ],
+      },
+      expiresAt: new Date(Date.now() + 300000).toISOString(),
+      createdAt: new Date().toISOString(),
+    })
+
+    const mockChat = vi.fn().mockResolvedValue(JSON.stringify({
+      is_correction: true,
+      corrected_message: 'corrigir o magic toast para 93kcal',
+    }))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockGetLLMProvider.mockReturnValue({
+      classifyIntent: mockClassifyIntent,
+      analyzeImage: mockAnalyzeImage,
+      chat: mockChat,
+    } as any)
+
+    mockHandleEdit.mockResolvedValue('✅ Magic Toast: 120 → 93 kcal')
+
+    await handleIncomingMessage('+5511999999999', 'msg-1', 'O magic toast é 93kcal')
+
+    expect(mockHandleEdit).toHaveBeenCalledWith(
+      expect.anything(),
+      'user-123',
+      'corrigir o magic toast para 93kcal',
+      null,
+      expect.objectContaining({ timezone: 'America/Sao_Paulo' }),
+    )
+    expect(mockSendTextMessage).toHaveBeenCalledWith('+5511999999999', '✅ Magic Toast: 120 → 93 kcal')
+  })
+
+  it('falls through to normal classification when gatekeeper says not a correction', async () => {
+    mockGetState.mockResolvedValue({
+      id: 'ctx-1',
+      userId: 'user-123',
+      contextType: 'recent_meal',
+      contextData: {
+        mealId: 'meal-1',
+        mealType: 'breakfast',
+        items: [
+          { id: 'item-1', foodName: 'Magic Toast', quantityGrams: 30, quantityDisplay: '1 pacote', calories: 120, proteinG: 3, carbsG: 20, fatG: 3 },
+        ],
+      },
+      expiresAt: new Date(Date.now() + 300000).toISOString(),
+      createdAt: new Date().toISOString(),
+    })
+
+    const mockChat = vi.fn().mockResolvedValue(JSON.stringify({ is_correction: false }))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockGetLLMProvider.mockReturnValue({
+      classifyIntent: mockClassifyIntent,
+      analyzeImage: mockAnalyzeImage,
+      chat: mockChat,
+    } as any)
+
+    mockClassifyByRules.mockReturnValue('meal_log')
+    mockHandleMealLog.mockResolvedValue({ response: 'Refeição registrada!', completed: true })
+
+    await handleIncomingMessage('+5511999999999', 'msg-1', 'Almocei arroz e feijão')
+
+    expect(mockHandleMealLog).toHaveBeenCalled()
+    expect(mockHandleEdit).not.toHaveBeenCalled()
   })
 })
