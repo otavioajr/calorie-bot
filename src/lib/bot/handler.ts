@@ -37,7 +37,7 @@ function saveHistory(supabase: SupabaseClient, userId: string, userMsg: string, 
   saveMessage(supabase, userId, 'assistant', botMsg).catch(() => {})
 }
 
-function saveBotMessages(
+async function saveBotMessages(
   supabase: SupabaseClient,
   userId: string,
   incomingMessageId: string,
@@ -45,25 +45,25 @@ function saveBotMessages(
   resourceType: 'meal' | 'summary' | 'query' | 'weight' | null,
   resourceId: string | null,
   metadata?: Record<string, unknown> | null,
-): void {
-  saveBotMessage(supabase, {
+): Promise<void> {
+  await saveBotMessage(supabase, {
     userId,
     messageId: incomingMessageId,
     direction: 'incoming',
     resourceType,
     resourceId,
     metadata: metadata ?? null,
-  }).catch(() => {})
+  })
 
   if (outgoingMessageId) {
-    saveBotMessage(supabase, {
+    await saveBotMessage(supabase, {
       userId,
       messageId: outgoingMessageId,
       direction: 'outgoing',
       resourceType,
       resourceId,
       metadata: metadata ?? null,
-    }).catch(() => {})
+    })
   }
 }
 
@@ -123,9 +123,23 @@ export async function handleIncomingMessage(
     if (context) {
       switch (context.contextType) {
         case 'recent_meal': {
-          // LLM gatekeeper: is this a correction, confirmation, or something else?
           const recentItems = context.contextData.items as unknown as RecentMealItem[]
           const recentMealId = context.contextData.mealId as string
+
+          // If user quoted a meal message, skip gatekeeper and go directly to edit
+          if (quoteContext?.resourceType === 'meal' && quoteContext.resourceId) {
+            const editResponse = await handleEdit(supabase, user.id, text, null, {
+              timezone: user.timezone,
+              dailyCalorieTarget: user.dailyCalorieTarget,
+            }, quoteContext)
+            await clearState(user.id)
+            const sentId = await sendTextMessage(from, editResponse, quotedMessageId)
+            saveHistory(supabase, user.id, text, editResponse)
+            await saveBotMessages(supabase, user.id, messageId, sentId, null, null)
+            return
+          }
+
+          // LLM gatekeeper: is this a correction, confirmation, or something else?
           try {
             const llm = getLLMProvider()
             const gatekeeperRaw = await llm.chat(
@@ -160,8 +174,9 @@ export async function handleIncomingMessage(
                 })
               }
 
-              await sendTextMessage(from, editResponse)
+              const corrSentId = await sendTextMessage(from, editResponse)
               saveHistory(supabase, user.id, text, editResponse)
+              await saveBotMessages(supabase, user.id, messageId, corrSentId, 'meal', recentMealId)
               return
             }
 
@@ -197,7 +212,7 @@ export async function handleIncomingMessage(
           const mealResult = await handleMealLog(supabase, user.id, text, userSettings, context)
           const clarSentId = await sendTextMessage(from, mealResult.response)
           saveHistory(supabase, user.id, text, mealResult.response)
-          saveBotMessages(supabase, user.id, messageId, clarSentId,
+          await saveBotMessages(supabase, user.id, messageId, clarSentId,
             mealResult.completed && mealResult.mealId ? 'meal' : null,
             mealResult.mealId ?? null)
           return
@@ -206,7 +221,7 @@ export async function handleIncomingMessage(
           const mealResult = await handleMealLog(supabase, user.id, text, userSettings, context)
           const bulkSentId = await sendTextMessage(from, mealResult.response)
           saveHistory(supabase, user.id, text, mealResult.response)
-          saveBotMessages(supabase, user.id, messageId, bulkSentId,
+          await saveBotMessages(supabase, user.id, messageId, bulkSentId,
             mealResult.completed && mealResult.mealId ? 'meal' : null,
             mealResult.mealId ?? null)
           return
@@ -246,7 +261,7 @@ export async function handleIncomingMessage(
           return
         }
         case 'awaiting_label_portions': {
-          await handleLabelPortions(supabase, from, user.id, text, context, {
+          await handleLabelPortions(supabase, from, user.id, messageId, text, context, {
             calorieMode: user.calorieMode,
             dailyCalorieTarget: user.dailyCalorieTarget,
             timezone: user.timezone,
@@ -280,7 +295,7 @@ export async function handleIncomingMessage(
       }, quoteContext)
       const sentId = await sendTextMessage(from, editResponse, quotedMessageId)
       saveHistory(supabase, user.id, text, editResponse)
-      saveBotMessages(supabase, user.id, messageId, sentId, null, null)
+      await saveBotMessages(supabase, user.id, messageId, sentId, null, null)
       return
     }
 
@@ -292,7 +307,7 @@ export async function handleIncomingMessage(
       }, quoteContext)
       const sentId = await sendTextMessage(from, editResponse, quotedMessageId)
       saveHistory(supabase, user.id, text, editResponse)
-      saveBotMessages(supabase, user.id, messageId, sentId, null, null)
+      await saveBotMessages(supabase, user.id, messageId, sentId, null, null)
       return
     }
 
@@ -319,7 +334,7 @@ export async function handleIncomingMessage(
           })
           const sentId = await sendTextMessage(from, registerResponse, quotedMessageId)
           saveHistory(supabase, user.id, text, registerResponse)
-          saveBotMessages(supabase, user.id, messageId, sentId, 'meal', null)
+          await saveBotMessages(supabase, user.id, messageId, sentId, 'meal', null)
           return
         }
         console.log('[handler] Starting meal log...')
@@ -328,7 +343,7 @@ export async function handleIncomingMessage(
         if (result.completed && result.mealId) {
           const sentId = await sendTextMessage(from, result.response, quoteContext ? quotedMessageId : undefined)
           saveHistory(supabase, user.id, text, result.response)
-          saveBotMessages(supabase, user.id, messageId, sentId, 'meal', result.mealId)
+          await saveBotMessages(supabase, user.id, messageId, sentId, 'meal', result.mealId)
           return
         }
         response = result.response
@@ -364,7 +379,7 @@ export async function handleIncomingMessage(
           : null
         const sentId = await sendTextMessage(from, response, quoteContext ? quotedMessageId : undefined)
         saveHistory(supabase, user.id, text, response)
-        saveBotMessages(supabase, user.id, messageId, sentId, 'query', null, queryMetadata)
+        await saveBotMessages(supabase, user.id, messageId, sentId, 'query', null, queryMetadata)
         return
       }
       case 'edit':
@@ -402,7 +417,7 @@ export async function handleIncomingMessage(
     const sentMessageId = await sendTextMessage(from, response, quoteContext ? quotedMessageId : undefined)
     console.log('[handler] Response sent successfully')
     saveHistory(supabase, user.id, text, response)
-    saveBotMessages(supabase, user.id, messageId, sentMessageId, null, null)
+    await saveBotMessages(supabase, user.id, messageId, sentMessageId, null, null)
   } catch (err) {
     console.error('[handler] Error:', err)
     await sendTextMessage(from, formatError()).catch((sendErr) => {
@@ -623,8 +638,9 @@ export async function handleIncomingImage(
       target,
     )
 
-    await sendTextMessage(from, response)
+    const imgSentId = await sendTextMessage(from, response)
     saveHistory(supabase, user.id, caption || '[imagem de alimento]', response)
+    await saveBotMessages(supabase, user.id, messageId, imgSentId, 'meal', mealId)
   } catch (err) {
     console.error('[handler] Image error:', err)
     await sendTextMessage(from, formatError()).catch((sendErr) => {
@@ -637,6 +653,7 @@ async function handleLabelPortions(
   supabase: SupabaseClient,
   from: string,
   userId: string,
+  incomingMessageId: string,
   message: string,
   context: ConversationContext,
   user: { calorieMode: string; dailyCalorieTarget: number | null; timezone?: string },
@@ -721,5 +738,6 @@ async function handleLabelPortions(
     target,
   )
 
-  await sendTextMessage(from, response)
+  const labelSentId = await sendTextMessage(from, response)
+  await saveBotMessages(supabase, userId, incomingMessageId, labelSentId, 'meal', labelMealId)
 }
