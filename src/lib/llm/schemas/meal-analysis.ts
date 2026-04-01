@@ -6,7 +6,7 @@ export type PortionType = z.infer<typeof PortionTypeSchema>
 
 export const MealItemSchema = z.object({
   food: z.string(),
-  quantity_grams: z.coerce.number().nonnegative().nullable().optional().default(null),
+  quantity_grams: z.coerce.number().positive().nullable().optional().default(null),
   quantity_display: z.string().nullable().optional().default(null),
   quantity_source: z.enum(['estimated', 'user_provided']).default('estimated'),
   portion_type: PortionTypeSchema.optional().default('unit'),
