@@ -524,3 +524,75 @@ export async function recalculateMealTotal(
 
   return total
 }
+
+// ---------------------------------------------------------------------------
+// MealDetailItem / MealDetail (for meal_detail query)
+// ---------------------------------------------------------------------------
+
+export interface MealDetailItem {
+  foodName: string
+  quantityGrams: number
+  quantityDisplay: string | null
+  calories: number
+}
+
+export interface MealDetail {
+  mealType: string
+  registeredAt: string
+  items: MealDetailItem[]
+  totalCalories: number
+}
+
+// ---------------------------------------------------------------------------
+// getMealDetailByType
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns meals with their items for a user on a specific date,
+ * optionally filtered by meal type. Used by the meal_detail query flow.
+ */
+export async function getMealDetailByType(
+  supabase: SupabaseClient,
+  userId: string,
+  mealType: string | null,
+  date: Date,
+  timezone: string = 'America/Sao_Paulo',
+): Promise<MealDetail[]> {
+  const { startOfDay, endOfDay } = getDayBoundsForTimezone(date, timezone)
+
+  let query = supabase
+    .from('meals')
+    .select('id, meal_type, total_calories, registered_at, meal_items(food_name, quantity_grams, quantity_display, calories)')
+    .eq('user_id', userId)
+    .gte('registered_at', startOfDay.toISOString())
+    .lte('registered_at', endOfDay.toISOString())
+    .order('registered_at', { ascending: true })
+
+  if (mealType) {
+    query = query.eq('meal_type', mealType)
+  }
+
+  const { data, error } = await query
+
+  if (error) {
+    throw new Error(`Failed to get meal details: ${error.message}`)
+  }
+
+  if (!data || data.length === 0) return []
+
+  return (data as Array<Record<string, unknown>>).map((row) => {
+    const items = (row.meal_items as Array<Record<string, unknown>> || []).map((item) => ({
+      foodName: item.food_name as string,
+      quantityGrams: item.quantity_grams as number,
+      quantityDisplay: (item.quantity_display as string) ?? null,
+      calories: item.calories as number,
+    }))
+
+    return {
+      mealType: row.meal_type as string,
+      registeredAt: row.registered_at as string,
+      items,
+      totalCalories: row.total_calories as number,
+    }
+  })
+}
