@@ -5,7 +5,7 @@ import { classifyByRules, isCancelCommand } from '@/lib/bot/router'
 import { handleOnboarding } from '@/lib/bot/flows/onboarding'
 import { handleMealLog } from '@/lib/bot/flows/meal-log'
 import { handleSummary } from '@/lib/bot/flows/summary'
-import { handleQuery, handleQueryConfirmation } from '@/lib/bot/flows/query'
+import { handleQuery, handleQueryConfirmation, registerFromQuotedQuery } from '@/lib/bot/flows/query'
 import { handleEdit } from '@/lib/bot/flows/edit'
 import { handleWeight } from '@/lib/bot/flows/weight'
 import { handleSettings } from '@/lib/bot/flows/settings'
@@ -288,6 +288,13 @@ export async function handleIncomingMessage(
         break
       }
       case 'summary':
+        // If user quoted a summary, treat as meal_detail request
+        if (quoteContext?.resourceType === 'summary') {
+          response = await handleMealDetail(supabase, user.id, text, {
+            timezone: user.timezone,
+          })
+          break
+        }
         response = await handleSummary(supabase, user.id, text, { dailyCalorieTarget: user.dailyCalorieTarget, timezone: user.timezone })
         break
       case 'meal_detail':
