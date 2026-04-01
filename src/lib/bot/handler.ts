@@ -21,6 +21,9 @@ import { detectMimeType } from '@/lib/whatsapp/mime'
 import { logLLMUsage } from '@/lib/db/queries/llm-usage'
 import { createMeal, getDailyCalories, getMealWithItems } from '@/lib/db/queries/meals'
 import { saveMessage } from '@/lib/db/queries/message-history'
+import { resolveQuote } from '@/lib/bot/quote'
+import type { QuoteContext } from '@/lib/bot/quote'
+import { saveBotMessage } from '@/lib/db/queries/bot-messages'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ImageAnalysis } from '@/lib/llm/schemas/image-analysis'
 import type { MealAnalysis } from '@/lib/llm/schemas/meal-analysis'
@@ -32,6 +35,36 @@ const MAX_IMAGE_SIZE = 5_242_880 // 5MB
 function saveHistory(supabase: SupabaseClient, userId: string, userMsg: string, botMsg: string): void {
   saveMessage(supabase, userId, 'user', userMsg).catch(() => {})
   saveMessage(supabase, userId, 'assistant', botMsg).catch(() => {})
+}
+
+function saveBotMessages(
+  supabase: SupabaseClient,
+  userId: string,
+  incomingMessageId: string,
+  outgoingMessageId: string | null,
+  resourceType: 'meal' | 'summary' | 'query' | 'weight' | null,
+  resourceId: string | null,
+  metadata?: Record<string, unknown> | null,
+): void {
+  saveBotMessage(supabase, {
+    userId,
+    messageId: incomingMessageId,
+    direction: 'incoming',
+    resourceType,
+    resourceId,
+    metadata: metadata ?? null,
+  }).catch(() => {})
+
+  if (outgoingMessageId) {
+    saveBotMessage(supabase, {
+      userId,
+      messageId: outgoingMessageId,
+      direction: 'outgoing',
+      resourceType,
+      resourceId,
+      metadata: metadata ?? null,
+    }).catch(() => {})
+  }
 }
 
 export async function handleIncomingMessage(
@@ -74,6 +107,9 @@ export async function handleIncomingMessage(
 
     // 3. Check for active conversation context
     const context = await getState(user.id)
+
+    // Resolve quote context if message is a reply
+    const quoteContext = await resolveQuote(quotedMessageId)
 
     // 3.1 Cancel command — escape any active flow
     if (context && isCancelCommand(text)) {
@@ -230,6 +266,16 @@ export async function handleIncomingMessage(
       }
     }
 
+    // Quote fallback: if quote has no applicable flow
+    const QUOTE_SUPPORTED_INTENTS = new Set(['edit', 'meal_log', 'summary', 'meal_detail', 'query'])
+    if (quoteContext && intent && !QUOTE_SUPPORTED_INTENTS.has(intent)) {
+      const fallbackMsg = 'Ainda não consigo fazer isso com mensagens citadas 😅 Mas posso te ajudar com outra coisa! Digite *menu* para ver as opções.'
+      await clearState(user.id)
+      await sendTextMessage(from, fallbackMsg)
+      saveHistory(supabase, user.id, text, fallbackMsg)
+      return
+    }
+
     // 5. Route to appropriate flow
     console.log('[handler] Routing to flow:', intent)
     let response: string
@@ -256,7 +302,7 @@ export async function handleIncomingMessage(
         response = await handleEdit(supabase, user.id, text, null, {
           timezone: user.timezone,
           dailyCalorieTarget: user.dailyCalorieTarget,
-        })
+        }, quoteContext ?? undefined)
         break
       case 'weight':
         response = await handleWeight(supabase, user.id, text, user)
@@ -284,9 +330,10 @@ export async function handleIncomingMessage(
     }
 
     console.log('[handler] Sending response, length:', response.length)
-    await sendTextMessage(from, response)
+    const sentMessageId = await sendTextMessage(from, response, quoteContext ? quotedMessageId : undefined)
     console.log('[handler] Response sent successfully')
     saveHistory(supabase, user.id, text, response)
+    saveBotMessages(supabase, user.id, messageId, sentMessageId, null, null)
   } catch (err) {
     console.error('[handler] Error:', err)
     await sendTextMessage(from, formatError()).catch((sendErr) => {

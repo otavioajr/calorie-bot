@@ -180,6 +180,22 @@ vi.mock('@/lib/llm/prompts/contextual-correction', () => ({
   buildContextualCorrectionPrompt: vi.fn().mockReturnValue('gatekeeper prompt'),
 }))
 
+vi.mock('@/lib/bot/quote', () => ({
+  resolveQuote: vi.fn().mockResolvedValue(null),
+}))
+
+vi.mock('@/lib/db/queries/bot-messages', () => ({
+  saveBotMessage: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('@/lib/bot/flows/recalculate', () => ({
+  handleRecalculate: vi.fn().mockResolvedValue('recalculate response'),
+}))
+
+vi.mock('@/lib/bot/flows/meal-detail', () => ({
+  handleMealDetail: vi.fn().mockResolvedValue('meal detail response'),
+}))
+
 // ---------------------------------------------------------------------------
 // Import after mocks are registered
 // ---------------------------------------------------------------------------
@@ -404,7 +420,7 @@ describe('handleIncomingMessage — completed user, intent routing', () => {
     await handleIncomingMessage(FROM, MESSAGE_ID, 'tell me a joke')
 
     expect(mockFormatOutOfScope).toHaveBeenCalled()
-    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'out of scope message')
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'out of scope message', undefined)
   })
 
   it('routes summary intent to handleSummary and sends its response', async () => {
@@ -418,7 +434,7 @@ describe('handleIncomingMessage — completed user, intent routing', () => {
       'como tô hoje?',
       { dailyCalorieTarget: completedUser.dailyCalorieTarget, timezone: completedUser.timezone }
     )
-    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'summary response')
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'summary response', undefined)
   })
 
   it('routes query intent to handleQuery and sends its response', async () => {
@@ -431,7 +447,7 @@ describe('handleIncomingMessage — completed user, intent routing', () => {
       completedUser.id,
       'quantas calorias tem uma banana?'
     )
-    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'query response')
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'query response', undefined)
   })
 
   it('routes edit intent to handleEdit and sends its response', async () => {
@@ -444,9 +460,10 @@ describe('handleIncomingMessage — completed user, intent routing', () => {
       completedUser.id,
       'corrigir',
       null,
-      { timezone: completedUser.timezone, dailyCalorieTarget: completedUser.dailyCalorieTarget }
+      { timezone: completedUser.timezone, dailyCalorieTarget: completedUser.dailyCalorieTarget },
+      undefined
     )
-    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'edit response')
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'edit response', undefined)
   })
 
   it('routes weight intent to handleWeight and sends its response', async () => {
@@ -460,7 +477,7 @@ describe('handleIncomingMessage — completed user, intent routing', () => {
       'pesei 72kg',
       completedUser
     )
-    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'weight response')
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'weight response', undefined)
   })
 
   it('routes settings intent to handleSettings and sends its response', async () => {
@@ -477,7 +494,7 @@ describe('handleIncomingMessage — completed user, intent routing', () => {
       mockSettingsData.settings,
       null
     )
-    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'settings response')
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'settings response', undefined)
   })
 
   it('routes help intent to handleHelp and sends its response', async () => {
@@ -486,7 +503,7 @@ describe('handleIncomingMessage — completed user, intent routing', () => {
     await handleIncomingMessage(FROM, MESSAGE_ID, 'ajuda')
 
     expect(mockHandleHelp).toHaveBeenCalled()
-    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'help response')
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'help response', undefined)
   })
 
   it('routes user_data intent to handleUserData and sends its response', async () => {
@@ -495,7 +512,7 @@ describe('handleIncomingMessage — completed user, intent routing', () => {
     await handleIncomingMessage(FROM, MESSAGE_ID, 'meus dados')
 
     expect(mockHandleUserData).toHaveBeenCalledWith(mockSupabase, completedUser.id)
-    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'user data response')
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'user data response', undefined)
   })
 
   it('routes meal_log intent to handleMealLog and sends its response', async () => {
@@ -511,7 +528,7 @@ describe('handleIncomingMessage — completed user, intent routing', () => {
       { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget, dailyProteinG: completedUser.dailyProteinG, dailyFatG: completedUser.dailyFatG, dailyCarbsG: completedUser.dailyCarbsG, phone: FROM, timezone: completedUser.timezone },
       null
     )
-    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal log response')
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal log response', undefined)
   })
 
   it('does not call handleOnboarding for a completed user', async () => {
@@ -556,7 +573,7 @@ describe('handleIncomingMessage — LLM classification fallback', () => {
       { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget, dailyProteinG: completedUser.dailyProteinG, dailyFatG: completedUser.dailyFatG, dailyCarbsG: completedUser.dailyCarbsG, phone: FROM, timezone: completedUser.timezone },
       null
     )
-    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal log response')
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal log response', undefined)
   })
 
   it('defaults to meal_log when LLM classifyIntent throws', async () => {
@@ -572,7 +589,7 @@ describe('handleIncomingMessage — LLM classification fallback', () => {
       { calorieMode: completedUser.calorieMode, dailyCalorieTarget: completedUser.dailyCalorieTarget, dailyProteinG: completedUser.dailyProteinG, dailyFatG: completedUser.dailyFatG, dailyCarbsG: completedUser.dailyCarbsG, phone: FROM, timezone: completedUser.timezone },
       null
     )
-    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal log response')
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal log response', undefined)
   })
 
   it('routes to out_of_scope when LLM classifies as out_of_scope', async () => {
@@ -581,7 +598,7 @@ describe('handleIncomingMessage — LLM classification fallback', () => {
     await handleIncomingMessage(FROM, MESSAGE_ID, 'conta uma piada')
 
     expect(mockFormatOutOfScope).toHaveBeenCalled()
-    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'out of scope message')
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'out of scope message', undefined)
   })
 })
 
