@@ -11,6 +11,7 @@ export interface WhatsAppMessage {
   imageId?: string
   caption?: string
   timestamp: number
+  quotedMessageId?: string
 }
 
 export interface WhatsAppStatus {
@@ -32,6 +33,7 @@ interface RawMessage {
   text?: { body?: unknown }
   audio?: { id?: unknown; mime_type?: unknown }
   image?: { id?: unknown; caption?: unknown; mime_type?: unknown }
+  context?: { id?: unknown }
 }
 
 interface RawStatus {
@@ -156,6 +158,10 @@ export function parseWebhookPayload(body: unknown): WebhookEvent {
     const timestamp = parseInt(timestampStr, 10)
     if (isNaN(timestamp)) return null
 
+    const quotedMessageId = isObject(rawMsg.context)
+      ? asString((rawMsg.context as { id?: unknown }).id)
+      : undefined
+
     if (msgType === 'text') {
       const textBody =
         isObject(rawMsg.text) ? asString((rawMsg.text as { body?: unknown }).body) : undefined
@@ -166,6 +172,7 @@ export function parseWebhookPayload(body: unknown): WebhookEvent {
         messageId,
         text: textBody,
         timestamp,
+        quotedMessageId,
       }
     }
 
@@ -180,6 +187,7 @@ export function parseWebhookPayload(body: unknown): WebhookEvent {
         imageId,
         caption,
         timestamp,
+        quotedMessageId,
       }
     }
 
@@ -192,6 +200,7 @@ export function parseWebhookPayload(body: unknown): WebhookEvent {
         messageId,
         audioId,
         timestamp,
+        quotedMessageId,
       }
     }
 
@@ -201,6 +210,7 @@ export function parseWebhookPayload(body: unknown): WebhookEvent {
       from,
       messageId,
       timestamp,
+      quotedMessageId,
     }
   } catch {
     return null

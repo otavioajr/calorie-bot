@@ -318,6 +318,41 @@ describe('parseWebhookPayload', () => {
     expect(msg.imageId).toBe('img_media_id')
     expect(msg.caption).toBeUndefined()
   })
+
+  it('extracts quotedMessageId when message has context', () => {
+    const payload = {
+      object: 'whatsapp_business_account',
+      entry: [{
+        id: 'BIZ_ACCOUNT_ID',
+        changes: [{
+          value: {
+            messaging_product: 'whatsapp',
+            messages: [{
+              from: '5511999887766',
+              id: 'wamid.reply123',
+              timestamp: '1710000000',
+              type: 'text',
+              text: { body: 'apaga o arroz' },
+              context: { id: 'wamid.original456' },
+            }],
+          },
+          field: 'messages',
+        }],
+      }],
+    }
+
+    const result = parseWebhookPayload(payload)
+    expect(result).not.toBeNull()
+    const msg = result as WhatsAppMessage
+    expect(msg.quotedMessageId).toBe('wamid.original456')
+  })
+
+  it('quotedMessageId is undefined when no context', () => {
+    const result = parseWebhookPayload(makeTextPayload())
+    expect(result).not.toBeNull()
+    const msg = result as WhatsAppMessage
+    expect(msg.quotedMessageId).toBeUndefined()
+  })
 })
 
 // ---------------------------------------------------------------------------
