@@ -71,4 +71,49 @@ describe('sendTextMessage', () => {
       /WhatsApp API error/,
     )
   })
+
+  it('includes context when replyToMessageId is provided', async () => {
+    vi.stubEnv('WHATSAPP_PHONE_NUMBER_ID', '123456789')
+    vi.stubEnv('WHATSAPP_ACCESS_TOKEN', 'test-token')
+
+    let capturedBody: Record<string, unknown> | null = null
+
+    server.use(
+      http.post(
+        'https://graph.facebook.com/v21.0/123456789/messages',
+        async ({ request }) => {
+          capturedBody = await request.json() as Record<string, unknown>
+          return HttpResponse.json({ messages: [{ id: 'wamid.reply' }] })
+        },
+      ),
+    )
+
+    const msgId = await sendTextMessage('5511999887766', 'Corrigido!', 'wamid.original123')
+
+    expect(msgId).toBe('wamid.reply')
+    expect(capturedBody).not.toBeNull()
+    expect((capturedBody as unknown as Record<string, unknown>).context).toEqual({ message_id: 'wamid.original123' })
+  })
+
+  it('does not include context when replyToMessageId is undefined', async () => {
+    vi.stubEnv('WHATSAPP_PHONE_NUMBER_ID', '123456789')
+    vi.stubEnv('WHATSAPP_ACCESS_TOKEN', 'test-token')
+
+    let capturedBody: Record<string, unknown> | null = null
+
+    server.use(
+      http.post(
+        'https://graph.facebook.com/v21.0/123456789/messages',
+        async ({ request }) => {
+          capturedBody = await request.json() as Record<string, unknown>
+          return HttpResponse.json({ messages: [{ id: 'wamid.noreply' }] })
+        },
+      ),
+    )
+
+    await sendTextMessage('5511999887766', 'Normal message')
+
+    expect(capturedBody).not.toBeNull()
+    expect((capturedBody as unknown as Record<string, unknown>).context).toBeUndefined()
+  })
 })

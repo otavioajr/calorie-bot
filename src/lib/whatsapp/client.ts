@@ -2,7 +2,11 @@ interface WhatsAppSendResponse {
   messages: Array<{ id: string }>
 }
 
-export async function sendTextMessage(to: string, text: string): Promise<string> {
+export async function sendTextMessage(
+  to: string,
+  text: string,
+  replyToMessageId?: string,
+): Promise<string> {
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID
   const accessToken = process.env.WHATSAPP_ACCESS_TOKEN
 
@@ -15,18 +19,24 @@ export async function sendTextMessage(to: string, text: string): Promise<string>
 
   const url = `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`
 
+  const payload: Record<string, unknown> = {
+    messaging_product: 'whatsapp',
+    to,
+    type: 'text',
+    text: { body: text },
+  }
+
+  if (replyToMessageId) {
+    payload.context = { message_id: replyToMessageId }
+  }
+
   const response = await fetch(url, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      messaging_product: 'whatsapp',
-      to,
-      type: 'text',
-      text: { body: text },
-    }),
+    body: JSON.stringify(payload),
   })
 
   if (!response.ok) {
