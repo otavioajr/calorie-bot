@@ -7,12 +7,14 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 const {
   mockGetDailyCalories,
   mockGetDailyMeals,
+  mockGetDailyMacros,
   mockFormatDailySummary,
   mockFormatWeeklySummary,
 } = vi.hoisted(() => {
   return {
     mockGetDailyCalories: vi.fn().mockResolvedValue(1200),
     mockGetDailyMeals: vi.fn().mockResolvedValue([]),
+    mockGetDailyMacros: vi.fn().mockResolvedValue({ calories: 1200, proteinG: 80, carbsG: 150, fatG: 40 }),
     mockFormatDailySummary: vi.fn().mockReturnValue('📊 Resumo de hoje...'),
     mockFormatWeeklySummary: vi.fn().mockReturnValue('Resumo da semana...'),
   }
@@ -21,6 +23,7 @@ const {
 vi.mock('@/lib/db/queries/meals', () => ({
   getDailyCalories: mockGetDailyCalories,
   getDailyMeals: mockGetDailyMeals,
+  getDailyMacros: mockGetDailyMacros,
 }))
 
 vi.mock('@/lib/utils/formatters', () => ({
@@ -38,6 +41,9 @@ const USER_ID = 'user-summary-123'
 
 const mockUser = {
   dailyCalorieTarget: 2000,
+  dailyProteinG: 120,
+  dailyFatG: 65,
+  dailyCarbsG: 250,
 }
 
 function buildSupabase(): SupabaseClient {
@@ -100,6 +106,7 @@ describe('handleSummary', () => {
         expect.any(Object),
         expect.any(Number),
         2000,
+        expect.anything(),
       )
     })
 
@@ -115,6 +122,7 @@ describe('handleSummary', () => {
         expect.objectContaining({}),
         0,
         2000,
+        expect.anything(),
       )
     })
 
@@ -126,6 +134,35 @@ describe('handleSummary', () => {
         expect.any(Object),
         expect.any(Number),
         2000,
+        undefined,
+      )
+    })
+
+    it('calls getDailyMacros and passes macros as 5th arg to formatDailySummary', async () => {
+      await handleSummary(supabase, USER_ID, 'hoje', mockUser)
+
+      expect(mockGetDailyMacros).toHaveBeenCalled()
+      expect(mockFormatDailySummary).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Object),
+        expect.any(Number),
+        2000,
+        {
+          consumed: { proteinG: 80, fatG: 40, carbsG: 150 },
+          target: { proteinG: 120, fatG: 65, carbsG: 250 },
+        },
+      )
+    })
+
+    it('passes undefined macros when user has no macro targets', async () => {
+      await handleSummary(supabase, USER_ID, 'hoje', { dailyCalorieTarget: 2000 })
+
+      expect(mockFormatDailySummary).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Object),
+        expect.any(Number),
+        2000,
+        undefined,
       )
     })
   })

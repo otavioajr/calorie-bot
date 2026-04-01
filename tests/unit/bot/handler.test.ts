@@ -432,7 +432,13 @@ describe('handleIncomingMessage — completed user, intent routing', () => {
       mockSupabase,
       completedUser.id,
       'como tô hoje?',
-      { dailyCalorieTarget: completedUser.dailyCalorieTarget, timezone: completedUser.timezone }
+      {
+        dailyCalorieTarget: completedUser.dailyCalorieTarget,
+        dailyProteinG: completedUser.dailyProteinG,
+        dailyFatG: completedUser.dailyFatG,
+        dailyCarbsG: completedUser.dailyCarbsG,
+        timezone: completedUser.timezone,
+      }
     )
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'summary response', undefined)
   })

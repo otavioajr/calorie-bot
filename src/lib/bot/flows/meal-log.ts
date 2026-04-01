@@ -151,6 +151,10 @@ function buildReceiptResponse(
   enrichedMeals: EnrichedItem[][],
   dailyConsumedSoFar: number,
   dailyTarget: number,
+  macros?: {
+    consumed: { proteinG: number; fatG: number; carbsG: number }
+    target: { proteinG: number; fatG: number; carbsG: number }
+  },
 ): string {
   // Collect all items that used a default
   const defaults = enrichedMeals
@@ -171,6 +175,7 @@ function buildReceiptResponse(
       total,
       dailyConsumedSoFar,
       dailyTarget,
+      macros,
     )
 
     return defaultNotice ? breakdown.replace('Algo errado?', `${defaultNotice}\nAlgo errado?`) : breakdown
@@ -182,7 +187,7 @@ function buildReceiptResponse(
     total: totalCaloriesFromEnriched(enrichedMeals[idx]),
   }))
 
-  const multiBreakdown = formatMultiMealBreakdown(mealSections, dailyConsumedSoFar, dailyTarget)
+  const multiBreakdown = formatMultiMealBreakdown(mealSections, dailyConsumedSoFar, dailyTarget, macros)
 
   return defaultNotice ? multiBreakdown.replace('Algo errado?', `${defaultNotice}\nAlgo errado?`) : multiBreakdown
 }
@@ -546,7 +551,7 @@ async function handleHistorySelection(
   userId: string,
   message: string,
   context: ConversationContext,
-  user: { calorieMode: string; dailyCalorieTarget: number | null; timezone?: string },
+  user: { calorieMode: string; dailyCalorieTarget: number | null; dailyProteinG?: number | null; dailyFatG?: number | null; dailyCarbsG?: number | null; timezone?: string },
 ): Promise<MealLogResult> {
   const matches = context.contextData.matches as HistoryMatch[]
   const meals = context.contextData.meals as MealAnalysis[]
@@ -573,9 +578,15 @@ async function handleHistorySelection(
   const mealIds = await saveMeals(supabase, userId, meals, enrichedMeals, originalMessage)
   await saveRecentMealState(supabase, userId, mealIds[mealIds.length - 1])
 
-  const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user.timezone)
+  const dailyMacros = await getDailyMacros(supabase, userId, undefined, user.timezone)
   const target = user.dailyCalorieTarget ?? 2000
-  const response = buildReceiptResponse(meals, enrichedMeals, dailyConsumed, target)
+  const macros = (user.dailyProteinG && user.dailyFatG && user.dailyCarbsG)
+    ? {
+        consumed: { proteinG: dailyMacros.proteinG, fatG: dailyMacros.fatG, carbsG: dailyMacros.carbsG },
+        target: { proteinG: user.dailyProteinG, fatG: user.dailyFatG, carbsG: user.dailyCarbsG },
+      }
+    : undefined
+  const response = buildReceiptResponse(meals, enrichedMeals, dailyMacros.calories, target, macros)
 
   return { response, completed: true, mealId: mealIds[mealIds.length - 1] }
 }
@@ -941,9 +952,15 @@ async function analyzeAndRegister(
         }]]
         const mealIds = await saveMeals(supabase, userId, meals, enrichedMeals, originalMessage)
         await saveRecentMealState(supabase, userId, mealIds[mealIds.length - 1])
-        const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user.timezone)
+        const dailyMacros = await getDailyMacros(supabase, userId, undefined, user.timezone)
         const target = user.dailyCalorieTarget ?? 2000
-        const response = buildReceiptResponse(meals, enrichedMeals, dailyConsumed, target)
+        const macros = (user.dailyProteinG && user.dailyFatG && user.dailyCarbsG)
+          ? {
+              consumed: { proteinG: dailyMacros.proteinG, fatG: dailyMacros.fatG, carbsG: dailyMacros.carbsG },
+              target: { proteinG: user.dailyProteinG, fatG: user.dailyFatG, carbsG: user.dailyCarbsG },
+            }
+          : undefined
+        const response = buildReceiptResponse(meals, enrichedMeals, dailyMacros.calories, target, macros)
         return { response, completed: true, mealId: mealIds[mealIds.length - 1] }
       }
       // Multiple matches — present options
@@ -1030,10 +1047,16 @@ async function analyzeAndRegister(
   const mealIds = await saveMeals(supabase, userId, meals, enrichedMeals, originalMessage)
   await saveRecentMealState(supabase, userId, mealIds[mealIds.length - 1])
 
-  const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user.timezone)
+  const dailyMacros = await getDailyMacros(supabase, userId, undefined, user.timezone)
   const target = user.dailyCalorieTarget ?? 2000
+  const macros = (user.dailyProteinG && user.dailyFatG && user.dailyCarbsG)
+    ? {
+        consumed: { proteinG: dailyMacros.proteinG, fatG: dailyMacros.fatG, carbsG: dailyMacros.carbsG },
+        target: { proteinG: user.dailyProteinG, fatG: user.dailyFatG, carbsG: user.dailyCarbsG },
+      }
+    : undefined
 
-  const response = buildReceiptResponse(meals, enrichedMeals, dailyConsumed, target)
+  const response = buildReceiptResponse(meals, enrichedMeals, dailyMacros.calories, target, macros)
 
   return { response, completed: true, mealId: mealIds[mealIds.length - 1] }
 }

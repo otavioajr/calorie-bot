@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { getDailyCalories, getDailyMeals } from '@/lib/db/queries/meals'
+import { getDailyCalories, getDailyMeals, getDailyMacros } from '@/lib/db/queries/meals'
 import {
   formatDailySummary,
   formatWeeklySummary,
@@ -72,11 +72,19 @@ function buildDailyMealSummary(
 // handleSummary
 // ---------------------------------------------------------------------------
 
+type SummaryUser = {
+  dailyCalorieTarget: number | null
+  timezone?: string
+  dailyProteinG?: number | null
+  dailyFatG?: number | null
+  dailyCarbsG?: number | null
+}
+
 export async function handleSummary(
   supabase: SupabaseClient,
   userId: string,
   message: string,
-  user: { dailyCalorieTarget: number | null; timezone?: string },
+  user: SummaryUser,
 ): Promise<string> {
   const summaryType = detectSummaryType(message)
   const target = user.dailyCalorieTarget ?? 2000
@@ -86,7 +94,7 @@ export async function handleSummary(
     return handleWeeklySummary(supabase, userId, target, timezone)
   }
 
-  return handleDailySummary(supabase, userId, target, timezone)
+  return handleDailySummary(supabase, userId, target, timezone, user)
 }
 
 // ---------------------------------------------------------------------------
@@ -98,13 +106,29 @@ async function handleDailySummary(
   userId: string,
   target: number,
   timezone: string,
+  user?: SummaryUser,
 ): Promise<string> {
   const today = new Date()
-  const rows = await getDailyMeals(supabase, userId, today, timezone)
+  const [rows, dailyMacros] = await Promise.all([
+    getDailyMeals(supabase, userId, today, timezone),
+    getDailyMacros(supabase, userId, today, timezone),
+  ])
   const { meals, totalCalories } = buildDailyMealSummary(rows)
   const dateStr = formatDateBR(today, timezone)
 
-  return formatDailySummary(dateStr, meals, totalCalories, target)
+  const hasMacroTargets =
+    user?.dailyProteinG != null &&
+    user?.dailyFatG != null &&
+    user?.dailyCarbsG != null
+
+  const macros = hasMacroTargets
+    ? {
+        consumed: { proteinG: dailyMacros.proteinG, fatG: dailyMacros.fatG, carbsG: dailyMacros.carbsG },
+        target: { proteinG: user!.dailyProteinG!, fatG: user!.dailyFatG!, carbsG: user!.dailyCarbsG! },
+      }
+    : undefined
+
+  return formatDailySummary(dateStr, meals, totalCalories, target, macros)
 }
 
 // ---------------------------------------------------------------------------

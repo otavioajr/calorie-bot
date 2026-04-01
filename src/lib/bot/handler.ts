@@ -312,7 +312,13 @@ export async function handleIncomingMessage(
           })
           break
         }
-        response = await handleSummary(supabase, user.id, text, { dailyCalorieTarget: user.dailyCalorieTarget, timezone: user.timezone })
+        response = await handleSummary(supabase, user.id, text, {
+          dailyCalorieTarget: user.dailyCalorieTarget,
+          dailyProteinG: user.dailyProteinG,
+          dailyFatG: user.dailyFatG,
+          dailyCarbsG: user.dailyCarbsG,
+          timezone: user.timezone,
+        })
         break
       case 'meal_detail':
         response = await handleMealDetail(supabase, user.id, text, {
