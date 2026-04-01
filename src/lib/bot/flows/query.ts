@@ -174,6 +174,38 @@ export async function handleQuery(
 
 const REGISTER_PATTERN = /^(registrar|registra|sim|s)$/i
 
+/**
+ * Matches corrections like "magic toast são 80 kcal", "queijo cottage é 50 calorias",
+ * "magic toast sao 80kcal". Returns { foodName, calories } or null.
+ */
+const CORRECTION_PATTERN = /^(.+?)\s+(?:são|sao|é|eh|tem|e)\s+(\d+)\s*(?:kcal|calorias?)$/i
+
+function parseCorrection(message: string): { foodName: string; calories: number } | null {
+  const match = message.trim().match(CORRECTION_PATTERN)
+  if (!match) return null
+  return { foodName: match[1].trim(), calories: parseInt(match[2], 10) }
+}
+
+function findItemByName(
+  items: Array<{ food: string; [key: string]: unknown }>,
+  foodName: string,
+): number {
+  const normalize = (s: string) =>
+    s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+  const target = normalize(foodName)
+
+  // Exact match first
+  const exactIdx = items.findIndex(i => normalize(i.food) === target)
+  if (exactIdx !== -1) return exactIdx
+
+  // Partial match (target contained in item name or vice-versa)
+  const partialIdx = items.findIndex(i => {
+    const n = normalize(i.food)
+    return n.includes(target) || target.includes(n)
+  })
+  return partialIdx
+}
+
 export async function handleQueryConfirmation(
   supabase: SupabaseClient,
   userId: string,
@@ -181,9 +213,80 @@ export async function handleQueryConfirmation(
   context: ConversationContext,
   user?: { timezone?: string; dailyCalorieTarget?: number | null },
 ): Promise<string> {
-  if (!REGISTER_PATTERN.test(message.trim())) {
-    await clearState(userId)
-    return 'Ok, não registrei. Pode me mandar o que comeu quando quiser!'
+  const trimmed = message.trim()
+
+  // Check for correction before dismissing (e.g. "magic toast são 80 kcal")
+  if (!REGISTER_PATTERN.test(trimmed)) {
+    const correction = parseCorrection(trimmed)
+
+    if (!correction) {
+      await clearState(userId)
+      return 'Ok, não registrei. Pode me mandar o que comeu quando quiser!'
+    }
+
+    const items = context.contextData.items as Array<{
+      food: string
+      quantityGrams: number
+      quantityDisplay: string | null
+      calories: number
+      protein: number
+      carbs: number
+      fat: number
+      source: string
+      tacoId?: number
+    }>
+
+    const idx = findItemByName(items, correction.foodName)
+    if (idx === -1) {
+      return `Não encontrei "${correction.foodName}" na lista. Tenta com o nome exato do item ou manda "registrar" pra salvar.`
+    }
+
+    // Scale macros proportionally based on calorie correction
+    const item = items[idx]
+    const oldCal = item.calories
+    const ratio = oldCal > 0 ? correction.calories / oldCal : 1
+
+    items[idx] = {
+      ...item,
+      calories: correction.calories,
+      protein: Math.round(item.protein * ratio * 10) / 10,
+      carbs: Math.round(item.carbs * ratio * 10) / 10,
+      fat: Math.round(item.fat * ratio * 10) / 10,
+      source: 'manual',
+    }
+
+    // Update state with corrected items, keep awaiting_confirmation
+    await setState(userId, 'awaiting_confirmation', {
+      ...context.contextData,
+      items,
+    })
+
+    // Rebuild the display
+    const lines: string[] = []
+    for (const i of items) {
+      const qtyPart = i.quantityDisplay ? `(${i.quantityDisplay})` : ''
+      const calStr = i.source === 'approximate' ? `~${Math.round(i.calories)}` : `${Math.round(i.calories)}`
+      const indicator = i.source === 'approximate' ? ' ⚠️' : ''
+      const prot = Math.round(i.protein * 10) / 10
+      const carbs = Math.round(i.carbs * 10) / 10
+      const fat = Math.round(i.fat * 10) / 10
+      lines.push(`🔍 ${i.food}${qtyPart ? ' ' + qtyPart : ''}: ${calStr} kcal, ${prot}g proteína | ${carbs}g carbos | ${fat}g gordura${indicator}`)
+    }
+    if (items.length > 1) {
+      const totalCal = Math.round(items.reduce((s, i) => s + i.calories, 0))
+      const totalProt = Math.round(items.reduce((s, i) => s + i.protein, 0) * 10) / 10
+      const totalCarbs = Math.round(items.reduce((s, i) => s + i.carbs, 0) * 10) / 10
+      const totalFat = Math.round(items.reduce((s, i) => s + i.fat, 0) * 10) / 10
+      lines.push(`📊 Total: ${totalCal} kcal | ${totalProt}g proteína | ${totalCarbs}g carbos | ${totalFat}g gordura`)
+    }
+    const hasEstimated = items.some(i => i.source === 'approximate')
+    if (hasEstimated) {
+      lines.push('\n⚠️ Valores com este sinal são estimados. Pra corrigir, me manda as calorias certas (ex: "magic toast são 160 kcal")')
+    }
+    lines.push(`\n✅ ${items[idx].food} corrigido pra ${correction.calories} kcal!`)
+    lines.push('Quer registrar como refeição? Manda "registrar"')
+
+    return lines.filter(Boolean).join('\n')
   }
 
   const items = context.contextData.items as Array<{
