@@ -1269,7 +1269,7 @@ describe('handleIncomingMessage — recent_meal context', () => {
     })
 
     const mockChat = vi.fn().mockResolvedValue(JSON.stringify({
-      is_correction: true,
+      type: 'correction',
       corrected_message: 'corrigir o magic toast para 93kcal',
     }))
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1309,7 +1309,7 @@ describe('handleIncomingMessage — recent_meal context', () => {
       createdAt: new Date().toISOString(),
     })
 
-    const mockChat = vi.fn().mockResolvedValue(JSON.stringify({ is_correction: false }))
+    const mockChat = vi.fn().mockResolvedValue(JSON.stringify({ type: 'other' }))
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mockGetLLMProvider.mockReturnValue({
       classifyIntent: mockClassifyIntent,
@@ -1323,6 +1323,38 @@ describe('handleIncomingMessage — recent_meal context', () => {
     await handleIncomingMessage('+5511999999999', 'msg-1', 'Almocei arroz e feijão')
 
     expect(mockHandleMealLog).toHaveBeenCalled()
+    expect(mockHandleEdit).not.toHaveBeenCalled()
+  })
+
+  it('sends confirmation and clears state when gatekeeper detects confirmation', async () => {
+    mockGetState.mockResolvedValue({
+      id: 'ctx-1',
+      userId: 'user-123',
+      contextType: 'recent_meal',
+      contextData: {
+        mealId: 'meal-1',
+        mealType: 'breakfast',
+        items: [
+          { id: 'item-1', foodName: 'Cuscuz', quantityGrams: 60, quantityDisplay: '2 colheres de sopa', calories: 57, proteinG: 1, carbsG: 12, fatG: 0 },
+          { id: 'item-2', foodName: 'Bacon', quantityGrams: 15, quantityDisplay: '15g', calories: 62, proteinG: 4, carbsG: 0, fatG: 5 },
+        ],
+      },
+      expiresAt: new Date(Date.now() + 300000).toISOString(),
+      createdAt: new Date().toISOString(),
+    })
+
+    const mockChat = vi.fn().mockResolvedValue(JSON.stringify({ type: 'confirmation' }))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockGetLLMProvider.mockReturnValue({
+      classifyIntent: mockClassifyIntent,
+      analyzeImage: mockAnalyzeImage,
+      chat: mockChat,
+    } as any)
+
+    await handleIncomingMessage('+5511999999999', 'msg-1', 'Café é só isso')
+
+    expect(mockSendTextMessage).toHaveBeenCalledWith('+5511999999999', 'Tudo certo! ✅ Refeição registrada.')
+    expect(mockHandleMealLog).not.toHaveBeenCalled()
     expect(mockHandleEdit).not.toHaveBeenCalled()
   })
 })

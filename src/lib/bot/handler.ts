@@ -85,19 +85,19 @@ export async function handleIncomingMessage(
     if (context) {
       switch (context.contextType) {
         case 'recent_meal': {
-          // LLM gatekeeper: is this a correction of the recent meal?
+          // LLM gatekeeper: is this a correction, confirmation, or something else?
           const recentItems = context.contextData.items as unknown as RecentMealItem[]
           const recentMealId = context.contextData.mealId as string
           try {
             const llm = getLLMProvider()
             const gatekeeperRaw = await llm.chat(
               buildContextualCorrectionPrompt(recentItems, text),
-              'Você detecta correções de refeições. Responda APENAS com JSON válido.',
+              'Você classifica mensagens após registro de refeição. Responda APENAS com JSON válido.',
               true,
             )
-            const gatekeeper = JSON.parse(gatekeeperRaw.trim()) as { is_correction: boolean; corrected_message?: string }
+            const gatekeeper = JSON.parse(gatekeeperRaw.trim()) as { type: string; corrected_message?: string }
 
-            if (gatekeeper.is_correction && gatekeeper.corrected_message) {
+            if (gatekeeper.type === 'correction' && gatekeeper.corrected_message) {
               const editResponse = await handleEdit(supabase, user.id, gatekeeper.corrected_message, null, {
                 timezone: user.timezone,
                 dailyCalorieTarget: user.dailyCalorieTarget,
@@ -126,10 +126,18 @@ export async function handleIncomingMessage(
               saveHistory(supabase, user.id, text, editResponse)
               return
             }
+
+            if (gatekeeper.type === 'confirmation') {
+              await clearState(user.id)
+              const confirmMsg = 'Tudo certo! ✅ Refeição registrada.'
+              await sendTextMessage(from, confirmMsg)
+              saveHistory(supabase, user.id, text, confirmMsg)
+              return
+            }
           } catch {
             // Gatekeeper failed — fall through to normal classification
           }
-          // Not a correction — clear state and continue to intent classification
+          // "other" — clear state and continue to intent classification
           await clearState(user.id)
           break
         }
