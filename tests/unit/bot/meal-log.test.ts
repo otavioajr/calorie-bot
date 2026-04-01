@@ -287,6 +287,7 @@ describe('handleMealLog', () => {
       expect(mockAnalyzeMeal).toHaveBeenCalledWith(
         'almocei arroz e feijão',
         [],
+        expect.any(String),
       )
       expect(mockCreateMeal).toHaveBeenCalled()
       expect(result.completed).toBe(true)

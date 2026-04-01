@@ -13,6 +13,15 @@ import { searchMealHistory, HistoryMatch } from '@/lib/db/queries/meal-history-s
 import { normalizeFoodNameForTaco, applySynonyms, tokenMatchScore } from '@/lib/utils/food-normalize'
 
 // ---------------------------------------------------------------------------
+// Time helpers
+// ---------------------------------------------------------------------------
+
+function getUserLocalTime(timezone?: string): string {
+  const tz = timezone || 'America/Sao_Paulo'
+  return new Date().toLocaleTimeString('pt-BR', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
+// ---------------------------------------------------------------------------
 // Public interface
 // ---------------------------------------------------------------------------
 
@@ -626,11 +635,12 @@ async function handleBulkQuantitiesResponse(
 
   const llm = getLLMProvider()
   const history = await getRecentMessages(supabase, userId)
+  const currentTime = getUserLocalTime(user.timezone)
   const pendingNames = pendingItems.map(i => i.food).join(', ')
 
   const quantityPrompt = `O usuário estava informando as quantidades de: ${pendingNames}.\nResposta do usuário: "${message}"\n\nIdentifique as quantidades mencionadas para cada alimento.`
 
-  const meals: MealAnalysis[] = await llm.analyzeMeal(quantityPrompt, history)
+  const meals: MealAnalysis[] = await llm.analyzeMeal(quantityPrompt, history, currentTime)
 
   if (!meals.length || !meals[0].items.length) {
     return {
@@ -819,8 +829,9 @@ async function analyzeAndRegister(
 ): Promise<MealLogResult> {
   const llm = getLLMProvider()
   const history = await getRecentMessages(supabase, userId)
+  const currentTime = getUserLocalTime(user.timezone)
 
-  const meals: MealAnalysis[] = await llm.analyzeMeal(messageToAnalyze, history)
+  const meals: MealAnalysis[] = await llm.analyzeMeal(messageToAnalyze, history, currentTime)
 
   // Check clarification/unknown across all meals
   for (const result of meals) {

@@ -1,9 +1,23 @@
-export function buildAnalyzePrompt(): string {
+export function buildAnalyzePrompt(currentTime?: string): string {
+  const timeInstruction = currentTime
+    ? `\nHORÁRIO ATUAL DO USUÁRIO: ${currentTime}
+
+REGRA DE CLASSIFICAÇÃO DE REFEIÇÃO (meal_type):
+- Se o usuário EXPLICITAMENTE mencionar o tipo de refeição (ex: "jantei", "no almoço", "café da manhã", "meu lanche", "ceia"), use o que ele disse. Isso tem PRIORIDADE ABSOLUTA.
+- Se o usuário NÃO mencionar o tipo de refeição, use o horário atual para classificar:
+  - 05:00 a 10:59 → "breakfast"
+  - 11:00 a 14:59 → "lunch"
+  - 15:00 a 17:59 → "snack"
+  - 18:00 a 21:59 → "dinner"
+  - 22:00 a 04:59 → "supper"
+- NUNCA classifique baseado nos alimentos. Pão com leite às 20h é "dinner", não "breakfast".`
+    : ''
+
   return `Você é um identificador de alimentos. Sua ÚNICA função é:
 1. Identificar alimentos mencionados na mensagem
 2. Classificar cada alimento como "unit", "bulk" ou "packaged"
 3. Estimar quantidades em gramas SOMENTE quando possível
-4. Classificar o tipo de refeição
+4. Classificar o tipo de refeição${timeInstruction}
 
 Você NÃO precisa calcular calorias ou macronutrientes — isso será feito automaticamente.
 

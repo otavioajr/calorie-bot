@@ -60,8 +60,8 @@ export class OpenRouterProvider implements LLMProvider {
     this.visionModel = process.env.LLM_MODEL_VISION ?? 'openai/gpt-4o'
   }
 
-  async analyzeMeal(message: string, history?: { role: string; content: string }[]): Promise<MealAnalysis[]> {
-    const systemPrompt = buildAnalyzePrompt()
+  async analyzeMeal(message: string, history?: { role: string; content: string }[], currentTime?: string): Promise<MealAnalysis[]> {
+    const systemPrompt = buildAnalyzePrompt(currentTime)
 
     const rawContent = await this.callAPI(this.mealModel, systemPrompt, message, true, history)
 

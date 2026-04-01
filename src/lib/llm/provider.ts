@@ -13,7 +13,7 @@ export type IntentType =
   | 'out_of_scope'
 
 export interface LLMProvider {
-  analyzeMeal(message: string, history?: { role: string; content: string }[]): Promise<MealAnalysis[]>
+  analyzeMeal(message: string, history?: { role: string; content: string }[], currentTime?: string): Promise<MealAnalysis[]>
   analyzeImage(imageBase64: string, caption: string | undefined): Promise<ImageAnalysis>
   decomposeMeal(foodName: string, grams: number): Promise<DecomposedItem[]>
   classifyIntent(message: string): Promise<IntentType>

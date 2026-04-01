@@ -52,8 +52,8 @@ export class OllamaProvider implements LLMProvider {
     this.visionModel = process.env.OLLAMA_MODEL_VISION || 'llava:13b'
   }
 
-  async analyzeMeal(message: string, history?: { role: string; content: string }[]): Promise<MealAnalysis[]> {
-    const systemPrompt = buildAnalyzePrompt()
+  async analyzeMeal(message: string, history?: { role: string; content: string }[], currentTime?: string): Promise<MealAnalysis[]> {
+    const systemPrompt = buildAnalyzePrompt(currentTime)
 
     const rawContent = await this.callAPI(this.mealModel, systemPrompt, message, true, history)
 
