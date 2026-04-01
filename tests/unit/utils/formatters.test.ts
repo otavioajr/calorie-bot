@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   formatMealBreakdown,
+  formatMultiMealBreakdown,
   formatDailySummary,
   formatWeeklySummary,
   formatWeightUpdate,
@@ -81,6 +82,65 @@ describe('formatMealBreakdown', () => {
     const result = formatMealBreakdown('Almoço', items, 470, 1230, 2000)
     expect(result).toContain('•')
   })
+
+  it('shows P/G/C macro line when macros param is provided', () => {
+    const macros = {
+      consumed: { proteinG: 80, fatG: 30, carbsG: 150 },
+      target: { proteinG: 140, fatG: 60, carbsG: 220 },
+    }
+    const result = formatMealBreakdown('Almoço', items, 470, 1230, 2000, macros)
+    expect(result).toContain('P: 80/140g')
+    expect(result).toContain('G: 30/60g')
+    expect(result).toContain('C: 150/220g')
+  })
+
+  it('does NOT show P/G/C macro line when macros param is omitted', () => {
+    const result = formatMealBreakdown('Almoço', items, 470, 1230, 2000)
+    expect(result).not.toContain('P:')
+    expect(result).not.toContain('G:')
+    expect(result).not.toContain('C:')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// formatMultiMealBreakdown
+// ---------------------------------------------------------------------------
+describe('formatMultiMealBreakdown', () => {
+  const meals = [
+    {
+      mealType: 'lunch',
+      items: [
+        { food: 'Arroz branco', quantityGrams: 150, calories: 195 },
+        { food: 'Feijão carioca', quantityGrams: 100, calories: 77 },
+      ],
+      total: 272,
+    },
+    {
+      mealType: 'dinner',
+      items: [
+        { food: 'Frango grelhado', quantityGrams: 120, calories: 198 },
+      ],
+      total: 198,
+    },
+  ]
+
+  it('shows P/G/C macro line when macros param is provided', () => {
+    const macros = {
+      consumed: { proteinG: 80, fatG: 30, carbsG: 150 },
+      target: { proteinG: 140, fatG: 60, carbsG: 220 },
+    }
+    const result = formatMultiMealBreakdown(meals, 1230, 2000, macros)
+    expect(result).toContain('P: 80/140g')
+    expect(result).toContain('G: 30/60g')
+    expect(result).toContain('C: 150/220g')
+  })
+
+  it('does NOT show P/G/C macro line when macros param is omitted', () => {
+    const result = formatMultiMealBreakdown(meals, 1230, 2000)
+    expect(result).not.toContain('P:')
+    expect(result).not.toContain('G:')
+    expect(result).not.toContain('C:')
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -149,6 +209,21 @@ describe('formatDailySummary', () => {
     expect(result).toContain('500 kcal')
     expect(result).toContain('150 kcal')
     expect(result).toContain('400 kcal')
+  })
+
+  it('shows P/G/C macro line when macros are provided', () => {
+    const result = formatDailySummary('21/03', meals, 830, 2000, {
+      consumed: { proteinG: 45, fatG: 20, carbsG: 110 },
+      target: { proteinG: 150, fatG: 65, carbsG: 250 },
+    })
+    expect(result).toContain('P: 45/150g | G: 20/65g | C: 110/250g')
+  })
+
+  it('does not show P/G/C macro line when macros are not provided', () => {
+    const result = formatDailySummary('21/03', meals, 830, 2000)
+    expect(result).not.toContain('P:')
+    expect(result).not.toContain('G:')
+    expect(result).not.toContain('C:')
   })
 })
 

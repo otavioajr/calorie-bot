@@ -48,6 +48,10 @@ export function formatMealBreakdown(
   total: number,
   dailyConsumed: number,
   dailyTarget: number,
+  macros?: {
+    consumed: { proteinG: number; fatG: number; carbsG: number }
+    target: { proteinG: number; fatG: number; carbsG: number }
+  },
 ): string {
   const itemLines = items
     .map((item) => {
@@ -58,7 +62,7 @@ export function formatMealBreakdown(
     })
     .join('\n')
 
-  const progressLine = formatProgress(dailyConsumed, dailyTarget)
+  const progressLine = formatProgress(dailyConsumed, dailyTarget, macros)
 
   const lowConfItems = items.filter(i => i.confidence === 'low')
   const lowConfNotice = lowConfItems.length > 0
@@ -90,6 +94,10 @@ export function formatMultiMealBreakdown(
   }>,
   dailyConsumed: number,
   dailyTarget: number,
+  macros?: {
+    consumed: { proteinG: number; fatG: number; carbsG: number }
+    target: { proteinG: number; fatG: number; carbsG: number }
+  },
 ): string {
   const sections = meals.map((meal) => {
     const itemLines = meal.items
@@ -105,7 +113,7 @@ export function formatMultiMealBreakdown(
   })
 
   const grandTotal = meals.reduce((sum, meal) => sum + meal.total, 0)
-  const progressLine = formatProgress(dailyConsumed, dailyTarget)
+  const progressLine = formatProgress(dailyConsumed, dailyTarget, macros)
 
   return [
     ...sections,
@@ -126,6 +134,10 @@ export function formatDailySummary(
   meals: DailyMealSummary,
   consumed: number,
   target: number,
+  macros?: {
+    consumed: { proteinG: number; fatG: number; carbsG: number }
+    target: { proteinG: number; fatG: number; carbsG: number }
+  },
 ): string {
   const notRegistered = '— (não registrado)'
 
@@ -145,7 +157,7 @@ export function formatDailySummary(
 
   const remaining = target - consumed
 
-  return [
+  const lines = [
     `📊 Resumo de hoje (${date}):`,
     '',
     breakfastLine,
@@ -155,7 +167,15 @@ export function formatDailySummary(
     '',
     `Total: ${consumed} / ${target} kcal`,
     `Restam: ${remaining} kcal`,
-  ].join('\n')
+  ]
+
+  if (macros) {
+    lines.push(
+      `P: ${macros.consumed.proteinG}/${macros.target.proteinG}g | G: ${macros.consumed.fatG}/${macros.target.fatG}g | C: ${macros.consumed.carbsG}/${macros.target.carbsG}g`,
+    )
+  }
+
+  return lines.join('\n')
 }
 
 // ---------------------------------------------------------------------------
