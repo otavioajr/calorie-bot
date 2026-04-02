@@ -14,7 +14,7 @@ import {
 } from '@/lib/db/queries/meals'
 import type { RecentMeal, MealItemDetail } from '@/lib/db/queries/meals'
 import { getLLMProvider } from '@/lib/llm/index'
-import { buildCorrectionPrompt } from '@/lib/llm/prompts/correction'
+import { buildCorrectionPrompt, buildCorrectionPromptWithItems } from '@/lib/llm/prompts/correction'
 import { CorrectionSchema } from '@/lib/llm/schemas/correction'
 import type { Correction } from '@/lib/llm/schemas/correction'
 import { formatProgress } from '@/lib/utils/formatters'
@@ -28,11 +28,11 @@ const CORRECTION_PATTERN = /^corrigir$/i
 const CONFIRM_PATTERN = /^(sim|s|ok|confirma)$/i
 const REJECT_PATTERN = /^(não|nao|n|cancelar|cancela)$/i
 
-// Quote-based correction patterns
-const QUOTE_DELETE_NO_ITEM = /^(apaga|remove|exclui|deleta)r?$/i
-const QUOTE_DELETE_ITEM = /(?:apaga|remove|exclui|deleta)r?\s+(?:o\s+|a\s+)?(.+)/i
-const QUOTE_RENAME = /(?:era|na verdade era|na real era|na real é|é|eh)\s+(.+?)(?:\s*,?\s*(?:não|nao|e não|e nao)\s+(.+))?$/i
+// Quote-based correction patterns (order matters: delete → quantity → rename → LLM fallback)
+const QUOTE_DELETE_NO_ITEM = /^(apaga|remove|exclui|deleta|tira|cancela)r?(\s+tudo)?$/i
+const QUOTE_DELETE_ITEM = /(?:apaga|remove|exclui|deleta|tira)r?\s+(?:o\s+|a\s+)?(.+)/i
 const QUOTE_QUANTITY = /(?:era|eram|foi|na verdade)\s+(\d+(?:[.,]\d+)?)\s*(?:g|gramas?|ml)?\s*(?:de\s+(.+))?$/i
+const QUOTE_RENAME = /(?:^era|^na verdade era|^na real era)\s+(?!\d)(.+?)(?:\s*,?\s*(?:não|nao|e não|e nao)\s+(.+))?$/i
 
 // ---------------------------------------------------------------------------
 // Meal type display labels
@@ -332,8 +332,11 @@ async function handleNaturalLanguageCorrectionWithMeal(
 
   let correction: Correction
   try {
+    const prompt = items.length > 0
+      ? buildCorrectionPromptWithItems(message, items)
+      : buildCorrectionPrompt(message)
     const raw = await llm.chat(
-      buildCorrectionPrompt(message),
+      prompt,
       'Você analisa intenções de correção de refeições. Responda APENAS com JSON válido.',
       true,
     )
@@ -344,10 +347,18 @@ async function handleNaturalLanguageCorrectionWithMeal(
   }
 
   const targetItem = correction.target_food
-    ? items.find(i => i.foodName.toLowerCase().includes(correction.target_food!.toLowerCase()))
+    ? findItemByFoodName(items, correction.target_food)
     : null
 
   switch (correction.action) {
+    case 'replace_item': {
+      if (!targetItem || !correction.new_food) {
+        await clearState(userId)
+        return 'Não entendi qual item trocar. Tenta "corrigir" pro menu guiado.'
+      }
+      return renameItem(supabase, userId, mealId, targetItem, correction.new_food, user)
+    }
+
     case 'remove_item': {
       if (!targetItem) {
         await clearState(userId)
@@ -437,10 +448,10 @@ async function handleNaturalLanguageCorrectionWithMeal(
 // Quote-based correction flow
 // ---------------------------------------------------------------------------
 
-function findItemByFoodName(
-  items: MealItemDetail[],
+function findItemByFoodName<T extends { foodName: string }>(
+  items: T[],
   name: string,
-): MealItemDetail | undefined {
+): T | undefined {
   const normalize = (s: string) =>
     s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
   const target = normalize(name)
@@ -455,7 +466,7 @@ async function renameItem(
   supabase: SupabaseClient,
   userId: string,
   mealId: string,
-  targetItem: { id: string; foodName: string; quantityGrams: number; calories: number; proteinG: number; carbsG: number; fatG: number },
+  targetItem: { id: string; foodName: string; quantityGrams: number; calories: number; proteinG?: number; carbsG?: number; fatG?: number },
   newFoodName: string,
   user?: { timezone?: string; dailyCalorieTarget?: number | null },
 ): Promise<string> {
@@ -543,35 +554,7 @@ async function handleQuotedEdit(
     return `✅ ${targetItem.foodName} removido! Novo total: ${newTotal} kcal\n${formatProgress(dailyConsumed, target)}`
   }
 
-  // Rename food item ("era quinoa, não arroz" or "era quinoa")
-  const renameMatch = QUOTE_RENAME.exec(message)
-  if (renameMatch) {
-    const newFood = renameMatch[1].trim()
-    const oldFood = renameMatch[2]?.trim()
-
-    let targetItem: typeof meal.items[0] | undefined
-
-    if (oldFood) {
-      targetItem = findItemByFoodName(meal.items, oldFood)
-    } else if (meal.items.length === 1) {
-      targetItem = meal.items[0]
-    }
-
-    if (!targetItem) {
-      const itemList = meal.items.map(i => i.foodName).join(', ')
-      await setState(userId, 'awaiting_correction_item', {
-        mealId: quoteContext.resourceId,
-        mealType: meal.mealType,
-        items: meal.items as unknown as Record<string, unknown>[],
-        renameTarget: newFood,
-      })
-      return `Não encontrei *${oldFood || 'o item'}* nessa refeição. Os itens são: ${itemList}. Qual você quer corrigir?`
-    }
-
-    return renameItem(supabase, userId, quoteContext.resourceId, targetItem, newFood, user)
-  }
-
-  // Quantity correction ("era 200g" or "era 200g de arroz")
+  // Quantity correction ("era 200g" or "era 200g de arroz") — checked BEFORE rename
   const qtyMatch = QUOTE_QUANTITY.exec(message)
   if (qtyMatch) {
     const newGrams = parseFloat(qtyMatch[1].replace(',', '.'))
@@ -612,7 +595,35 @@ async function handleQuotedEdit(
     return `✅ ${targetItem.foodName} atualizado: ${targetItem.quantityGrams}g → ${newGrams}g (${targetItem.calories} → ${newCalories} kcal)\n${formatProgress(dailyConsumed, target)}`
   }
 
-  // Fall through to natural language correction scoped to the quoted meal
+  // Rename food item ("era quinoa, não arroz" or "era quinoa") — only unambiguous "era" triggers
+  const renameMatch = QUOTE_RENAME.exec(message)
+  if (renameMatch) {
+    const newFood = renameMatch[1].trim()
+    const oldFood = renameMatch[2]?.trim()
+
+    let targetItem: typeof meal.items[0] | undefined
+
+    if (oldFood) {
+      targetItem = findItemByFoodName(meal.items, oldFood)
+    } else if (meal.items.length === 1) {
+      targetItem = meal.items[0]
+    }
+
+    if (!targetItem) {
+      const itemList = meal.items.map(i => i.foodName).join(', ')
+      await setState(userId, 'awaiting_correction_item', {
+        mealId: quoteContext.resourceId,
+        mealType: meal.mealType,
+        items: meal.items as unknown as Record<string, unknown>[],
+        renameTarget: newFood,
+      })
+      return `Não encontrei *${oldFood || 'o item'}* nessa refeição. Os itens são: ${itemList}. Qual você quer corrigir?`
+    }
+
+    return renameItem(supabase, userId, quoteContext.resourceId, targetItem, newFood, user)
+  }
+
+  // Fall through to natural language correction (LLM with meal items context)
   return handleNaturalLanguageCorrectionWithMeal(supabase, userId, message, quoteContext.resourceId, meal.items, user)
 }
 
