@@ -24,6 +24,7 @@ import { saveMessage } from '@/lib/db/queries/message-history'
 import { resolveQuote } from '@/lib/bot/quote'
 import type { QuoteContext } from '@/lib/bot/quote'
 import { saveBotMessage } from '@/lib/db/queries/bot-messages'
+import { extractLabelPortionsFromCaption } from '@/lib/bot/label-portions'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ImageAnalysis } from '@/lib/llm/schemas/image-analysis'
 import type { MealAnalysis } from '@/lib/llm/schemas/meal-analysis'
@@ -562,7 +563,31 @@ export async function handleIncomingImage(
       needs_clarification: false,
     }
 
+    const labelPortionsFromCaption = extractLabelPortionsFromCaption(caption)
+
     if (imageResult.image_type === 'nutrition_label') {
+      if (labelPortionsFromCaption !== null) {
+        await handleLabelPortions(
+          supabase,
+          from,
+          user.id,
+          messageId,
+          String(labelPortionsFromCaption),
+          {
+            contextData: {
+              mealAnalysis: mealAnalysis as unknown as Record<string, unknown>,
+              originalMessage: caption || '[imagem]',
+            },
+          },
+          {
+            calorieMode: user.calorieMode,
+            dailyCalorieTarget: user.dailyCalorieTarget,
+            timezone: user.timezone,
+          },
+        )
+        return
+      }
+
       const item = mealAnalysis.items[0]
       const labelMsg = [
         '📋 Tabela nutricional detectada!',
@@ -655,7 +680,7 @@ async function handleLabelPortions(
   userId: string,
   incomingMessageId: string,
   message: string,
-  context: ConversationContext,
+  context: Pick<ConversationContext, 'contextData'>,
   user: { calorieMode: string; dailyCalorieTarget: number | null; timezone?: string },
 ): Promise<void> {
   const portions = parseFloat(message.trim().replace(',', '.'))

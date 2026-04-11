@@ -1055,6 +1055,39 @@ describe('handleIncomingImage', () => {
     )
   })
 
+  it('registers nutrition label immediately when caption already includes portions', async () => {
+    mockAnalyzeImage.mockResolvedValue({
+      image_type: 'nutrition_label',
+      meal_type: 'breakfast',
+      confidence: 'high',
+      items: [{ food: 'Pré-treino', quantity_grams: 7.5, calories: 13, protein: 0, carbs: 0.9, fat: 0 }],
+      unknown_items: [],
+      needs_clarification: false,
+    })
+
+    await handleIncomingImage(FROM, MESSAGE_ID, IMAGE_ID, 'café da manhã 1 dose')
+
+    expect(mockSetState).not.toHaveBeenCalled()
+    expect(mockFormatMealBreakdown).toHaveBeenCalledWith(
+      'breakfast',
+      expect.arrayContaining([
+        expect.objectContaining({
+          food: 'Pré-treino',
+          quantityGrams: 7.5,
+          calories: 13,
+        }),
+      ]),
+      13,
+      expect.any(Number),
+      expect.any(Number),
+    )
+    expect(mockSendTextMessage).not.toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('Quantas porções'),
+    )
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal breakdown message')
+  })
+
   it('handles MediaTooLargeError gracefully', async () => {
     mockDownloadImageMedia.mockRejectedValue(new MediaTooLargeError(6_000_000, 5_242_880))
 
@@ -1295,12 +1328,11 @@ describe('handleIncomingMessage — recent_meal context', () => {
       type: 'correction',
       corrected_message: 'corrigir o magic toast para 93kcal',
     }))
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mockGetLLMProvider.mockReturnValue({
       classifyIntent: mockClassifyIntent,
       analyzeImage: mockAnalyzeImage,
       chat: mockChat,
-    } as any)
+    })
 
     mockHandleEdit.mockResolvedValue('✅ Magic Toast: 120 → 93 kcal')
 
@@ -1334,12 +1366,11 @@ describe('handleIncomingMessage — recent_meal context', () => {
     })
 
     const mockChat = vi.fn().mockResolvedValue(JSON.stringify({ type: 'other' }))
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mockGetLLMProvider.mockReturnValue({
       classifyIntent: mockClassifyIntent,
       analyzeImage: mockAnalyzeImage,
       chat: mockChat,
-    } as any)
+    })
 
     mockClassifyByRules.mockReturnValue('meal_log')
     mockHandleMealLog.mockResolvedValue({ response: 'Refeição registrada!', completed: true })
@@ -1368,12 +1399,11 @@ describe('handleIncomingMessage — recent_meal context', () => {
     })
 
     const mockChat = vi.fn().mockResolvedValue(JSON.stringify({ type: 'confirmation' }))
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mockGetLLMProvider.mockReturnValue({
       classifyIntent: mockClassifyIntent,
       analyzeImage: mockAnalyzeImage,
       chat: mockChat,
-    } as any)
+    })
 
     await handleIncomingMessage('+5511999999999', 'msg-1', 'Café é só isso')
 
