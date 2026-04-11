@@ -27,6 +27,7 @@ describe('ImageAnalysisSchema', () => {
         food: 'Granola',
         quantity_grams: 40,
         nutrition_basis_grams: 30,
+        nutrition_basis_calories: 120,
         calories: 180,
         protein: 4,
         carbs: 28,
@@ -39,6 +40,7 @@ describe('ImageAnalysisSchema', () => {
       expect(result.data.image_type).toBe('nutrition_label')
       expect(result.data.meal_type).toBeUndefined()
       expect(result.data.items[0].nutrition_basis_grams).toBe(30)
+      expect(result.data.items[0].nutrition_basis_calories).toBe(120)
     }
   })
 

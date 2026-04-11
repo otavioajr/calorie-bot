@@ -14,8 +14,17 @@ SE COMIDA:
 SE TABELA NUTRICIONAL:
 1. Extraia o peso da porção real do produto em gramas e preencha em "quantity_grams"
 2. Se a tabela mostrar calorias/macros para outra base em gramas diferente da porção real (ex: coluna 5g mas porção 7,5g), preencha essa base em "nutrition_basis_grams"
-3. Retorne calorias e macros exatamente como aparecem na tabela para "nutrition_basis_grams"
-4. Use o nome do produto como nome do item (se visível)
+3. Quando existir essa diferença, também preencha os valores crus visíveis da tabela em "nutrition_basis_calories", "nutrition_basis_protein", "nutrition_basis_carbs" e "nutrition_basis_fat"
+4. Se você também conseguir calcular os valores da porção real, pode preencher "calories", "protein", "carbs" e "fat", mas os campos "nutrition_basis_*" devem refletir EXATAMENTE a tabela
+5. Use o nome do produto como nome do item (se visível)
+
+EXEMPLO OBRIGATÓRIO:
+- Se a embalagem diz porção 7,5g e a coluna nutricional mostrada está em 5g com 13 kcal e 0,9g de carboidratos:
+  - "quantity_grams": 7.5
+  - "nutrition_basis_grams": 5
+  - "nutrition_basis_calories": 13
+  - "nutrition_basis_carbs": 0.9
+  - NÃO invente outro valor para os campos "nutrition_basis_*"
 
 REGRAS ABSOLUTAS:
 - Responda APENAS em JSON no formato especificado
@@ -34,6 +43,10 @@ FORMATO DE RESPOSTA (JSON):
       "food": "nome do alimento",
       "quantity_grams": 100,
       "nutrition_basis_grams": 100,
+      "nutrition_basis_calories": 200,
+      "nutrition_basis_protein": 10.0,
+      "nutrition_basis_carbs": 25.0,
+      "nutrition_basis_fat": 5.0,
       "quantity_source": "estimated",
       "calories": 200,
       "protein": 10.0,

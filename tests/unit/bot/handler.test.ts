@@ -1251,6 +1251,49 @@ describe('handleIncomingMessage — awaiting_label_portions context', () => {
     )
   })
 
+  it('uses explicit basis nutrition values when the extracted serving values are already scaled', async () => {
+    mockGetState.mockResolvedValue({
+      contextType: 'awaiting_label_portions',
+      contextData: {
+        mealAnalysis: {
+          meal_type: 'breakfast',
+          confidence: 'high',
+          items: [{
+            food: 'Pré-treino',
+            quantity_grams: 7.5,
+            nutrition_basis_grams: 5,
+            nutrition_basis_calories: 13,
+            nutrition_basis_protein: 0,
+            nutrition_basis_carbs: 0.9,
+            nutrition_basis_fat: 0,
+            calories: 19,
+            protein: 0,
+            carbs: 1.4,
+            fat: 0,
+          }],
+          unknown_items: [],
+          needs_clarification: false,
+        },
+        originalMessage: '[imagem]',
+      },
+    })
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, '1')
+
+    expect(mockFormatMealBreakdown).toHaveBeenCalledWith(
+      'breakfast',
+      expect.arrayContaining([
+        expect.objectContaining({
+          quantityGrams: 7.5,
+          calories: 19,
+        }),
+      ]),
+      19,
+      expect.any(Number),
+      expect.any(Number),
+    )
+  })
+
   it('handles decimal portions like "1.5"', async () => {
     await handleIncomingMessage(FROM, MESSAGE_ID, '1.5')
 
