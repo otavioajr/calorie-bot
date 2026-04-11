@@ -1,0 +1,8 @@
+[mcp_servers.vercel]
+url = "https://mcp.vercel.com"
+
+[mcp_servers.supabase]
+url = "https://mcp.supabase.com/mcp?project_ref=xnxcvsmtgfuuepantske"
+
+[features]
+rmcp_client = true
