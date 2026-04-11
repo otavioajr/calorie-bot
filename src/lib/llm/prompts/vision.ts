@@ -12,9 +12,10 @@ SE COMIDA:
 4. Se houver texto/caption do usuário, use como contexto adicional
 
 SE TABELA NUTRICIONAL:
-1. Extraia os dados por porção
-2. Retorne como um único item com os valores da tabela
-3. Use o nome do produto como nome do item (se visível)
+1. Extraia o peso da porção real do produto em gramas e preencha em "quantity_grams"
+2. Se a tabela mostrar calorias/macros para outra base em gramas diferente da porção real (ex: coluna 5g mas porção 7,5g), preencha essa base em "nutrition_basis_grams"
+3. Retorne calorias e macros exatamente como aparecem na tabela para "nutrition_basis_grams"
+4. Use o nome do produto como nome do item (se visível)
 
 REGRAS ABSOLUTAS:
 - Responda APENAS em JSON no formato especificado
@@ -32,6 +33,7 @@ FORMATO DE RESPOSTA (JSON):
     {
       "food": "nome do alimento",
       "quantity_grams": 100,
+      "nutrition_basis_grams": 100,
       "quantity_source": "estimated",
       "calories": 200,
       "protein": 10.0,

@@ -6,6 +6,7 @@ import { MealTypeSchema, ConfidenceSchema } from './common'
 const ImageMealItemSchema = z.object({
   food: z.string().catch('Alimento não identificado'),
   quantity_grams: z.coerce.number().nonnegative().catch(0),
+  nutrition_basis_grams: z.coerce.number().positive().nullable().optional().default(null),
   quantity_display: z.string().nullable().optional().default(null),
   quantity_source: z.enum(['estimated', 'user_provided']).catch('estimated'),
   calories: z.coerce.number().nonnegative().nullable().catch(null),

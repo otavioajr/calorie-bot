@@ -23,13 +23,22 @@ describe('ImageAnalysisSchema', () => {
     const input = {
       image_type: 'nutrition_label',
       confidence: 'high',
-      items: [{ food: 'Granola', quantity_grams: 40, calories: 180, protein: 4, carbs: 28, fat: 6 }],
+      items: [{
+        food: 'Granola',
+        quantity_grams: 40,
+        nutrition_basis_grams: 30,
+        calories: 180,
+        protein: 4,
+        carbs: 28,
+        fat: 6,
+      }],
     }
     const result = ImageAnalysisSchema.safeParse(input)
     expect(result.success).toBe(true)
     if (result.success) {
       expect(result.data.image_type).toBe('nutrition_label')
       expect(result.data.meal_type).toBeUndefined()
+      expect(result.data.items[0].nutrition_basis_grams).toBe(30)
     }
   })
 

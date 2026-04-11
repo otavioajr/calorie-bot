@@ -1060,7 +1060,15 @@ describe('handleIncomingImage', () => {
       image_type: 'nutrition_label',
       meal_type: 'breakfast',
       confidence: 'high',
-      items: [{ food: 'Pré-treino', quantity_grams: 7.5, calories: 13, protein: 0, carbs: 0.9, fat: 0 }],
+      items: [{
+        food: 'Pré-treino',
+        quantity_grams: 7.5,
+        nutrition_basis_grams: 5,
+        calories: 13,
+        protein: 0,
+        carbs: 0.9,
+        fat: 0,
+      }],
       unknown_items: [],
       needs_clarification: false,
     })
@@ -1074,10 +1082,10 @@ describe('handleIncomingImage', () => {
         expect.objectContaining({
           food: 'Pré-treino',
           quantityGrams: 7.5,
-          calories: 13,
+          calories: 19,
         }),
       ]),
-      13,
+      19,
       expect.any(Number),
       expect.any(Number),
     )
@@ -1202,6 +1210,45 @@ describe('handleIncomingMessage — awaiting_label_portions context', () => {
       expect.any(Number),
     )
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal breakdown message')
+  })
+
+  it('rescales label nutrition when basis grams differ from serving grams', async () => {
+    mockGetState.mockResolvedValue({
+      contextType: 'awaiting_label_portions',
+      contextData: {
+        mealAnalysis: {
+          meal_type: 'breakfast',
+          confidence: 'high',
+          items: [{
+            food: 'Pré-treino',
+            quantity_grams: 7.5,
+            nutrition_basis_grams: 5,
+            calories: 13,
+            protein: 0,
+            carbs: 0.9,
+            fat: 0,
+          }],
+          unknown_items: [],
+          needs_clarification: false,
+        },
+        originalMessage: '[imagem]',
+      },
+    })
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, '2')
+
+    expect(mockFormatMealBreakdown).toHaveBeenCalledWith(
+      'breakfast',
+      expect.arrayContaining([
+        expect.objectContaining({
+          quantityGrams: 15,
+          calories: 39,
+        }),
+      ]),
+      39,
+      expect.any(Number),
+      expect.any(Number),
+    )
   })
 
   it('handles decimal portions like "1.5"', async () => {

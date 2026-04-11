@@ -155,4 +155,9 @@ describe('buildVisionPrompt', () => {
     expect(prompt).toContain('JSON')
     expect(prompt).toContain('image_type')
   })
+
+  it('includes nutrition basis grams for labels with mismatched columns', () => {
+    const prompt = buildVisionPrompt()
+    expect(prompt).toContain('nutrition_basis_grams')
+  })
 })

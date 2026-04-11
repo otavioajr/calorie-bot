@@ -25,6 +25,7 @@ import { resolveQuote } from '@/lib/bot/quote'
 import type { QuoteContext } from '@/lib/bot/quote'
 import { saveBotMessage } from '@/lib/db/queries/bot-messages'
 import { extractLabelPortionsFromCaption } from '@/lib/bot/label-portions'
+import { scaleNutritionLabelItem } from '@/lib/bot/nutrition-label'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ImageAnalysis } from '@/lib/llm/schemas/image-analysis'
 import type { MealAnalysis } from '@/lib/llm/schemas/meal-analysis'
@@ -566,6 +567,8 @@ export async function handleIncomingImage(
     const labelPortionsFromCaption = extractLabelPortionsFromCaption(caption)
 
     if (imageResult.image_type === 'nutrition_label') {
+      const previewItem = scaleNutritionLabelItem(mealAnalysis.items[0])
+
       if (labelPortionsFromCaption !== null) {
         await handleLabelPortions(
           supabase,
@@ -589,11 +592,11 @@ export async function handleIncomingImage(
       }
 
       const item = mealAnalysis.items[0]
-      const labelMsg = [
+  const labelMsg = [
         '📋 Tabela nutricional detectada!',
         '',
-        `• ${item.food} (porção ${item.quantity_grams ?? 0}g) — ${Math.round(item.calories ?? 0)} kcal`,
-        `  P: ${item.protein ?? 0}g | C: ${item.carbs ?? 0}g | G: ${item.fat ?? 0}g`,
+        `• ${item.food} (porção ${previewItem.quantity_grams ?? 0}g) — ${previewItem.calories ?? 0} kcal`,
+        `  P: ${previewItem.protein ?? 0}g | C: ${previewItem.carbs ?? 0}g | G: ${previewItem.fat ?? 0}g`,
         '',
         'Quantas porções você comeu? Responda com o número para eu registrar.',
       ].join('\n')
@@ -692,21 +695,14 @@ async function handleLabelPortions(
 
   const mealAnalysis = context.contextData.mealAnalysis as unknown as MealAnalysis
 
-  const multipliedItems = mealAnalysis.items.map((item) => ({
-    ...item,
-    quantity_grams: Math.round((item.quantity_grams ?? 0) * portions * 10) / 10,
-    calories: Math.round((item.calories ?? 0) * portions),
-    protein: Math.round((item.protein ?? 0) * portions * 10) / 10,
-    carbs: Math.round((item.carbs ?? 0) * portions * 10) / 10,
-    fat: Math.round((item.fat ?? 0) * portions * 10) / 10,
-  }))
+  const multipliedItems = mealAnalysis.items.map((item) => scaleNutritionLabelItem(item, portions))
 
   const multipliedAnalysis: MealAnalysis = {
     ...mealAnalysis,
     items: multipliedItems,
   }
 
-  const total = Math.round(multipliedItems.reduce((sum, item) => sum + item.calories, 0))
+  const total = multipliedItems.reduce((sum, item) => sum + (item.calories ?? 0), 0)
   const originalMessage = (context.contextData.originalMessage as string) || '[imagem]'
 
   // Save meal to database BEFORE showing confirmation
@@ -718,8 +714,8 @@ async function handleLabelPortions(
     llmResponse: multipliedAnalysis as unknown as Record<string, unknown>,
     items: multipliedItems.map((item) => ({
       foodName: item.food,
-      quantityGrams: item.quantity_grams,
-      calories: item.calories,
+      quantityGrams: item.quantity_grams ?? 0,
+      calories: item.calories ?? 0,
       proteinG: item.protein ?? 0,
       carbsG: item.carbs ?? 0,
       fatG: item.fat ?? 0,
@@ -755,8 +751,8 @@ async function handleLabelPortions(
     multipliedAnalysis.meal_type,
     multipliedItems.map((item) => ({
       food: item.food,
-      quantityGrams: item.quantity_grams,
-      calories: item.calories,
+      quantityGrams: item.quantity_grams ?? 0,
+      calories: item.calories ?? 0,
     })),
     total,
     dailyConsumed,
