@@ -489,6 +489,19 @@ export async function updateMealItem(
   if (error) throw new Error(`Failed to update meal item: ${error.message}`)
 }
 
+export async function updateMealType(
+  supabase: SupabaseClient,
+  mealId: string,
+  mealType: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from('meals')
+    .update({ meal_type: mealType })
+    .eq('id', mealId)
+
+  if (error) throw new Error(`Failed to update meal type: ${error.message}`)
+}
+
 export async function removeMealItem(
   supabase: SupabaseClient,
   itemId: string,

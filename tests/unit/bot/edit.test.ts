@@ -16,6 +16,7 @@ const {
   mockRemoveMealItem,
   mockRecalculateMealTotal,
   mockGetDailyCalories,
+  mockUpdateMealType,
   mockLLMChat,
   mockAnalyzeMeal,
 } = vi.hoisted(() => {
@@ -30,6 +31,7 @@ const {
     mockRemoveMealItem: vi.fn().mockResolvedValue(undefined),
     mockRecalculateMealTotal: vi.fn().mockResolvedValue(500),
     mockGetDailyCalories: vi.fn().mockResolvedValue(1200),
+    mockUpdateMealType: vi.fn().mockResolvedValue(undefined),
     mockLLMChat: vi.fn(),
     mockAnalyzeMeal: vi.fn(),
   }
@@ -44,6 +46,7 @@ vi.mock('@/lib/db/queries/meals', () => ({
   removeMealItem: mockRemoveMealItem,
   recalculateMealTotal: mockRecalculateMealTotal,
   getDailyCalories: mockGetDailyCalories,
+  updateMealType: mockUpdateMealType,
 }))
 
 vi.mock('@/lib/bot/state', () => ({
@@ -94,20 +97,6 @@ function buildConfirmDeleteContext(mealId: string = 'meal-id-1'): ConversationCo
       mealId,
       mealType: 'lunch',
       totalCalories: 800,
-    },
-    expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-    createdAt: new Date().toISOString(),
-  }
-}
-
-function buildCorrectionContext(): ConversationContext {
-  return {
-    id: 'ctx-2',
-    userId: USER_ID,
-    contextType: 'awaiting_correction',
-    contextData: {
-      action: 'select_meal',
-      meals: mockRecentMeals,
     },
     expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
     createdAt: new Date().toISOString(),
@@ -308,6 +297,52 @@ describe('handleEdit with quoteContext', () => {
       helpQuote,
     )
     expect(result).toContain('não consigo')
+  })
+
+  it('moves the whole quoted meal to another meal type', async () => {
+    mockLLMChat.mockResolvedValue(JSON.stringify({
+      action: 'change_meal_type',
+      target_meal_type: 'breakfast',
+      target_food: null,
+      new_quantity: null,
+      new_food: null,
+      new_value: null,
+      confidence: 'high',
+    }))
+
+    const result = await handleEdit(
+      buildSupabase(), USER_ID, 'trocar para o café da manhã', null,
+      { timezone: 'America/Sao_Paulo', dailyCalorieTarget: 2000 },
+      quoteContext,
+    )
+
+    expect(mockUpdateMealType).toHaveBeenCalledWith(expect.anything(), 'meal-quote-1', 'breakfast')
+    expect(mockRemoveMealItem).not.toHaveBeenCalled()
+    expect(mockUpdateMealItem).not.toHaveBeenCalled()
+    expect(result).toContain('Almoço')
+    expect(result).toContain('Café da manhã')
+  })
+
+  it('returns already-in-type message when quoted meal already has target meal type', async () => {
+    mockLLMChat.mockResolvedValue(JSON.stringify({
+      action: 'change_meal_type',
+      target_meal_type: 'lunch',
+      target_food: null,
+      new_quantity: null,
+      new_food: null,
+      new_value: null,
+      confidence: 'high',
+    }))
+
+    const result = await handleEdit(
+      buildSupabase(), USER_ID, 'isso era almoço', null,
+      { timezone: 'America/Sao_Paulo', dailyCalorieTarget: 2000 },
+      quoteContext,
+    )
+
+    expect(mockUpdateMealType).not.toHaveBeenCalled()
+    expect(result).toContain('já está')
+    expect(result).toContain('Almoço')
   })
 })
 

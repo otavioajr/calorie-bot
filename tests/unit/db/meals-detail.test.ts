@@ -210,3 +210,20 @@ describe('getMealDetailByType', () => {
     expect(result[0].items[0].quantityDisplay).toBeNull()
   })
 })
+
+describe('updateMealType', () => {
+  it('updates meals.meal_type for the target meal', async () => {
+    const { updateMealType } = await import('@/lib/db/queries/meals')
+
+    const eq = vi.fn().mockResolvedValue({ error: null })
+    const update = vi.fn(() => ({ eq }))
+    const from = vi.fn(() => ({ update }))
+    const supabase = { from }
+
+    await updateMealType(supabase as never, 'meal-1', 'breakfast')
+
+    expect(from).toHaveBeenCalledWith('meals')
+    expect(update).toHaveBeenCalledWith({ meal_type: 'breakfast' })
+    expect(eq).toHaveBeenCalledWith('id', 'meal-1')
+  })
+})

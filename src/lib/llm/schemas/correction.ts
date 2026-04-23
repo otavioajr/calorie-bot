@@ -6,6 +6,7 @@ export const CorrectionActionSchema = z.enum([
   'remove_item',
   'add_item',
   'replace_item',
+  'change_meal_type',
   'delete_meal',
 ])
 

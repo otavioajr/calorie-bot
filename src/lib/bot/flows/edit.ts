@@ -8,11 +8,12 @@ import {
   getRecentMeals,
   getMealWithItems,
   updateMealItem,
+  updateMealType,
   removeMealItem,
   recalculateMealTotal,
   getDailyCalories,
 } from '@/lib/db/queries/meals'
-import type { RecentMeal, MealItemDetail } from '@/lib/db/queries/meals'
+import type { RecentMeal } from '@/lib/db/queries/meals'
 import { getLLMProvider } from '@/lib/llm/index'
 import { buildCorrectionPrompt, buildCorrectionPromptWithItems } from '@/lib/llm/prompts/correction'
 import { CorrectionSchema } from '@/lib/llm/schemas/correction'
@@ -72,7 +73,7 @@ export async function handleEdit(
   if (context) {
     switch (context.contextType) {
       case 'awaiting_correction':
-        return handleAwaitingCorrection(supabase, userId, trimmed, context, user)
+        return handleAwaitingCorrection(supabase, userId, trimmed, context)
       case 'awaiting_correction_item':
         return handleAwaitingCorrectionItem(supabase, userId, trimmed, context, user)
       case 'awaiting_correction_value':
@@ -100,7 +101,6 @@ async function handleAwaitingCorrection(
   userId: string,
   message: string,
   context: ConversationContext,
-  user?: { timezone?: string; dailyCalorieTarget?: number | null },
 ): Promise<string> {
   const action = context.contextData.action as string
 
@@ -327,6 +327,7 @@ async function handleNaturalLanguageCorrectionWithMeal(
   mealId: string,
   items: Array<{ id: string; foodName: string; quantityGrams: number; calories: number; proteinG?: number; carbsG?: number; fatG?: number }>,
   user?: { timezone?: string; dailyCalorieTarget?: number | null },
+  options?: { allowMealTypeChange?: boolean; currentMealType?: string },
 ): Promise<string> {
   const llm = getLLMProvider()
 
@@ -357,6 +358,25 @@ async function handleNaturalLanguageCorrectionWithMeal(
         return 'Não entendi qual item trocar. Tenta "corrigir" pro menu guiado.'
       }
       return renameItem(supabase, userId, mealId, targetItem, correction.new_food, user)
+    }
+
+    case 'change_meal_type': {
+      if (!options?.allowMealTypeChange || !options.currentMealType || !correction.target_meal_type) {
+        await clearState(userId)
+        return 'Não entendi a correção. Manda "corrigir" pro menu guiado.'
+      }
+
+      if (correction.target_meal_type === options.currentMealType) {
+        await clearState(userId)
+        return `Essa refeição já está como ${mealLabel(options.currentMealType)}.`
+      }
+
+      await updateMealType(supabase, mealId, correction.target_meal_type)
+      await clearState(userId)
+
+      const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user?.timezone)
+      const target = user?.dailyCalorieTarget ?? 2000
+      return `✅ Refeição movida de ${mealLabel(options.currentMealType)} para ${mealLabel(correction.target_meal_type)}.\n${formatProgress(dailyConsumed, target)}`
     }
 
     case 'remove_item': {
@@ -624,7 +644,15 @@ async function handleQuotedEdit(
   }
 
   // Fall through to natural language correction (LLM with meal items context)
-  return handleNaturalLanguageCorrectionWithMeal(supabase, userId, message, quoteContext.resourceId, meal.items, user)
+  return handleNaturalLanguageCorrectionWithMeal(
+    supabase,
+    userId,
+    message,
+    quoteContext.resourceId,
+    meal.items,
+    user,
+    { allowMealTypeChange: true, currentMealType: meal.mealType },
+  )
 }
 
 // ---------------------------------------------------------------------------
