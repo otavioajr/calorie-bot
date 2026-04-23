@@ -52,6 +52,20 @@ describe('CorrectionSchema', () => {
     })
     expect(result.action).toBe('add_item')
   })
+
+  it('parses change_meal_type action', () => {
+    const result = CorrectionSchema.parse({
+      action: 'change_meal_type',
+      target_meal_type: 'breakfast',
+      target_food: null,
+      new_quantity: null,
+      new_food: null,
+      confidence: 'high',
+    })
+
+    expect(result.action).toBe('change_meal_type')
+    expect(result.target_meal_type).toBe('breakfast')
+  })
 })
 
 describe('CorrectionSchema update_value', () => {

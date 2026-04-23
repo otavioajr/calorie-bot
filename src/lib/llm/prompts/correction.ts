@@ -24,12 +24,15 @@ AÇÕES POSSÍVEIS:
 - "remove_item": remover um item (ex: "tira o queijo", "apaga o arroz")
 - "add_item": adicionar um item que faltou (ex: "faltou o ovo", "esqueci do suco")
 - "replace_item": trocar um alimento por outro (ex: "era quinoa, não arroz", "troca arroz por quinoa")
+- "change_meal_type": mudar a refeição inteira para outro tipo (ex: "trocar para café da manhã", "isso era almoço", "mover pro jantar")
 - "delete_meal": apagar a refeição inteira (ex: "apaga tudo", "deleta essa refeição")
 
 REGRAS CRÍTICAS:
 - Se o usuário menciona "food X é/tem/são N calorias/kcal/cal", isso é SEMPRE "update_value" com field "calories", NUNCA "replace_item"
 - Se o usuário menciona "food X é/tem Ng de proteína/prot", isso é "update_value" com field "protein"
 - Se o usuário menciona "food X é Y" onde Y é outro ALIMENTO (não número), isso é "replace_item"
+- Se o usuário manda mover a refeição para café da manhã/almoço/lanche/jantar/ceia, isso é "change_meal_type", não "replace_item"
+- Para "change_meal_type", use "target_meal_type" com breakfast|lunch|snack|dinner|supper
 - Use os ITENS ATUAIS DA REFEIÇÃO para identificar "target_food" — prefira nomes exatos da lista
 - "target_food": nome do alimento alvo conforme aparece na lista acima
 - "new_quantity": nova quantidade em texto livre. Null se não aplicável.
@@ -39,8 +42,8 @@ REGRAS CRÍTICAS:
 
 Responda SOMENTE com JSON:
 {
-  "action": "update_quantity|update_value|remove_item|add_item|replace_item|delete_meal",
-  "target_meal_type": null,
+  "action": "update_quantity|update_value|remove_item|add_item|replace_item|change_meal_type|delete_meal",
+  "target_meal_type": "breakfast|lunch|snack|dinner|supper|null",
   "target_food": "nome do alimento ou null",
   "new_quantity": "quantidade nova ou null",
   "new_food": "novo alimento ou null",
@@ -60,10 +63,12 @@ AÇÕES POSSÍVEIS:
 - "remove_item": remover um item (ex: "tira o queijo", "remove o suco")
 - "add_item": adicionar um item que faltou (ex: "faltou o suco", "esqueci de colocar a salada")
 - "replace_item": trocar um alimento por outro (ex: "era queijo cottage, não minas")
+- "change_meal_type": mudar a refeição inteira para outro tipo (ex: "trocar para café da manhã", "isso era almoço")
 - "delete_meal": apagar a refeição inteira (ex: "apaga o almoço", "deleta tudo")
 
 REGRAS:
 - "target_meal_type": tipo da refeição alvo (breakfast, lunch, snack, dinner, supper). Se o usuário não especificou, deixe null.
+- Se o usuário estiver mudando a refeição inteira para café da manhã/almoço/lanche/jantar/ceia, use "change_meal_type".
 - "target_food": nome do alimento alvo (o que está no registro atual). Para add_item, é o nome do item a adicionar.
 - "new_quantity": nova quantidade descrita pelo usuário (texto livre, ex: "2 escumadeiras", "200ml"). Null se não aplicável.
 - "new_food": novo alimento (para replace_item). Null se não aplicável.
@@ -74,7 +79,7 @@ REGRAS:
 
 Responda SOMENTE com JSON no formato:
 {
-  "action": "update_quantity|update_value|remove_item|add_item|replace_item|delete_meal",
+  "action": "update_quantity|update_value|remove_item|add_item|replace_item|change_meal_type|delete_meal",
   "target_meal_type": "breakfast|lunch|snack|dinner|supper|null",
   "target_food": "nome do alimento",
   "new_quantity": "quantidade nova ou null",
