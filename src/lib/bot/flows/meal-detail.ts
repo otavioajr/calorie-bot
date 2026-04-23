@@ -23,7 +23,7 @@ const MEAL_TYPE_MAP: Array<{ keywords: string[]; type: string }> = [
   { keywords: ['cafe da manha', 'cafe'], type: 'breakfast' },
   { keywords: ['almoco'], type: 'lunch' },
   { keywords: ['lanche'], type: 'snack' },
-  { keywords: ['jantar', 'janta'], type: 'dinner' },
+  { keywords: ['jantar', 'janta', 'jantei'], type: 'dinner' },
   { keywords: ['ceia'], type: 'supper' },
 ]
 

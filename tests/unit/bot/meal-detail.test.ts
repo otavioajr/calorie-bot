@@ -61,6 +61,10 @@ describe('parseMealType', () => {
     expect(parseMealType('o que comi na janta?')).toBe('dinner')
   })
 
+  it('parses "jantei" as dinner', () => {
+    expect(parseMealType('já jantei hoje?')).toBe('dinner')
+  })
+
   it('parses "ceia" as supper', () => {
     expect(parseMealType('o que comi na ceia?')).toBe('supper')
   })

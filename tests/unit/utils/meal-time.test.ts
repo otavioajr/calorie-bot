@@ -37,13 +37,12 @@ describe('detectExplicitMealType', () => {
     ['jantei pizza', 'dinner'],
     ['minha ceia', 'supper'],
     ['meu lanche da tarde', 'snack'],
-    // Standalone keywords — aligned with parseMealType()
-    ['café 1 dose', 'breakfast'],
+    // Standalone unambiguous keywords
     ['lanche 1,5 doses', 'snack'],
     ['janta agora', 'dinner'],
     ['almoço', 'lunch'],
     ['desjejum leve', 'breakfast'],
-    // "café da manhã" must win over the bare "cafe" fallback
+    // Multi-word wins over partial matches
     ['café da manhã 1 dose', 'breakfast'],
   ])('detects %s', (caption, expected) => {
     expect(detectExplicitMealType(caption)).toBe(expected)
@@ -67,6 +66,14 @@ describe('detectExplicitMealType', () => {
     expect(detectExplicitMealType('foto da lanchonete')).toBeNull()
     // "almoçado" is close to "almoço" but not in the keyword list.
     expect(detectExplicitMealType('comida já almoçada ontem')).toBeNull()
+  })
+
+  it('does not treat bare "café" as an explicit meal marker — time decides instead', () => {
+    // A standalone "café" is ambiguous (morning coffee vs afternoon espresso),
+    // so detection intentionally returns null and lets time-based
+    // classification take over.
+    expect(detectExplicitMealType('tomei um café')).toBeNull()
+    expect(detectExplicitMealType('café 1 dose')).toBeNull()
   })
 })
 

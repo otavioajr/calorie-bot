@@ -28,19 +28,18 @@ export function classifyMealTypeByTime(time: string): MealType {
   return 'supper'
 }
 
-// Keyword → meal_type map aligned with parseMealType() in
-// src/lib/bot/flows/meal-detail.ts so image/text flows agree on what counts as
-// an explicit meal mention. Multi-word phrases are matched first so "café da
-// manhã" wins over the bare "café" entry.
+// Keyword → meal_type map for image captions. Only unambiguous meal mentions
+// are listed here — bare "café" is intentionally excluded because it is often
+// consumed outside breakfast (e.g. espresso after lunch). When the caption
+// lacks an explicit meal name, the caller falls back to the user's local
+// time via classifyMealTypeByTime, which correctly maps a morning "café" to
+// breakfast and an afternoon one to snack.
 const MEAL_KEYWORDS: Array<{ phrases: string[]; mealType: MealType }> = [
   { phrases: ['cafe da manha', 'desjejum'], mealType: 'breakfast' },
   { phrases: ['almoco', 'almocei', 'almocar'], mealType: 'lunch' },
   { phrases: ['lanche da tarde', 'lanche da manha', 'lanche', 'lanchei'], mealType: 'snack' },
   { phrases: ['jantar', 'janta', 'jantei'], mealType: 'dinner' },
   { phrases: ['ceia', 'ceando'], mealType: 'supper' },
-  // Bare "café" maps to breakfast (matches parseMealType). Listed last so it
-  // cannot shadow "café da manhã" above.
-  { phrases: ['cafe'], mealType: 'breakfast' },
 ]
 
 const DIACRITIC_PATTERN = /[̀-ͯ]/g
