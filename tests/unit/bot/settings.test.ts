@@ -363,7 +363,7 @@ describe('handleSettings', () => {
 
     it('executes reset when user confirms with "SIM"', async () => {
       const context = buildResetConfirmationContext()
-      const result = await handleSettings(supabase, USER_ID, 'SIM', mockUser, mockSettings, context)
+      await handleSettings(supabase, USER_ID, 'SIM', mockUser, mockSettings, context)
 
       expect(mockResetUserData).toHaveBeenCalledWith(supabase, USER_ID)
     })

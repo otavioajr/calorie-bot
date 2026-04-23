@@ -93,6 +93,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- 9. Update existing match functions to also return new columns
+DROP FUNCTION IF EXISTS match_taco_food(TEXT, DOUBLE PRECISION);
 CREATE OR REPLACE FUNCTION match_taco_food(query_name TEXT, threshold FLOAT DEFAULT 0.4)
 RETURNS TABLE (
   id INT,
@@ -123,6 +124,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP FUNCTION IF EXISTS match_taco_foods_batch(TEXT[], DOUBLE PRECISION);
 CREATE OR REPLACE FUNCTION match_taco_foods_batch(query_names TEXT[], threshold FLOAT DEFAULT 0.4)
 RETURNS TABLE (
   id INT,
