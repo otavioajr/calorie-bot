@@ -366,6 +366,8 @@ describe('handleSettings', () => {
       const result = await handleSettings(supabase, USER_ID, 'SIM', mockUser, mockSettings, context)
 
       expect(mockResetUserData).toHaveBeenCalledWith(supabase, USER_ID)
+      expect(result).toMatch(/apagados/i)
+      expect(result).toMatch(/recomeçar/i)
     })
 
     it('cancels reset when user sends anything other than "sim"', async () => {
