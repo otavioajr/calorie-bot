@@ -161,4 +161,16 @@ describe('buildVisionPrompt', () => {
     expect(prompt).toContain('nutrition_basis_grams')
     expect(prompt).toContain('nutrition_basis_calories')
   })
+
+  it('omits meal-type time rule when no currentTime is provided', () => {
+    const prompt = buildVisionPrompt()
+    expect(prompt).not.toContain('HORÁRIO ATUAL')
+  })
+
+  it('injects meal-type classification rule when currentTime is provided', () => {
+    const prompt = buildVisionPrompt('07:23')
+    expect(prompt).toContain('HORÁRIO ATUAL DO USUÁRIO: 07:23')
+    expect(prompt).toContain('05:00 a 10:59 → "breakfast"')
+    expect(prompt).toContain('11:00 a 14:59 → "lunch"')
+  })
 })

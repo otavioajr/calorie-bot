@@ -1,4 +1,18 @@
-export function buildVisionPrompt(): string {
+export function buildVisionPrompt(currentTime?: string): string {
+  const timeInstruction = currentTime
+    ? `\nHORÁRIO ATUAL DO USUÁRIO: ${currentTime}
+
+REGRA DE CLASSIFICAÇÃO DE REFEIÇÃO (meal_type):
+- Se a legenda EXPLICITAMENTE mencionar o tipo de refeição (ex: "jantei", "no almoço", "café da manhã", "meu lanche", "ceia"), use o que a legenda disse. Isso tem PRIORIDADE ABSOLUTA.
+- Caso contrário, use o horário atual para classificar:
+  - 05:00 a 10:59 → "breakfast"
+  - 11:00 a 14:59 → "lunch"
+  - 15:00 a 17:59 → "snack"
+  - 18:00 a 21:59 → "dinner"
+  - 22:00 a 04:59 → "supper"
+- NUNCA classifique baseado nos alimentos da imagem. Um pré-treino às 07h é "breakfast", não "snack".`
+    : ''
+
   return `Você é um analisador nutricional visual. Analise a imagem enviada.
 
 PRIMEIRO: Identifique o tipo de imagem:
@@ -24,7 +38,7 @@ EXEMPLO OBRIGATÓRIO:
   - "nutrition_basis_grams": 5
   - "nutrition_basis_calories": 13
   - "nutrition_basis_carbs": 0.9
-  - NÃO invente outro valor para os campos "nutrition_basis_*"
+  - NÃO invente outro valor para os campos "nutrition_basis_*"${timeInstruction}
 
 REGRAS ABSOLUTAS:
 - Responda APENAS em JSON no formato especificado

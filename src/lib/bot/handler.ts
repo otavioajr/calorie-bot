@@ -26,6 +26,7 @@ import type { QuoteContext } from '@/lib/bot/quote'
 import { saveBotMessage } from '@/lib/db/queries/bot-messages'
 import { extractLabelPortionsFromCaption } from '@/lib/bot/label-portions'
 import { scaleNutritionLabelItem } from '@/lib/bot/nutrition-label'
+import { getUserLocalTime, resolveMealTypeFromContext } from '@/lib/utils/meal-time'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ImageAnalysis } from '@/lib/llm/schemas/image-analysis'
 import type { MealAnalysis } from '@/lib/llm/schemas/meal-analysis'
@@ -529,8 +530,10 @@ export async function handleIncomingImage(
 
     const llm = getLLMProvider()
 
+    const currentTime = getUserLocalTime(user.timezone)
+
     const startTime = Date.now()
-    const imageResult: ImageAnalysis = await llm.analyzeImage(dataUrl, caption)
+    const imageResult: ImageAnalysis = await llm.analyzeImage(dataUrl, caption, currentTime)
     const latencyMs = Date.now() - startTime
 
     logLLMUsage(supabase, {
@@ -550,8 +553,10 @@ export async function handleIncomingImage(
       return
     }
 
+    const resolvedMealType = resolveMealTypeFromContext({ caption, currentTime })
+
     const mealAnalysis: MealAnalysis = {
-      meal_type: imageResult.meal_type ?? 'snack',
+      meal_type: resolvedMealType,
       confidence: imageResult.confidence,
       references_previous: false,
       reference_query: null,

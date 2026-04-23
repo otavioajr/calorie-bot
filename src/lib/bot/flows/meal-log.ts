@@ -11,15 +11,7 @@ import type { TacoFood } from '@/lib/db/queries/taco'
 import { sendTextMessage } from '@/lib/whatsapp/client'
 import { searchMealHistory, HistoryMatch } from '@/lib/db/queries/meal-history-search'
 import { normalizeFoodNameForTaco, applySynonyms, tokenMatchScore } from '@/lib/utils/food-normalize'
-
-// ---------------------------------------------------------------------------
-// Time helpers
-// ---------------------------------------------------------------------------
-
-function getUserLocalTime(timezone?: string): string {
-  const tz = timezone || 'America/Sao_Paulo'
-  return new Date().toLocaleTimeString('pt-BR', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false })
-}
+import { getUserLocalTime } from '@/lib/utils/meal-time'
 
 // ---------------------------------------------------------------------------
 // Public interface
