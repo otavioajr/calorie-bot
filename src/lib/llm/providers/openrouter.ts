@@ -105,8 +105,9 @@ export class OpenRouterProvider implements LLMProvider {
   async analyzeImage(
     imageBase64: string,
     caption: string | undefined,
+    currentTime?: string,
   ): Promise<ImageAnalysis> {
-    const systemPrompt = buildVisionPrompt()
+    const systemPrompt = buildVisionPrompt(currentTime)
     const captionText = caption || 'Analise esta imagem.'
 
     const rawContent = await this.callVisionAPI(this.visionModel, systemPrompt, imageBase64, captionText)

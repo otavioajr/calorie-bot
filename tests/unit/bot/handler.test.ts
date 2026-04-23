@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 // ---------------------------------------------------------------------------
 // Hoist mock variables so they are available at vi.mock() factory call time
@@ -979,11 +979,19 @@ const IMAGE_ID = 'img_media_123'
 
 describe('handleIncomingImage', () => {
   beforeEach(() => {
+    // Freeze time so meal-type classification is deterministic.
+    // 2026-04-23T18:00:00Z → America/Sao_Paulo 15:00 → "snack" window.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-04-23T18:00:00Z'))
     mockFindUserByPhone.mockResolvedValue(completedUser)
     mockGetLLMProvider.mockReturnValue({
       classifyIntent: mockClassifyIntent,
       analyzeImage: mockAnalyzeImage,
     })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('downloads image, analyzes via LLM vision, and sends food confirmation', async () => {
@@ -994,6 +1002,7 @@ describe('handleIncomingImage', () => {
     expect(mockAnalyzeImage).toHaveBeenCalledWith(
       expect.stringContaining('data:image/jpeg;base64,'),
       'meu almoço',
+      '15:00',
     )
     expect(mockFormatMealBreakdown).toHaveBeenCalled()
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal breakdown message')
@@ -1145,6 +1154,66 @@ describe('handleIncomingImage', () => {
         functionType: 'vision',
         success: true,
       }),
+    )
+  })
+
+  it('overrides LLM meal_type with user local time when caption has no explicit meal keyword', async () => {
+    // 2026-04-23T10:23:00Z → America/Sao_Paulo 07:23 → "breakfast" window
+    vi.setSystemTime(new Date('2026-04-23T10:23:00Z'))
+    mockAnalyzeImage.mockResolvedValue({
+      image_type: 'nutrition_label',
+      meal_type: 'snack', // LLM guess based on food content
+      confidence: 'high',
+      items: [{
+        food: 'Pré-treino sabor limão',
+        quantity_grams: 7.5,
+        nutrition_basis_grams: 5,
+        calories: 13,
+        protein: 0,
+        carbs: 0.9,
+        fat: 0,
+      }],
+      unknown_items: [],
+      needs_clarification: false,
+    })
+
+    await handleIncomingImage(FROM, MESSAGE_ID, IMAGE_ID, '1 dose desse pré treino')
+
+    expect(mockAnalyzeImage).toHaveBeenCalledWith(
+      expect.any(String),
+      '1 dose desse pré treino',
+      '07:23',
+    )
+    // Caption "1 dose" triggers immediate registration (handleLabelPortions),
+    // so meal_type flows through formatMealBreakdown as first arg.
+    expect(mockFormatMealBreakdown).toHaveBeenCalledWith(
+      'breakfast',
+      expect.any(Array),
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+    )
+  })
+
+  it('keeps explicit meal keyword from caption regardless of time', async () => {
+    vi.setSystemTime(new Date('2026-04-23T10:23:00Z')) // 07:23 SP (breakfast window)
+    mockAnalyzeImage.mockResolvedValue({
+      image_type: 'food',
+      meal_type: 'breakfast',
+      confidence: 'high',
+      items: [{ food: 'Salada', quantity_grams: 200, calories: 100, protein: 5, carbs: 10, fat: 2 }],
+      unknown_items: [],
+      needs_clarification: false,
+    })
+
+    await handleIncomingImage(FROM, MESSAGE_ID, IMAGE_ID, 'meu almoço de ontem')
+
+    expect(mockFormatMealBreakdown).toHaveBeenCalledWith(
+      'lunch',
+      expect.any(Array),
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
     )
   })
 

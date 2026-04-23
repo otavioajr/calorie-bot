@@ -15,7 +15,7 @@ export type IntentType =
 
 export interface LLMProvider {
   analyzeMeal(message: string, history?: { role: string; content: string }[], currentTime?: string): Promise<MealAnalysis[]>
-  analyzeImage(imageBase64: string, caption: string | undefined): Promise<ImageAnalysis>
+  analyzeImage(imageBase64: string, caption: string | undefined, currentTime?: string): Promise<ImageAnalysis>
   decomposeMeal(foodName: string, grams: number): Promise<DecomposedItem[]>
   classifyIntent(message: string): Promise<IntentType>
   chat(message: string, systemPrompt: string, jsonMode?: boolean): Promise<string>
