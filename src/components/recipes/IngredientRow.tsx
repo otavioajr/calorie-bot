@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { Minus, Tag, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -63,6 +63,16 @@ export function IngredientRow({
   const [editingName, setEditingName] = useState(false)
   const [editingGrams, setEditingGrams] = useState(false)
   const [recomputing, setRecomputing] = useState(false)
+  const actionVersionRef = useRef(0)
+
+  function nextActionVersion() {
+    actionVersionRef.current += 1
+    return actionVersionRef.current
+  }
+
+  function isCurrentAction(version: number) {
+    return actionVersionRef.current === version
+  }
 
   function updateName(foodName: string) {
     setNameDraft(foodName)
@@ -128,9 +138,12 @@ export function IngredientRow({
       return
     }
 
+    const actionVersion = nextActionVersion()
     setRecomputing(true)
     try {
       const partial = await onRecompute(foodName, quantityGrams, value.labelOverride)
+      if (!isCurrentAction(actionVersion)) return
+
       onChange({
         ...value,
         ...partial,
@@ -138,9 +151,11 @@ export function IngredientRow({
         quantityGrams,
       })
     } finally {
-      setRecomputing(false)
-      setEditingName(false)
-      setEditingGrams(false)
+      if (isCurrentAction(actionVersion)) {
+        setRecomputing(false)
+        setEditingName(false)
+        setEditingGrams(false)
+      }
     }
   }
 
@@ -155,9 +170,12 @@ export function IngredientRow({
     const quantityGrams = Number(editingGrams ? gramsDraft : value.quantityGrams)
     const validGrams = Number.isFinite(quantityGrams) ? quantityGrams : value.quantityGrams
 
+    const actionVersion = nextActionVersion()
     setRecomputing(true)
     try {
       const partial = await onRecompute(foodName, validGrams, labelOverride)
+      if (!isCurrentAction(actionVersion)) return
+
       onChange({
         ...value,
         ...partial,
@@ -171,9 +189,11 @@ export function IngredientRow({
       })
       setLabelOpen(false)
     } finally {
-      setRecomputing(false)
-      setEditingName(false)
-      setEditingGrams(false)
+      if (isCurrentAction(actionVersion)) {
+        setRecomputing(false)
+        setEditingName(false)
+        setEditingGrams(false)
+      }
     }
   }
 
@@ -247,6 +267,7 @@ export function IngredientRow({
           onClick={() => setLabelOpen(true)}
           aria-label="Editar rótulo"
           title="Editar rótulo"
+          disabled={recomputing}
         >
           <Tag />
         </Button>
@@ -257,6 +278,7 @@ export function IngredientRow({
           onClick={onRemove}
           aria-label="Remover ingrediente"
           title="Remover ingrediente"
+          disabled={recomputing}
         >
           <Trash2 />
         </Button>
