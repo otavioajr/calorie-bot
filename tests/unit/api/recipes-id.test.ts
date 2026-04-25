@@ -147,6 +147,16 @@ describe('/api/recipes/[id]', () => {
       expect(response.status).toBe(404)
       expect(body).toEqual({ error: 'not_found' })
     })
+
+    it('returns sanitized 500 when recipe loading fails unexpectedly', async () => {
+      mockGetRecipeWithIngredients.mockRejectedValue(new Error('permission denied for table recipe_ingredients'))
+
+      const response = await GET(new Request('http://localhost/api/recipes/recipe-1'), routeContext())
+      const body = await response.json()
+
+      expect(response.status).toBe(500)
+      expect(body).toEqual({ error: 'internal_error' })
+    })
   })
 
   describe('DELETE', () => {
@@ -189,6 +199,19 @@ describe('/api/recipes/[id]', () => {
       expect(response.status).toBe(500)
       expect(body).toEqual({ error: 'delete_failed' })
     })
+
+    it('returns 404 when delete reports recipe not found or not owned', async () => {
+      mockDeleteRecipe.mockRejectedValue(new Error('Recipe not found or not owned by user'))
+
+      const response = await DELETE(
+        new Request('http://localhost/api/recipes/recipe-1', { method: 'DELETE' }),
+        routeContext(),
+      )
+      const body = await response.json()
+
+      expect(response.status).toBe(404)
+      expect(body).toEqual({ error: 'not_found' })
+    })
   })
 
   describe('PUT', () => {
@@ -227,7 +250,6 @@ describe('/api/recipes/[id]', () => {
         'recipe-1',
         'user-123',
         expect.objectContaining({
-          userId: 'user-123',
           name: 'Overnight oats',
           totalWeightGrams: 300,
           servings: 2,
@@ -266,7 +288,6 @@ describe('/api/recipes/[id]', () => {
         'recipe-1',
         'user-123',
         expect.objectContaining({
-          userId: 'user-123',
           name: 'Molho caseiro',
           notes: undefined,
           ingredients: [

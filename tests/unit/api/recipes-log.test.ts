@@ -134,4 +134,14 @@ describe('POST /api/recipes/[id]/log', () => {
     expect(response.status).toBe(500)
     expect(body).toEqual({ error: 'log_failed' })
   })
+
+  it('returns 404 when recipe is missing or not owned', async () => {
+    mockLogMealFromRecipe.mockRejectedValue(new Error('Recipe not found: no row returned'))
+
+    const response = await POST(makePostRequest(validBody()), routeContext())
+    const body = await response.json()
+
+    expect(response.status).toBe(404)
+    expect(body).toEqual({ error: 'not_found' })
+  })
 })

@@ -218,10 +218,9 @@ describe('recipes query helpers', () => {
 
     const chain: Record<string, unknown> = {}
     chain.delete = vi.fn(() => chain)
-    chain.eq = vi
-      .fn()
-      .mockReturnValueOnce(chain)
-      .mockResolvedValueOnce({ data: null, error: null })
+    chain.eq = vi.fn(() => chain)
+    chain.select = vi.fn(() => chain)
+    chain.single = vi.fn().mockResolvedValue({ data: { id: 'recipe-1' }, error: null })
     const supabase = { from: vi.fn(() => chain) }
 
     await deleteRecipe(supabase as never, 'recipe-1', 'user-1')
@@ -230,6 +229,8 @@ describe('recipes query helpers', () => {
     expect(chain.delete).toHaveBeenCalled()
     expect(chain.eq).toHaveBeenNthCalledWith(1, 'id', 'recipe-1')
     expect(chain.eq).toHaveBeenNthCalledWith(2, 'user_id', 'user-1')
+    expect(chain.select).toHaveBeenCalledWith('id')
+    expect(chain.single).toHaveBeenCalledOnce()
   })
 
   it('updateRecipe calls transactional RPC with owner and current payloads', async () => {

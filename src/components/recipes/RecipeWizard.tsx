@@ -78,6 +78,25 @@ function macrosFromOverride(grams: number, override: LabelOverride) {
   }
 }
 
+function recipeErrorMessage(code: string): string {
+  const messages: Record<string, string> = {
+    invalid_json: "Não foi possível ler os dados enviados.",
+    invalid_body: "Revise os dados da receita antes de salvar.",
+    duplicate_name: "Você já tem uma receita com esse nome.",
+    taco_not_found: "Um dos ingredientes TACO selecionados não foi encontrado.",
+    taco_lookup_failed: "Não foi possível consultar a base TACO. Tente novamente.",
+    parse_failed: "Não foi possível analisar os ingredientes. Tente descrever de outro jeito.",
+    save_failed: "Não foi possível salvar a receita. Tente novamente.",
+    create_failed: "Não foi possível salvar a receita. Tente novamente.",
+    update_failed: "Não foi possível atualizar a receita. Tente novamente.",
+    not_found: "Essa receita não foi encontrada.",
+    auth_lookup_failed: "Não foi possível validar sua sessão. Tente novamente.",
+    Unauthorized: "Sua sessão expirou. Entre novamente.",
+  }
+
+  return messages[code] ?? "Não foi possível concluir a ação. Tente novamente."
+}
+
 function mapInitialIngredients(initial?: RecipeWithIngredients): IngredientRowState[] {
   return (
     initial?.ingredients.map((ingredient) => ({
@@ -205,12 +224,12 @@ export function RecipeWizard({ initial, onCancel, onSaved }: RecipeWizardProps) 
       const data = (await response.json()) as ParseIngredientsResponse
 
       if (!response.ok || !data.ingredients) {
-        throw new Error(data.error ?? "parse_failed")
+        throw new Error(recipeErrorMessage(data.error ?? "parse_failed"))
       }
 
       setIngredients(data.ingredients.map(ingredientFromParsed))
     } catch (parseError) {
-      setError(parseError instanceof Error ? parseError.message : "parse_failed")
+      setError(parseError instanceof Error ? parseError.message : recipeErrorMessage("parse_failed"))
     } finally {
       setParseLoading(false)
     }
@@ -357,12 +376,12 @@ export function RecipeWizard({ initial, onCancel, onSaved }: RecipeWizardProps) 
       const data = (await response.json()) as SaveRecipeResponse
 
       if (!response.ok) {
-        throw new Error(data.error ?? "save_failed")
+        throw new Error(recipeErrorMessage(data.error ?? "save_failed"))
       }
 
       const recipeId = initial?.id ?? data.id
       if (!recipeId) {
-        throw new Error("save_failed")
+        throw new Error(recipeErrorMessage("save_failed"))
       }
 
       if (onSaved) {
@@ -373,7 +392,7 @@ export function RecipeWizard({ initial, onCancel, onSaved }: RecipeWizardProps) 
 
       router.push(`/recipes/${recipeId}`)
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "save_failed")
+      setError(saveError instanceof Error ? saveError.message : recipeErrorMessage("save_failed"))
       setSaving(false)
     }
   }

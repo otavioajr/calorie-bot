@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { createServiceRoleClient } from '@/lib/db/supabase'
 import { MealTypeSchema } from '@/lib/llm/schemas/common'
 import { logMealFromRecipe } from '@/lib/recipes/log-meal'
+import { isRecipeNotFoundOrNotOwnedError } from '@/lib/recipes/errors'
 
 const NUMERIC_5_2_MAX = 999.99
 
@@ -60,7 +61,12 @@ export async function POST(
     })
 
     return NextResponse.json({ mealId }, { status: 201 })
-  } catch {
+  } catch (error) {
+    if (isRecipeNotFoundOrNotOwnedError(error)) {
+      return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    }
+
+    console.error('[recipes][log] failed', error)
     return NextResponse.json({ error: 'log_failed' }, { status: 500 })
   }
 }

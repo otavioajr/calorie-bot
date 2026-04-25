@@ -22,7 +22,8 @@ export default async function RecipeDetailPage({ params }: RecipeDetailPageProps
 
   try {
     recipe = await getRecipeWithIngredients(supabase, id, userId)
-  } catch {
+  } catch (error) {
+    console.error("[recipes/[id]] failed to load recipe", { id, userId, error })
     redirect("/recipes")
   }
 

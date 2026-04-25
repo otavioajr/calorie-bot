@@ -27,7 +27,7 @@ CREATE TABLE user_recipes (
 );
 
 CREATE UNIQUE INDEX user_recipes_user_name_unique
-    ON user_recipes (user_id, lower(btrim(name)));
+    ON user_recipes (user_id, regexp_replace(lower(btrim(name)), '\s+', ' ', 'g'));
 
 CREATE INDEX user_recipes_user_id_idx ON user_recipes (user_id);
 CREATE INDEX user_recipes_name_trgm_idx ON user_recipes USING gin (name gin_trgm_ops);

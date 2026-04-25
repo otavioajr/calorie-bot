@@ -5,11 +5,13 @@ const {
   mockCreateServiceRoleClient,
   mockParseRecipeIngredients,
   mockCalculateMacros,
+  mockFuzzyMatchTaco,
 } = vi.hoisted(() => ({
   mockCookies: vi.fn(),
   mockCreateServiceRoleClient: vi.fn(),
   mockParseRecipeIngredients: vi.fn(),
   mockCalculateMacros: vi.fn(),
+  mockFuzzyMatchTaco: vi.fn(),
 }))
 
 vi.mock('next/headers', () => ({
@@ -25,8 +27,8 @@ vi.mock('@/lib/llm/parsers/recipe-ingredients', () => ({
 }))
 
 vi.mock('@/lib/db/queries/taco', () => ({
-  SIMILARITY_THRESHOLD: 0.4,
   calculateMacros: mockCalculateMacros,
+  fuzzyMatchTaco: mockFuzzyMatchTaco,
 }))
 
 import { POST } from '@/app/api/recipes/parse-ingredients/route'
@@ -36,7 +38,6 @@ const mockAuthEq = vi.fn(() => ({ single: mockAuthSingle }))
 const mockAuthSelect = vi.fn(() => ({ eq: mockAuthEq }))
 const supabase = {
   from: vi.fn(() => ({ select: mockAuthSelect })),
-  rpc: vi.fn(),
 }
 
 function mockAuthLookup(data: unknown, error: unknown = null) {
@@ -74,23 +75,18 @@ describe('POST /api/recipes/parse-ingredients', () => {
     mockParseRecipeIngredients.mockResolvedValue([
       { food: 'arroz branco', quantityGrams: 150 },
     ])
-    supabase.rpc.mockResolvedValue({
-      data: [
-        {
-          id: 10,
-          food_name: 'Arroz, branco, cozido',
-          category: 'Cereais',
-          calories_per_100g: 128,
-          protein_per_100g: 2.5,
-          carbs_per_100g: 28.1,
-          fat_per_100g: 0.2,
-          fiber_per_100g: 1.6,
-          food_base: 'arroz',
-          food_variant: 'branco cozido',
-          is_default: true,
-        },
-      ],
-      error: null,
+    mockFuzzyMatchTaco.mockResolvedValue({
+      id: 10,
+      foodName: 'Arroz, branco, cozido',
+      category: 'Cereais',
+      caloriesPer100g: 128,
+      proteinPer100g: 2.5,
+      carbsPer100g: 28.1,
+      fatPer100g: 0.2,
+      fiberPer100g: 1.6,
+      foodBase: 'arroz',
+      foodVariant: 'branco cozido',
+      isDefault: true,
     })
     mockCalculateMacros.mockReturnValue({
       calories: 192,
@@ -163,9 +159,8 @@ describe('POST /api/recipes/parse-ingredients', () => {
     expect(mockCreateServiceRoleClient).toHaveBeenCalledOnce()
     expect(supabase.from).toHaveBeenCalledWith('users')
     expect(mockParseRecipeIngredients).toHaveBeenCalledWith('150g arroz branco')
-    expect(supabase.rpc).toHaveBeenCalledWith('match_taco_food', {
-      query_name: 'arroz branco',
-      threshold: 0.4,
+    expect(mockFuzzyMatchTaco).toHaveBeenCalledWith(supabase, 'arroz branco', {
+      throwOnError: true,
     })
     expect(mockCalculateMacros).toHaveBeenCalledWith(expect.objectContaining({ id: 10 }), 150)
     expect(body).toEqual({
@@ -190,15 +185,14 @@ describe('POST /api/recipes/parse-ingredients', () => {
     mockParseRecipeIngredients.mockResolvedValue([
       { food: 'ingrediente raro', quantityGrams: 100 },
     ])
-    supabase.rpc.mockResolvedValue({ data: [], error: null })
+    mockFuzzyMatchTaco.mockResolvedValue(null)
 
     const response = await POST(makeRequest({ text: '100g ingrediente raro' }))
     const body = await response.json()
 
     expect(response.status).toBe(200)
-    expect(supabase.rpc).toHaveBeenCalledWith('match_taco_food', {
-      query_name: 'ingrediente raro',
-      threshold: 0.4,
+    expect(mockFuzzyMatchTaco).toHaveBeenCalledWith(supabase, 'ingrediente raro', {
+      throwOnError: true,
     })
     expect(mockCalculateMacros).not.toHaveBeenCalled()
     expect(body).toEqual({
@@ -224,14 +218,11 @@ describe('POST /api/recipes/parse-ingredients', () => {
 
     expect(response.status).toBe(502)
     expect(body).toEqual({ error: 'parse_failed' })
-    expect(supabase.rpc).not.toHaveBeenCalled()
+    expect(mockFuzzyMatchTaco).not.toHaveBeenCalled()
   })
 
   it('returns 502 when TACO lookup RPC fails', async () => {
-    supabase.rpc.mockResolvedValue({
-      data: null,
-      error: { message: 'RPC unavailable' },
-    })
+    mockFuzzyMatchTaco.mockRejectedValue(new Error('RPC unavailable'))
 
     const response = await POST(makeRequest({ text: '150g arroz branco' }))
     const body = await response.json()

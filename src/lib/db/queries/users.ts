@@ -64,6 +64,27 @@ export async function findUserByPhone(
   return fromDB<User>(data as Record<string, unknown>)
 }
 
+export async function verifyUserExists(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('users')
+    .select('id')
+    .eq('id', userId)
+    .single()
+
+  if (error?.code === 'PGRST116') {
+    return false
+  }
+
+  if (error) {
+    throw error
+  }
+
+  return Boolean(data)
+}
+
 /**
  * Create a new user in the initial onboarding state.
  * name defaults to '' to satisfy the NOT NULL DB constraint.

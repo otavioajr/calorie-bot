@@ -1,172 +1,23 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
-import { z } from 'zod'
-import type { SupabaseClient } from '@supabase/supabase-js'
 import { createServiceRoleClient } from '@/lib/db/supabase'
 import {
   deleteRecipe,
   getRecipeWithIngredients,
   updateRecipe,
 } from '@/lib/db/queries/recipes'
-import type { TacoFood } from '@/lib/db/queries/taco'
+import { lookupTacoById, type TacoFood } from '@/lib/db/queries/taco'
 import { computeRecipeMacros } from '@/lib/recipes/compute'
-import type { ComputedRecipeMacros, LabelOverride, RecipeIngredientInput } from '@/lib/recipes/types'
-
-const TACO_SELECT =
-  'id, food_name, category, calories_per_100g, protein_per_100g, carbs_per_100g, fat_per_100g, fiber_per_100g, food_base, food_variant, is_default'
-
-const NUMERIC_8_2_MAX = 999999.99
-const NUMERIC_5_2_MAX = 999.99
-const SMALLINT_MAX = 32767
+import type { LabelOverride, RecipeIngredientInput } from '@/lib/recipes/types'
+import {
+  TacoNotFoundError,
+  isDuplicateRecipeNameError,
+  isRecipeNotFoundOrNotOwnedError,
+} from '@/lib/recipes/errors'
+import { RecipeBodySchema, areComputedMacrosPersistable } from '@/lib/recipes/validation'
 
 interface RouteContext {
   params: Promise<{ id: string }>
-}
-
-function hasAtMostTwoDecimalPlaces(value: number): boolean {
-  if (!Number.isFinite(value)) return false
-
-  const cents = value * 100
-  return Math.abs(Math.round(cents) - cents) < 1e-9
-}
-
-const Decimal2Schema = z
-  .number()
-  .refine(hasAtMostTwoDecimalPlaces)
-
-const LabelOverrideSchema = z.object({
-  kcalPer100g: z.number().nonnegative().max(900),
-  proteinPer100g: z.number().nonnegative().max(100),
-  carbsPer100g: z.number().nonnegative().max(100),
-  fatPer100g: z.number().nonnegative().max(100),
-  fiberPer100g: z.number().nonnegative().max(100).optional(),
-  sodiumPer100g: z.number().nonnegative().max(100000).optional(),
-})
-
-const TacoIngredientSchema = z.object({
-  foodName: z.string().trim().min(1),
-  quantityGrams: Decimal2Schema.min(0.01).max(NUMERIC_8_2_MAX),
-  source: z.literal('taco'),
-  tacoId: z.number().int().positive(),
-  displayOrder: z.number().int().nonnegative().max(SMALLINT_MAX),
-})
-
-const UserLabelIngredientSchema = z.object({
-  foodName: z.string().trim().min(1),
-  quantityGrams: Decimal2Schema.min(0.01).max(NUMERIC_8_2_MAX),
-  source: z.literal('user_label'),
-  labelOverride: LabelOverrideSchema,
-  displayOrder: z.number().int().nonnegative().max(SMALLINT_MAX),
-})
-
-const BodySchema = z.object({
-  name: z.string().trim().min(1).max(120),
-  totalWeightGrams: Decimal2Schema.min(0.01).max(NUMERIC_8_2_MAX),
-  servings: Decimal2Schema.min(0.01).max(NUMERIC_5_2_MAX),
-  notes: z.string().trim().max(1000).optional(),
-  ingredients: z
-    .array(z.discriminatedUnion('source', [TacoIngredientSchema, UserLabelIngredientSchema]))
-    .min(1)
-    .max(50),
-})
-
-interface TacoRow {
-  id: number
-  food_name: string
-  category?: string | null
-  calories_per_100g: number
-  protein_per_100g: number
-  carbs_per_100g: number
-  fat_per_100g: number
-  fiber_per_100g: number
-  food_base: string
-  food_variant: string
-  is_default: boolean
-}
-
-class TacoNotFoundError extends Error {
-  constructor(readonly tacoId: number) {
-    super('TACO row not found')
-  }
-}
-
-function mapTacoRow(row: TacoRow): TacoFood {
-  return {
-    id: row.id,
-    foodName: row.food_name,
-    category: row.category ?? null,
-    caloriesPer100g: row.calories_per_100g,
-    proteinPer100g: row.protein_per_100g,
-    carbsPer100g: row.carbs_per_100g,
-    fatPer100g: row.fat_per_100g,
-    fiberPer100g: row.fiber_per_100g,
-    foodBase: row.food_base,
-    foodVariant: row.food_variant,
-    isDefault: row.is_default,
-  }
-}
-
-async function lookupTacoById(supabase: SupabaseClient, tacoId: number): Promise<TacoFood> {
-  const { data, error } = await supabase
-    .from('taco_foods')
-    .select(TACO_SELECT)
-    .eq('id', tacoId)
-    .single()
-
-  if (error?.code === 'PGRST116' || (!error && !data)) {
-    throw new TacoNotFoundError(tacoId)
-  }
-
-  if (error) {
-    throw new Error('taco_lookup_failed')
-  }
-
-  return mapTacoRow(data as TacoRow)
-}
-
-function isDuplicateUpdateError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false
-
-  const message = error.message.toLowerCase()
-  return message.includes('duplicate') || message.includes('unique constraint')
-}
-
-function isNotFoundOrNotOwnedError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false
-
-  const message = error.message.toLowerCase()
-  return message.includes('not found') || message.includes('not owned')
-}
-
-function isPersistedNumericInRange(value: number): boolean {
-  return Number.isFinite(value) && value >= 0 && value <= NUMERIC_8_2_MAX
-}
-
-function areComputedMacrosPersistable(macros: ComputedRecipeMacros): boolean {
-  const recipeMacroValues = [
-    macros.totalProteinG,
-    macros.totalCarbsG,
-    macros.totalFatG,
-    macros.totalCalories,
-    macros.perServingCalories,
-    macros.perServingProteinG,
-    macros.perServingCarbsG,
-    macros.perServingFatG,
-  ]
-
-  const ingredientValues = macros.ingredientMacros.flatMap((ingredient) => [
-    ingredient.calories,
-    ingredient.proteinG,
-    ingredient.carbsG,
-    ingredient.fatG,
-  ])
-
-  return (
-    Number.isFinite(macros.weightPerServingGrams) &&
-    macros.weightPerServingGrams > 0 &&
-    macros.weightPerServingGrams <= NUMERIC_8_2_MAX &&
-    [...recipeMacroValues, ...ingredientValues].every(isPersistedNumericInRange)
-  )
 }
 
 export async function GET(
@@ -187,8 +38,13 @@ export async function GET(
     const recipe = await getRecipeWithIngredients(supabase, id, userId)
 
     return NextResponse.json({ recipe })
-  } catch {
-    return NextResponse.json({ error: 'not_found' }, { status: 404 })
+  } catch (error) {
+    if (isRecipeNotFoundOrNotOwnedError(error)) {
+      return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    }
+
+    console.error('[recipes][GET] failed', error)
+    return NextResponse.json({ error: 'internal_error' }, { status: 500 })
   }
 }
 
@@ -210,7 +66,12 @@ export async function DELETE(
     await deleteRecipe(supabase, id, userId)
 
     return new NextResponse(null, { status: 204 })
-  } catch {
+  } catch (error) {
+    if (isRecipeNotFoundOrNotOwnedError(error)) {
+      return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    }
+
+    console.error('[recipes][DELETE] failed', error)
     return NextResponse.json({ error: 'delete_failed' }, { status: 500 })
   }
 }
@@ -233,7 +94,7 @@ export async function PUT(
     return NextResponse.json({ error: 'invalid_json' }, { status: 400 })
   }
 
-  const parsedBody = BodySchema.safeParse(rawBody)
+  const parsedBody = RecipeBodySchema.safeParse(rawBody)
   if (!parsedBody.success) {
     return NextResponse.json({ error: 'invalid_body' }, { status: 400 })
   }
@@ -307,7 +168,6 @@ export async function PUT(
     }
 
     await updateRecipe(supabase, id, userId, {
-      userId,
       name,
       totalWeightGrams,
       servings,
@@ -329,11 +189,11 @@ export async function PUT(
       return NextResponse.json({ error: 'taco_lookup_failed' }, { status: 502 })
     }
 
-    if (isDuplicateUpdateError(error)) {
+    if (isDuplicateRecipeNameError(error)) {
       return NextResponse.json({ error: 'duplicate_name' }, { status: 409 })
     }
 
-    if (isNotFoundOrNotOwnedError(error)) {
+    if (isRecipeNotFoundOrNotOwnedError(error)) {
       return NextResponse.json({ error: 'not_found' }, { status: 404 })
     }
 

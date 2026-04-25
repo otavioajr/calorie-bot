@@ -1,87 +1,14 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { z } from 'zod'
-import type { SupabaseClient } from '@supabase/supabase-js'
 import { createServiceRoleClient } from '@/lib/db/supabase'
 import { parseRecipeIngredients } from '@/lib/llm/parsers/recipe-ingredients'
-import { calculateMacros, SIMILARITY_THRESHOLD, type TacoFood } from '@/lib/db/queries/taco'
+import { calculateMacros, fuzzyMatchTaco } from '@/lib/db/queries/taco'
+import { verifyUserExists } from '@/lib/db/queries/users'
 
 const BodySchema = z.object({
   text: z.string().trim().min(3).max(2000),
 })
-
-interface TacoRpcRow {
-  id: number
-  food_name: string
-  category?: string | null
-  calories_per_100g: number
-  protein_per_100g: number
-  carbs_per_100g: number
-  fat_per_100g: number
-  fiber_per_100g: number
-  food_base: string
-  food_variant: string
-  is_default: boolean
-}
-
-function mapTacoRow(row: TacoRpcRow): TacoFood {
-  return {
-    id: row.id,
-    foodName: row.food_name,
-    category: row.category ?? null,
-    caloriesPer100g: row.calories_per_100g,
-    proteinPer100g: row.protein_per_100g,
-    carbsPer100g: row.carbs_per_100g,
-    fatPer100g: row.fat_per_100g,
-    fiberPer100g: row.fiber_per_100g,
-    foodBase: row.food_base,
-    foodVariant: row.food_variant,
-    isDefault: row.is_default,
-  }
-}
-
-async function lookupTacoFood(
-  supabase: SupabaseClient,
-  foodName: string,
-): Promise<TacoFood | null> {
-  const { data, error } = await supabase.rpc('match_taco_food', {
-    query_name: foodName.toLowerCase(),
-    threshold: SIMILARITY_THRESHOLD,
-  })
-
-  if (error) {
-    throw new Error(error.message)
-  }
-
-  const rows = data as TacoRpcRow[] | null
-  if (!rows || rows.length === 0) {
-    return null
-  }
-
-  return mapTacoRow(rows[0])
-}
-
-async function verifyUserExists(supabase: SupabaseClient, userId: string): Promise<boolean> {
-  const { data, error } = await supabase
-    .from('users')
-    .select('id')
-    .eq('id', userId)
-    .single()
-
-  if (error?.code === 'PGRST116') {
-    return false
-  }
-
-  if (error) {
-    throw error
-  }
-
-  if (!data) {
-    return false
-  }
-
-  return true
-}
 
 export async function POST(request: Request): Promise<NextResponse> {
   const cookieStore = await cookies()
@@ -128,7 +55,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     const enriched = await Promise.all(
       parsedIngredients.map(async (ingredient) => {
-        const taco = await lookupTacoFood(supabase, ingredient.food)
+        const taco = await fuzzyMatchTaco(supabase, ingredient.food, { throwOnError: true })
 
         if (!taco) {
           return {

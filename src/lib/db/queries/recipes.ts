@@ -8,6 +8,7 @@ import type {
   RecipeIngredientInput,
   RecipeWithIngredients,
 } from '@/lib/recipes/types'
+import { isRecipeNotFoundOrNotOwnedError } from '@/lib/recipes/errors'
 
 type JsonLabelOverride = {
   kcal_per_100g?: number | string | null
@@ -64,6 +65,8 @@ interface DbIngredientRow {
 export interface CreateRecipeWithMacrosInput extends CreateRecipeInput {
   precomputedMacros: ComputedRecipeMacros
 }
+
+export type UpdateRecipeWithMacrosInput = Omit<CreateRecipeWithMacrosInput, 'userId'>
 
 function rowToRecipe(row: DbRecipeRow): Recipe {
   return {
@@ -146,7 +149,7 @@ function serializeLabelOverride(labelOverride: LabelOverride | undefined): JsonL
   }
 }
 
-function buildRecipeRow(input: CreateRecipeWithMacrosInput) {
+function buildRecipeRow(input: UpdateRecipeWithMacrosInput) {
   return {
     name: input.name,
     total_weight_grams: input.totalWeightGrams,
@@ -164,7 +167,7 @@ function buildRecipeRow(input: CreateRecipeWithMacrosInput) {
   }
 }
 
-function buildRecipeUpdateRow(input: CreateRecipeWithMacrosInput) {
+function buildRecipeUpdateRow(input: UpdateRecipeWithMacrosInput) {
   return buildRecipeRow(input)
 }
 
@@ -264,7 +267,7 @@ export async function updateRecipe(
   supabase: SupabaseClient,
   recipeId: string,
   userId: string,
-  input: CreateRecipeWithMacrosInput,
+  input: UpdateRecipeWithMacrosInput,
 ): Promise<void> {
   const { error } = await supabase.rpc('update_user_recipe_with_ingredients', {
     p_recipe_id: recipeId,
@@ -291,8 +294,17 @@ export async function deleteRecipe(
     .delete()
     .eq('id', recipeId)
     .eq('user_id', userId)
+    .select('id')
+    .single()
+
+  if (error?.code === 'PGRST116') {
+    throw new Error('Recipe not found or not owned by user')
+  }
 
   if (error) {
+    if (isRecipeNotFoundOrNotOwnedError(error)) {
+      throw new Error('Recipe not found or not owned by user')
+    }
     throw new Error(`Failed to delete recipe: ${error.message}`)
   }
 }
