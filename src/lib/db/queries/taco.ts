@@ -1,6 +1,10 @@
 import { SupabaseClient } from '@supabase/supabase-js'
+import { fromDB } from '@/lib/db/utils'
+import { TacoNotFoundError } from '@/lib/recipes/errors'
 
 export const SIMILARITY_THRESHOLD = 0.4
+export const TACO_SELECT =
+  'id, food_name, category, calories_per_100g, protein_per_100g, carbs_per_100g, fat_per_100g, fiber_per_100g, food_base, food_variant, is_default'
 
 export interface TacoFood {
   id: number
@@ -23,7 +27,7 @@ export interface CalculatedMacros {
   fat: number
 }
 
-interface TacoRow {
+export interface TacoRow {
   id: number
   food_name: string
   category?: string | null
@@ -40,19 +44,39 @@ interface TacoRow {
 }
 
 function rowToTacoFood(row: TacoRow): TacoFood {
+  const food = fromDB<TacoFood>(row as unknown as Record<string, unknown>)
+
   return {
-    id: row.id,
-    foodName: row.food_name,
-    category: row.category ?? null,
-    caloriesPer100g: row.calories_per_100g,
-    proteinPer100g: row.protein_per_100g,
-    carbsPer100g: row.carbs_per_100g,
-    fatPer100g: row.fat_per_100g,
-    fiberPer100g: row.fiber_per_100g,
-    foodBase: row.food_base,
-    foodVariant: row.food_variant,
-    isDefault: row.is_default,
+    ...food,
+    category: food.category ?? null,
+    caloriesPer100g: Number(food.caloriesPer100g ?? row.calories_per_100g),
+    proteinPer100g: Number(food.proteinPer100g ?? row.protein_per_100g),
+    carbsPer100g: Number(food.carbsPer100g ?? row.carbs_per_100g),
+    fatPer100g: Number(food.fatPer100g ?? row.fat_per_100g),
+    fiberPer100g: Number(food.fiberPer100g ?? row.fiber_per_100g),
+    isDefault: Boolean(food.isDefault),
   }
+}
+
+export async function lookupTacoById(
+  supabase: SupabaseClient,
+  tacoId: number,
+): Promise<TacoFood> {
+  const { data, error } = await supabase
+    .from('taco_foods')
+    .select(TACO_SELECT)
+    .eq('id', tacoId)
+    .single()
+
+  if (error?.code === 'PGRST116' || (!error && !data)) {
+    throw new TacoNotFoundError(tacoId)
+  }
+
+  if (error) {
+    throw new Error('taco_lookup_failed')
+  }
+
+  return rowToTacoFood(data as TacoRow)
 }
 
 // ---------------------------------------------------------------------------
@@ -62,13 +86,19 @@ function rowToTacoFood(row: TacoRow): TacoFood {
 export async function fuzzyMatchTaco(
   supabase: SupabaseClient,
   foodName: string,
+  options: { throwOnError?: boolean } = {},
 ): Promise<TacoFood | null> {
   const { data, error } = await supabase.rpc('match_taco_food', {
     query_name: foodName.toLowerCase(),
     threshold: SIMILARITY_THRESHOLD,
   })
 
-  if (error || !data || data.length === 0) {
+  if (error) {
+    if (options.throwOnError) throw new Error(error.message)
+    return null
+  }
+
+  if (!data || data.length === 0) {
     return null
   }
 

@@ -24,6 +24,7 @@ export interface CreateMealInput {
   originalMessage: string
   llmResponse: unknown
   items: MealItemInput[]
+  registeredAt?: Date
 }
 
 export interface RecentMeal {
@@ -53,6 +54,7 @@ export async function createMeal(
       total_calories: data.totalCalories,
       original_message: data.originalMessage,
       llm_response: data.llmResponse,
+      ...(data.registeredAt ? { registered_at: data.registeredAt.toISOString() } : {}),
     })
     .select('id')
     .single()
