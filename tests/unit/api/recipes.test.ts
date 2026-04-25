@@ -173,10 +173,22 @@ describe('/api/recipes', () => {
 
     it.each([
       ['oversized totalWeightGrams', { totalWeightGrams: 1_000_000 }],
+      ['tiny totalWeightGrams', { totalWeightGrams: 0.001 }],
+      ['too many totalWeightGrams decimals', { totalWeightGrams: 1.001 }],
       ['oversized servings', { servings: 1_000 }],
+      ['tiny servings', { servings: 0.001 }],
+      ['too many servings decimals', { servings: 1.001 }],
       [
         'oversized quantityGrams',
         { ingredients: [{ ...validTacoBody().ingredients[0], quantityGrams: 1_000_000 }] },
+      ],
+      [
+        'tiny quantityGrams',
+        { ingredients: [{ ...validTacoBody().ingredients[0], quantityGrams: 0.001 }] },
+      ],
+      [
+        'too many quantityGrams decimals',
+        { ingredients: [{ ...validTacoBody().ingredients[0], quantityGrams: 1.001 }] },
       ],
       [
         'oversized displayOrder',
@@ -202,6 +214,27 @@ describe('/api/recipes', () => {
         : validUserLabelBody()
 
       const response = await POST(makePostRequest({ ...baseBody, ...override }))
+      const body = await response.json()
+
+      expect(response.status).toBe(400)
+      expect(body).toEqual({ error: 'invalid_body' })
+      expect(mockCreateRecipe).not.toHaveBeenCalled()
+    })
+
+    it('returns 400 when computed serving weight rounds to zero', async () => {
+      const response = await POST(
+        makePostRequest({
+          ...validUserLabelBody(),
+          totalWeightGrams: 1,
+          servings: 999.99,
+          ingredients: [
+            {
+              ...validUserLabelBody().ingredients[0],
+              quantityGrams: 1,
+            },
+          ],
+        }),
+      )
       const body = await response.json()
 
       expect(response.status).toBe(400)
