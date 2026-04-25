@@ -251,6 +251,46 @@ describe('recipes query helpers', () => {
     expect(chain.eq).toHaveBeenNthCalledWith(2, 'user_id', 'user-1')
   })
 
+  it('updateRecipe throws and does not clear ingredients when no owner recipe is updated', async () => {
+    const { updateRecipe } = await import('@/lib/db/queries/recipes')
+
+    const updateChain: Record<string, unknown> = {}
+    updateChain.update = vi.fn(() => updateChain)
+    updateChain.eq = vi.fn(() => updateChain)
+    updateChain.select = vi.fn(() => updateChain)
+    updateChain.single = vi.fn(() =>
+      Promise.resolve({ data: null, error: { message: 'No rows returned' } })
+    )
+
+    const deleteChain: Record<string, unknown> = {}
+    deleteChain.delete = vi.fn(() => deleteChain)
+    deleteChain.eq = vi.fn(() => Promise.resolve({ data: null, error: null }))
+
+    const insertChain = {
+      insert: vi.fn(() => Promise.resolve({ data: null, error: null })),
+    }
+
+    let ingredientTableCalls = 0
+    const supabase = {
+      from: vi.fn((table: string) => {
+        if (table === 'user_recipes') return updateChain
+        if (table === 'recipe_ingredients') {
+          ingredientTableCalls++
+          return ingredientTableCalls === 1 ? deleteChain : insertChain
+        }
+        throw new Error(`unexpected table: ${table}`)
+      }),
+    }
+
+    await expect(updateRecipe(supabase as never, 'recipe-1', 'other-user', createInput))
+      .rejects.toThrow('Failed to update recipe: No rows returned')
+
+    expect(updateChain.select).toHaveBeenCalledWith('id')
+    expect(updateChain.single).toHaveBeenCalled()
+    expect(deleteChain.delete).not.toHaveBeenCalled()
+    expect(insertChain.insert).not.toHaveBeenCalled()
+  })
+
   it('getRecipeWithIngredients returns recipe joined with ingredients', async () => {
     const { getRecipeWithIngredients } = await import('@/lib/db/queries/recipes')
 

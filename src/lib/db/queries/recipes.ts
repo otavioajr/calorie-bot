@@ -284,14 +284,16 @@ export async function updateRecipe(
   userId: string,
   input: CreateRecipeWithMacrosInput,
 ): Promise<void> {
-  const { error: recipeError } = await supabase
+  const { data: recipeRow, error: recipeError } = await supabase
     .from('user_recipes')
     .update(buildRecipeUpdateRow(input))
     .eq('id', recipeId)
     .eq('user_id', userId)
+    .select('id')
+    .single()
 
-  if (recipeError) {
-    throw new Error(`Failed to update recipe: ${recipeError.message}`)
+  if (recipeError || !recipeRow) {
+    throw new Error(`Failed to update recipe: ${recipeError?.message ?? 'no row returned'}`)
   }
 
   const { error: deleteError } = await supabase
