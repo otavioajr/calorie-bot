@@ -8,6 +8,7 @@ export interface LogMealFromRecipeInput {
   mealType: string
   portionsConsumed: number
   sourceMessage: string
+  registeredAt?: Date
 }
 
 export async function logMealFromRecipe(
@@ -20,7 +21,7 @@ export async function logMealFromRecipe(
 
   const recipe = await getRecipeWithIngredients(supabase, input.recipeId, input.userId)
   const portions = input.portionsConsumed
-  const totalCalories = round1(recipe.perServingCalories * portions)
+  const totalCalories = Math.round(recipe.perServingCalories * portions)
   const totalProtein = round1(recipe.perServingProteinG * portions)
   const totalCarbs = round1(recipe.perServingCarbsG * portions)
   const totalFat = round1(recipe.perServingFatG * portions)
@@ -31,6 +32,7 @@ export async function logMealFromRecipe(
     mealType: input.mealType,
     totalCalories,
     originalMessage: input.sourceMessage,
+    registeredAt: input.registeredAt,
     llmResponse: {
       source: 'recipe',
       recipe_id: recipe.id,

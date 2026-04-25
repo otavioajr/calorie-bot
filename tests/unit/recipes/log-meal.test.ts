@@ -21,6 +21,7 @@ describe('logMealFromRecipe', () => {
 
   it('creates a meal with one aggregate recipe item scaled by portions consumed', async () => {
     const supabase = {} as never
+    const registeredAt = new Date('2026-04-25T15:30:00.000Z')
 
     getRecipeWithIngredientsMock.mockResolvedValue({
       id: 'recipe-1',
@@ -47,18 +48,20 @@ describe('logMealFromRecipe', () => {
     const result = await logMealFromRecipe(supabase, {
       userId: 'user-1',
       recipeId: 'recipe-1',
-      mealType: 'almoco',
+      mealType: 'lunch',
       portionsConsumed: 1.5,
       sourceMessage: 'comi 1,5 porcao do arroz com frango',
+      registeredAt,
     })
 
     expect(result).toBe('meal-1')
     expect(getRecipeWithIngredientsMock).toHaveBeenCalledWith(supabase, 'recipe-1', 'user-1')
     expect(createMealMock).toHaveBeenCalledWith(supabase, {
       userId: 'user-1',
-      mealType: 'almoco',
-      totalCalories: 370.1,
+      mealType: 'lunch',
+      totalCalories: 370,
       originalMessage: 'comi 1,5 porcao do arroz com frango',
+      registeredAt,
       llmResponse: {
         source: 'recipe',
         recipe_id: 'recipe-1',
@@ -69,7 +72,7 @@ describe('logMealFromRecipe', () => {
         {
           foodName: 'Arroz com frango',
           quantityGrams: 225.1,
-          calories: 370.1,
+          calories: 370,
           proteinG: 45.1,
           carbsG: 30.1,
           fatG: 7.5,
