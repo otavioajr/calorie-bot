@@ -93,7 +93,11 @@ export function LogRecipeModal({ recipeId, open, onClose }: LogRecipeModalProps)
 
   useEffect(() => {
     if (open) {
+      setServings("1")
+      setMealType("lunch")
       setRegisteredAt(getLocalDateTimeValue())
+      setError(null)
+      setLoading(false)
     }
   }, [open])
 

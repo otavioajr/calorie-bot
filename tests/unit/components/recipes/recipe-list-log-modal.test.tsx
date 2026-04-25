@@ -97,6 +97,12 @@ const recipe: Recipe = {
   updatedAt: "2026-04-25T10:00:00.000Z",
 }
 
+function expectedLocalDateTime(date = new Date()) {
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+
+  return localDate.toISOString().slice(0, 16)
+}
+
 describe("RecipeList", () => {
   it("shows an empty state with a creation CTA", async () => {
     const { RecipeList } = await import("@/components/recipes/RecipeList")
@@ -210,23 +216,67 @@ describe("LogRecipeModal", () => {
 
   it("refreshes the default datetime when opened after staying mounted", async () => {
     vi.useFakeTimers()
-    vi.setSystemTime(new Date("2026-04-25T10:00:00-03:00"))
+    vi.setSystemTime(new Date("2026-04-25T13:00:00.000Z"))
 
     const { LogRecipeModal } = await import("@/components/recipes/LogRecipeModal")
     const { rerender } = render(
       <LogRecipeModal recipeId="recipe-1" open={false} onClose={vi.fn()} />
     )
 
-    vi.setSystemTime(new Date("2026-04-25T12:30:00-03:00"))
+    vi.setSystemTime(new Date("2026-04-25T15:30:00.000Z"))
     rerender(<LogRecipeModal recipeId="recipe-1" open onClose={vi.fn()} />)
 
-    expect(screen.getByLabelText("Data e hora")).toHaveValue("2026-04-25T12:30")
+    expect(screen.getByLabelText("Data e hora")).toHaveValue(
+      expectedLocalDateTime()
+    )
 
     rerender(<LogRecipeModal recipeId="recipe-1" open={false} onClose={vi.fn()} />)
-    vi.setSystemTime(new Date("2026-04-25T14:45:00-03:00"))
+    vi.setSystemTime(new Date("2026-04-25T17:45:00.000Z"))
     rerender(<LogRecipeModal recipeId="recipe-1" open onClose={vi.fn()} />)
 
-    expect(screen.getByLabelText("Data e hora")).toHaveValue("2026-04-25T14:45")
+    expect(screen.getByLabelText("Data e hora")).toHaveValue(
+      expectedLocalDateTime()
+    )
+  })
+
+  it("restores transient form defaults when reopened after local edits and an error", async () => {
+    const { LogRecipeModal } = await import("@/components/recipes/LogRecipeModal")
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({ error: "recipe_not_found" }),
+    } as Response)
+
+    const { rerender } = render(
+      <LogRecipeModal recipeId="recipe-1" open onClose={vi.fn()} />
+    )
+
+    fireEvent.change(screen.getByLabelText("Tipo de refeição"), {
+      target: { value: "dinner" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Registrar" }))
+
+    expect(
+      await screen.findByText("Não foi possível registrar a receita. Código: recipe_not_found")
+    ).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText("Porções consumidas"), {
+      target: { value: "0" },
+    })
+    expect(screen.getByRole("button", { name: "Registrar" })).toBeDisabled()
+
+    rerender(<LogRecipeModal recipeId="recipe-1" open={false} onClose={vi.fn()} />)
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-04-25T15:30:00.000Z"))
+    rerender(<LogRecipeModal recipeId="recipe-1" open onClose={vi.fn()} />)
+
+    expect(screen.getByLabelText("Porções consumidas")).toHaveValue(1)
+    expect(screen.getByLabelText("Tipo de refeição")).toHaveValue("lunch")
+    expect(screen.getByLabelText("Data e hora")).toHaveValue(
+      expectedLocalDateTime()
+    )
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Registrar" })).toBeEnabled()
   })
 
   it("shows a sanitized error when the request fails", async () => {
