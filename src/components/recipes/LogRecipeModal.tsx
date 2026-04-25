@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import {
@@ -33,6 +33,7 @@ const MEAL_TYPES = [
   { value: "dinner", label: "Jantar" },
   { value: "supper", label: "Ceia" },
 ] as const
+const MAX_SERVINGS_CONSUMED = 999.99
 
 function getLocalDateTimeValue(date = new Date()) {
   const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
@@ -90,11 +91,18 @@ export function LogRecipeModal({ recipeId, open, onClose }: LogRecipeModalProps)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  useEffect(() => {
+    if (open) {
+      setRegisteredAt(getLocalDateTimeValue())
+    }
+  }, [open])
+
   const servingsNumber = Number(servings)
   const isValid = useMemo(
     () =>
       Number.isFinite(servingsNumber) &&
       servingsNumber > 0 &&
+      servingsNumber <= MAX_SERVINGS_CONSUMED &&
       isValidLocalDateTime(registeredAt),
     [registeredAt, servingsNumber]
   )
@@ -150,12 +158,18 @@ export function LogRecipeModal({ recipeId, open, onClose }: LogRecipeModalProps)
               id="recipe-servings"
               type="number"
               min={0.01}
+              max={MAX_SERVINGS_CONSUMED}
               step="0.01"
               inputMode="decimal"
               value={servings}
               onChange={(event) => setServings(event.target.value)}
               disabled={loading}
-              aria-invalid={servings !== "" && (!Number.isFinite(servingsNumber) || servingsNumber <= 0)}
+              aria-invalid={
+                servings !== "" &&
+                (!Number.isFinite(servingsNumber) ||
+                  servingsNumber <= 0 ||
+                  servingsNumber > MAX_SERVINGS_CONSUMED)
+              }
             />
           </div>
 

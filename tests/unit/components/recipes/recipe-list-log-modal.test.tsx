@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { Recipe } from "@/lib/recipes/types"
 
 const push = vi.fn()
@@ -134,6 +134,10 @@ describe("LogRecipeModal", () => {
     vi.stubGlobal("fetch", vi.fn())
   })
 
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it("posts the selected servings, meal type, and local datetime before routing to history", async () => {
     const { LogRecipeModal } = await import("@/components/recipes/LogRecipeModal")
     const onClose = vi.fn()
@@ -185,6 +189,44 @@ describe("LogRecipeModal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Registrar" }))
 
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("does not submit servings above the API limit", async () => {
+    const { LogRecipeModal } = await import("@/components/recipes/LogRecipeModal")
+    const fetchMock = vi.mocked(fetch)
+
+    render(<LogRecipeModal recipeId="recipe-1" open onClose={vi.fn()} />)
+
+    fireEvent.change(screen.getByLabelText("Porções consumidas"), {
+      target: { value: "1000" },
+    })
+    expect(screen.getByLabelText("Porções consumidas")).toHaveAttribute("max", "999.99")
+    expect(screen.getByRole("button", { name: "Registrar" })).toBeDisabled()
+
+    fireEvent.click(screen.getByRole("button", { name: "Registrar" }))
+
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("refreshes the default datetime when opened after staying mounted", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-04-25T10:00:00-03:00"))
+
+    const { LogRecipeModal } = await import("@/components/recipes/LogRecipeModal")
+    const { rerender } = render(
+      <LogRecipeModal recipeId="recipe-1" open={false} onClose={vi.fn()} />
+    )
+
+    vi.setSystemTime(new Date("2026-04-25T12:30:00-03:00"))
+    rerender(<LogRecipeModal recipeId="recipe-1" open onClose={vi.fn()} />)
+
+    expect(screen.getByLabelText("Data e hora")).toHaveValue("2026-04-25T12:30")
+
+    rerender(<LogRecipeModal recipeId="recipe-1" open={false} onClose={vi.fn()} />)
+    vi.setSystemTime(new Date("2026-04-25T14:45:00-03:00"))
+    rerender(<LogRecipeModal recipeId="recipe-1" open onClose={vi.fn()} />)
+
+    expect(screen.getByLabelText("Data e hora")).toHaveValue("2026-04-25T14:45")
   })
 
   it("shows a sanitized error when the request fails", async () => {
