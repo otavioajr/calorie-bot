@@ -1,9 +1,27 @@
 import { z } from 'zod'
 
+const QuantityGramsSchema = z.preprocess((value) => {
+  if (typeof value === 'number') {
+    return value
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) {
+      return value
+    }
+
+    const parsed = Number(trimmed)
+    return Number.isFinite(parsed) ? parsed : value
+  }
+
+  return value
+}, z.number().positive())
+
 export const RecipeParseIngredientSchema = z
   .object({
-    food: z.string().min(1),
-    quantity_grams: z.coerce.number().positive(),
+    food: z.string().trim().min(1),
+    quantity_grams: QuantityGramsSchema,
   })
   .transform((v) => ({
     food: v.food,
