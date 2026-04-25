@@ -11,36 +11,40 @@ import type { LabelOverride, RecipeIngredientInput } from '@/lib/recipes/types'
 const TACO_SELECT =
   'id, food_name, category, calories_per_100g, protein_per_100g, carbs_per_100g, fat_per_100g, fiber_per_100g, food_base, food_variant, is_default'
 
+const NUMERIC_8_2_MAX = 999999.99
+const NUMERIC_5_2_MAX = 999.99
+const SMALLINT_MAX = 32767
+
 const LabelOverrideSchema = z.object({
-  kcalPer100g: z.number().nonnegative(),
-  proteinPer100g: z.number().nonnegative(),
-  carbsPer100g: z.number().nonnegative(),
-  fatPer100g: z.number().nonnegative(),
-  fiberPer100g: z.number().nonnegative().optional(),
-  sodiumPer100g: z.number().nonnegative().optional(),
+  kcalPer100g: z.number().nonnegative().max(900),
+  proteinPer100g: z.number().nonnegative().max(100),
+  carbsPer100g: z.number().nonnegative().max(100),
+  fatPer100g: z.number().nonnegative().max(100),
+  fiberPer100g: z.number().nonnegative().max(100).optional(),
+  sodiumPer100g: z.number().nonnegative().max(100000).optional(),
 })
 
 const TacoIngredientSchema = z.object({
   foodName: z.string().trim().min(1),
-  quantityGrams: z.number().positive(),
+  quantityGrams: z.number().positive().max(NUMERIC_8_2_MAX),
   source: z.literal('taco'),
   tacoId: z.number().int().positive(),
-  displayOrder: z.number().int().nonnegative(),
+  displayOrder: z.number().int().nonnegative().max(SMALLINT_MAX),
 })
 
 const UserLabelIngredientSchema = z.object({
   foodName: z.string().trim().min(1),
-  quantityGrams: z.number().positive(),
+  quantityGrams: z.number().positive().max(NUMERIC_8_2_MAX),
   source: z.literal('user_label'),
   labelOverride: LabelOverrideSchema,
-  displayOrder: z.number().int().nonnegative(),
+  displayOrder: z.number().int().nonnegative().max(SMALLINT_MAX),
 })
 
 const BodySchema = z.object({
   name: z.string().trim().min(1).max(120),
-  totalWeightGrams: z.number().positive(),
-  servings: z.number().positive(),
-  notes: z.string().max(1000).optional(),
+  totalWeightGrams: z.number().positive().max(NUMERIC_8_2_MAX),
+  servings: z.number().positive().max(NUMERIC_5_2_MAX),
+  notes: z.string().trim().max(1000).optional(),
   ingredients: z
     .array(z.discriminatedUnion('source', [TacoIngredientSchema, UserLabelIngredientSchema]))
     .min(1)

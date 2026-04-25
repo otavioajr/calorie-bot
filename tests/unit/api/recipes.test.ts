@@ -171,6 +171,44 @@ describe('/api/recipes', () => {
       expect(mockCreateRecipe).not.toHaveBeenCalled()
     })
 
+    it.each([
+      ['oversized totalWeightGrams', { totalWeightGrams: 1_000_000 }],
+      ['oversized servings', { servings: 1_000 }],
+      [
+        'oversized quantityGrams',
+        { ingredients: [{ ...validTacoBody().ingredients[0], quantityGrams: 1_000_000 }] },
+      ],
+      [
+        'oversized displayOrder',
+        { ingredients: [{ ...validTacoBody().ingredients[0], displayOrder: 32_768 }] },
+      ],
+      [
+        'excessive label macro value',
+        {
+          ingredients: [
+            {
+              ...validUserLabelBody().ingredients[0],
+              labelOverride: {
+                ...validUserLabelBody().ingredients[0].labelOverride,
+                kcalPer100g: 901,
+              },
+            },
+          ],
+        },
+      ],
+    ])('returns 400 when body has %s', async (_caseName, override) => {
+      const baseBody = 'totalWeightGrams' in override || 'servings' in override
+        ? validTacoBody()
+        : validUserLabelBody()
+
+      const response = await POST(makePostRequest({ ...baseBody, ...override }))
+      const body = await response.json()
+
+      expect(response.status).toBe(400)
+      expect(body).toEqual({ error: 'invalid_body' })
+      expect(mockCreateRecipe).not.toHaveBeenCalled()
+    })
+
     it('creates a TACO recipe using exact tacoId lookup', async () => {
       const response = await POST(makePostRequest(validTacoBody()))
       const body = await response.json()
@@ -296,7 +334,7 @@ function validTacoBody() {
     name: '  Overnight oats  ',
     totalWeightGrams: 300,
     servings: 2,
-    notes: 'gelado',
+    notes: '  gelado  ',
     ingredients: [
       {
         foodName: '  Aveia escolhida pelo usuario  ',
