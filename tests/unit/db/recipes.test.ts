@@ -235,8 +235,14 @@ describe('recipes query helpers', () => {
   it('updateRecipe calls transactional RPC with owner and current payloads', async () => {
     const { updateRecipe } = await import('@/lib/db/queries/recipes')
 
+    type RpcPayload = {
+      p_ingredients: Array<Record<string, unknown>>
+    } & Record<string, unknown>
+    const rpc = vi.fn<
+      (name: string, payload: RpcPayload) => Promise<{ data: null; error: null }>
+    >(() => Promise.resolve({ data: null, error: null }))
     const supabase = {
-      rpc: vi.fn(() => Promise.resolve({ data: null, error: null })),
+      rpc,
       from: vi.fn(),
     }
 
@@ -262,7 +268,8 @@ describe('recipes query helpers', () => {
         ]),
       }),
     )
-    const rpcPayload = supabase.rpc.mock.calls[0][1]
+    const rpcPayload = rpc.mock.calls[0]?.[1]
+    if (!rpcPayload) throw new Error('expected RPC payload')
     expect(rpcPayload.p_ingredients[0]).not.toHaveProperty('recipe_id')
     expect(supabase.from).not.toHaveBeenCalled()
   })
