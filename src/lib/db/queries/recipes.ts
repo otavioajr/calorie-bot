@@ -146,7 +146,7 @@ function serializeLabelOverride(labelOverride: LabelOverride | undefined): JsonL
   }
 }
 
-function buildRecipeSnapshotRow(input: CreateRecipeWithMacrosInput) {
+function buildRecipeRow(input: CreateRecipeWithMacrosInput) {
   return {
     name: input.name,
     total_weight_grams: input.totalWeightGrams,
@@ -164,26 +164,17 @@ function buildRecipeSnapshotRow(input: CreateRecipeWithMacrosInput) {
   }
 }
 
-function buildRecipeRow(input: CreateRecipeWithMacrosInput) {
-  return {
-    user_id: input.userId,
-    ...buildRecipeSnapshotRow(input),
-  }
-}
-
 function buildRecipeUpdateRow(input: CreateRecipeWithMacrosInput) {
-  return buildRecipeSnapshotRow(input)
+  return buildRecipeRow(input)
 }
 
-function buildIngredientRows(
-  recipeId: string,
+function buildIngredientRowsWithoutRecipeId(
   ingredients: RecipeIngredientInput[],
   macros: ComputedRecipeMacros,
 ) {
   return ingredients.map((ingredient, index) => {
     const ingredientMacros = macros.ingredientMacros[index]
     return {
-      recipe_id: recipeId,
       food_name: ingredient.foodName,
       quantity_grams: ingredient.quantityGrams,
       calories: ingredientMacros.calories,
@@ -204,29 +195,20 @@ export async function createRecipe(
   supabase: SupabaseClient,
   input: CreateRecipeWithMacrosInput,
 ): Promise<string> {
-  const { data, error } = await supabase
-    .from('user_recipes')
-    .insert(buildRecipeRow(input))
-    .select('id')
-    .single()
+  const { data, error } = await supabase.rpc('create_user_recipe_with_ingredients', {
+    p_user_id: input.userId,
+    p_recipe: buildRecipeRow(input),
+    p_ingredients: buildIngredientRowsWithoutRecipeId(
+      input.ingredients,
+      input.precomputedMacros,
+    ),
+  })
 
   if (error || !data) {
     throw new Error(`Failed to create recipe: ${error?.message ?? 'no row returned'}`)
   }
 
-  const recipeId = (data as { id: string }).id
-
-  if (input.ingredients.length > 0) {
-    const { error: ingredientsError } = await supabase
-      .from('recipe_ingredients')
-      .insert(buildIngredientRows(recipeId, input.ingredients, input.precomputedMacros))
-
-    if (ingredientsError) {
-      throw new Error(`Failed to insert ingredients: ${ingredientsError.message}`)
-    }
-  }
-
-  return recipeId
+  return data as string
 }
 
 export async function getRecipesByUser(
@@ -284,35 +266,18 @@ export async function updateRecipe(
   userId: string,
   input: CreateRecipeWithMacrosInput,
 ): Promise<void> {
-  const { data: recipeRow, error: recipeError } = await supabase
-    .from('user_recipes')
-    .update(buildRecipeUpdateRow(input))
-    .eq('id', recipeId)
-    .eq('user_id', userId)
-    .select('id')
-    .single()
+  const { error } = await supabase.rpc('update_user_recipe_with_ingredients', {
+    p_recipe_id: recipeId,
+    p_user_id: userId,
+    p_recipe: buildRecipeUpdateRow(input),
+    p_ingredients: buildIngredientRowsWithoutRecipeId(
+      input.ingredients,
+      input.precomputedMacros,
+    ),
+  })
 
-  if (recipeError || !recipeRow) {
-    throw new Error(`Failed to update recipe: ${recipeError?.message ?? 'no row returned'}`)
-  }
-
-  const { error: deleteError } = await supabase
-    .from('recipe_ingredients')
-    .delete()
-    .eq('recipe_id', recipeId)
-
-  if (deleteError) {
-    throw new Error(`Failed to clear ingredients: ${deleteError.message}`)
-  }
-
-  if (input.ingredients.length > 0) {
-    const { error: ingredientsError } = await supabase
-      .from('recipe_ingredients')
-      .insert(buildIngredientRows(recipeId, input.ingredients, input.precomputedMacros))
-
-    if (ingredientsError) {
-      throw new Error(`Failed to insert ingredients: ${ingredientsError.message}`)
-    }
+  if (error) {
+    throw new Error(`Failed to update recipe: ${error.message}`)
   }
 }
 

@@ -112,7 +112,177 @@ CREATE POLICY "recipe_ingredients_owner_delete" ON recipe_ingredients
         )
     );
 
--- 6. Add 'recipe' to meal_items.source CHECK constraint (used when logging from a saved recipe).
+-- 6. Transactional recipe writes.
+CREATE OR REPLACE FUNCTION create_user_recipe_with_ingredients(
+    p_user_id UUID,
+    p_recipe JSONB,
+    p_ingredients JSONB
+)
+RETURNS UUID
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_recipe_id UUID;
+    v_ingredient JSONB;
+    v_ingredients JSONB := COALESCE(p_ingredients, '[]'::JSONB);
+BEGIN
+    INSERT INTO user_recipes (
+        user_id,
+        name,
+        total_weight_grams,
+        servings,
+        weight_per_serving_grams,
+        total_calories,
+        total_protein_g,
+        total_carbs_g,
+        total_fat_g,
+        per_serving_calories,
+        per_serving_protein_g,
+        per_serving_carbs_g,
+        per_serving_fat_g,
+        notes
+    )
+    VALUES (
+        p_user_id,
+        p_recipe->>'name',
+        (p_recipe->>'total_weight_grams')::NUMERIC,
+        (p_recipe->>'servings')::NUMERIC,
+        (p_recipe->>'weight_per_serving_grams')::NUMERIC,
+        (p_recipe->>'total_calories')::NUMERIC,
+        (p_recipe->>'total_protein_g')::NUMERIC,
+        (p_recipe->>'total_carbs_g')::NUMERIC,
+        (p_recipe->>'total_fat_g')::NUMERIC,
+        (p_recipe->>'per_serving_calories')::NUMERIC,
+        (p_recipe->>'per_serving_protein_g')::NUMERIC,
+        (p_recipe->>'per_serving_carbs_g')::NUMERIC,
+        (p_recipe->>'per_serving_fat_g')::NUMERIC,
+        p_recipe->>'notes'
+    )
+    RETURNING id INTO v_recipe_id;
+
+    IF jsonb_typeof(v_ingredients) = 'array' AND jsonb_array_length(v_ingredients) > 0 THEN
+        FOR v_ingredient IN SELECT value FROM jsonb_array_elements(v_ingredients)
+        LOOP
+            INSERT INTO recipe_ingredients (
+                recipe_id,
+                food_name,
+                quantity_grams,
+                calories,
+                protein_g,
+                carbs_g,
+                fat_g,
+                source,
+                taco_id,
+                taco_food_base,
+                taco_food_variant,
+                label_override,
+                display_order
+            )
+            VALUES (
+                v_recipe_id,
+                v_ingredient->>'food_name',
+                (v_ingredient->>'quantity_grams')::NUMERIC,
+                (v_ingredient->>'calories')::NUMERIC,
+                (v_ingredient->>'protein_g')::NUMERIC,
+                (v_ingredient->>'carbs_g')::NUMERIC,
+                (v_ingredient->>'fat_g')::NUMERIC,
+                v_ingredient->>'source',
+                (v_ingredient->>'taco_id')::INTEGER,
+                v_ingredient->>'taco_food_base',
+                v_ingredient->>'taco_food_variant',
+                CASE
+                    WHEN v_ingredient->'label_override' = 'null'::JSONB THEN NULL
+                    ELSE v_ingredient->'label_override'
+                END,
+                (v_ingredient->>'display_order')::SMALLINT
+            );
+        END LOOP;
+    END IF;
+
+    RETURN v_recipe_id;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION update_user_recipe_with_ingredients(
+    p_recipe_id UUID,
+    p_user_id UUID,
+    p_recipe JSONB,
+    p_ingredients JSONB
+)
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_ingredient JSONB;
+    v_ingredients JSONB := COALESCE(p_ingredients, '[]'::JSONB);
+BEGIN
+    UPDATE user_recipes
+    SET
+        name = p_recipe->>'name',
+        total_weight_grams = (p_recipe->>'total_weight_grams')::NUMERIC,
+        servings = (p_recipe->>'servings')::NUMERIC,
+        weight_per_serving_grams = (p_recipe->>'weight_per_serving_grams')::NUMERIC,
+        total_calories = (p_recipe->>'total_calories')::NUMERIC,
+        total_protein_g = (p_recipe->>'total_protein_g')::NUMERIC,
+        total_carbs_g = (p_recipe->>'total_carbs_g')::NUMERIC,
+        total_fat_g = (p_recipe->>'total_fat_g')::NUMERIC,
+        per_serving_calories = (p_recipe->>'per_serving_calories')::NUMERIC,
+        per_serving_protein_g = (p_recipe->>'per_serving_protein_g')::NUMERIC,
+        per_serving_carbs_g = (p_recipe->>'per_serving_carbs_g')::NUMERIC,
+        per_serving_fat_g = (p_recipe->>'per_serving_fat_g')::NUMERIC,
+        notes = p_recipe->>'notes'
+    WHERE id = p_recipe_id
+      AND user_id = p_user_id;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Recipe not found or not owned by user';
+    END IF;
+
+    DELETE FROM recipe_ingredients
+    WHERE recipe_id = p_recipe_id;
+
+    IF jsonb_typeof(v_ingredients) = 'array' AND jsonb_array_length(v_ingredients) > 0 THEN
+        FOR v_ingredient IN SELECT value FROM jsonb_array_elements(v_ingredients)
+        LOOP
+            INSERT INTO recipe_ingredients (
+                recipe_id,
+                food_name,
+                quantity_grams,
+                calories,
+                protein_g,
+                carbs_g,
+                fat_g,
+                source,
+                taco_id,
+                taco_food_base,
+                taco_food_variant,
+                label_override,
+                display_order
+            )
+            VALUES (
+                p_recipe_id,
+                v_ingredient->>'food_name',
+                (v_ingredient->>'quantity_grams')::NUMERIC,
+                (v_ingredient->>'calories')::NUMERIC,
+                (v_ingredient->>'protein_g')::NUMERIC,
+                (v_ingredient->>'carbs_g')::NUMERIC,
+                (v_ingredient->>'fat_g')::NUMERIC,
+                v_ingredient->>'source',
+                (v_ingredient->>'taco_id')::INTEGER,
+                v_ingredient->>'taco_food_base',
+                v_ingredient->>'taco_food_variant',
+                CASE
+                    WHEN v_ingredient->'label_override' = 'null'::JSONB THEN NULL
+                    ELSE v_ingredient->'label_override'
+                END,
+                (v_ingredient->>'display_order')::SMALLINT
+            );
+        END LOOP;
+    END IF;
+END;
+$$;
+
+-- 7. Add 'recipe' to meal_items.source CHECK constraint (used when logging from a saved recipe).
 ALTER TABLE meal_items DROP CONSTRAINT IF EXISTS meal_items_source_check;
 ALTER TABLE meal_items ADD CONSTRAINT meal_items_source_check
     CHECK (source IN ('approximate', 'taco', 'taco_decomposed', 'manual', 'user_provided', 'user_history', 'off', 'recipe')) NOT VALID;

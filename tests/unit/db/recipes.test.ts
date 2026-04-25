@@ -91,102 +91,83 @@ const createInput = {
 }
 
 describe('recipes query helpers', () => {
-  it('createRecipe inserts user_recipes then recipe_ingredients with computed macros', async () => {
+  it('createRecipe calls transactional RPC with recipe and ingredient payloads', async () => {
     const { createRecipe } = await import('@/lib/db/queries/recipes')
 
-    const recipeChain: Record<string, unknown> = {}
-    recipeChain.insert = vi.fn(() => recipeChain)
-    recipeChain.select = vi.fn(() => recipeChain)
-    recipeChain.single = vi.fn(() => Promise.resolve({ data: { id: 'recipe-1' }, error: null }))
-
-    const ingredientsChain = {
-      insert: vi.fn(() => Promise.resolve({ data: null, error: null })),
-    }
-
     const supabase = {
-      from: vi.fn((table: string) => {
-        if (table === 'user_recipes') return recipeChain
-        if (table === 'recipe_ingredients') return ingredientsChain
-        throw new Error(`unexpected table: ${table}`)
-      }),
+      rpc: vi.fn(() => Promise.resolve({ data: 'recipe-1', error: null })),
+      from: vi.fn(),
     }
 
     const result = await createRecipe(supabase as never, createInput)
 
     expect(result).toBe('recipe-1')
-    expect(supabase.from).toHaveBeenNthCalledWith(1, 'user_recipes')
-    expect(recipeChain.insert).toHaveBeenCalledWith({
-      user_id: 'user-1',
-      name: 'Bolo de banana',
-      total_weight_grams: 600,
-      servings: 6,
-      weight_per_serving_grams: 100,
-      total_calories: 585,
-      total_protein_g: 19.5,
-      total_carbs_g: 118,
-      total_fat_g: 7.2,
-      per_serving_calories: 97.5,
-      per_serving_protein_g: 3.3,
-      per_serving_carbs_g: 19.7,
-      per_serving_fat_g: 1.2,
-      notes: 'sem açúcar',
-    })
-    expect(recipeChain.select).toHaveBeenCalledWith('id')
-    expect(recipeChain.single).toHaveBeenCalled()
-    expect(supabase.from).toHaveBeenNthCalledWith(2, 'recipe_ingredients')
-    expect(ingredientsChain.insert).toHaveBeenCalledWith([
+    expect(supabase.rpc).toHaveBeenCalledWith(
+      'create_user_recipe_with_ingredients',
       {
-        recipe_id: 'recipe-1',
-        food_name: 'Banana',
-        quantity_grams: 200,
-        calories: 196,
-        protein_g: 2.6,
-        carbs_g: 52,
-        fat_g: 0.2,
-        source: 'user_label',
-        taco_id: null,
-        taco_food_base: null,
-        taco_food_variant: null,
-        label_override: {
-          kcal_per_100g: 98,
-          protein_per_100g: 1.3,
-          carbs_per_100g: 26,
-          fat_per_100g: 0.1,
-          fiber_per_100g: null,
-          sodium_per_100g: null,
+        p_user_id: 'user-1',
+        p_recipe: {
+          name: 'Bolo de banana',
+          total_weight_grams: 600,
+          servings: 6,
+          weight_per_serving_grams: 100,
+          total_calories: 585,
+          total_protein_g: 19.5,
+          total_carbs_g: 118,
+          total_fat_g: 7.2,
+          per_serving_calories: 97.5,
+          per_serving_protein_g: 3.3,
+          per_serving_carbs_g: 19.7,
+          per_serving_fat_g: 1.2,
+          notes: 'sem açúcar',
         },
-        display_order: 0,
+        p_ingredients: [
+          {
+            food_name: 'Banana',
+            quantity_grams: 200,
+            calories: 196,
+            protein_g: 2.6,
+            carbs_g: 52,
+            fat_g: 0.2,
+            source: 'user_label',
+            taco_id: null,
+            taco_food_base: null,
+            taco_food_variant: null,
+            label_override: {
+              kcal_per_100g: 98,
+              protein_per_100g: 1.3,
+              carbs_per_100g: 26,
+              fat_per_100g: 0.1,
+              fiber_per_100g: null,
+              sodium_per_100g: null,
+            },
+            display_order: 0,
+          },
+          {
+            food_name: 'Aveia',
+            quantity_grams: 100,
+            calories: 389,
+            protein_g: 16.9,
+            carbs_g: 66,
+            fat_g: 7,
+            source: 'taco',
+            taco_id: 123,
+            taco_food_base: 'Aveia',
+            taco_food_variant: 'flocos',
+            label_override: null,
+            display_order: 1,
+          },
+        ],
       },
-      {
-        recipe_id: 'recipe-1',
-        food_name: 'Aveia',
-        quantity_grams: 100,
-        calories: 389,
-        protein_g: 16.9,
-        carbs_g: 66,
-        fat_g: 7,
-        source: 'taco',
-        taco_id: 123,
-        taco_food_base: 'Aveia',
-        taco_food_variant: 'flocos',
-        label_override: null,
-        display_order: 1,
-      },
-    ])
+    )
+    expect(supabase.from).not.toHaveBeenCalled()
   })
 
-  it('createRecipe throws when recipe insert fails', async () => {
+  it('createRecipe throws when RPC fails', async () => {
     const { createRecipe } = await import('@/lib/db/queries/recipes')
 
-    const recipeChain: Record<string, unknown> = {}
-    recipeChain.insert = vi.fn(() => recipeChain)
-    recipeChain.select = vi.fn(() => recipeChain)
-    recipeChain.single = vi.fn(() =>
-      Promise.resolve({ data: null, error: { message: 'duplicate name' } })
-    )
-
     const supabase = {
-      from: vi.fn(() => recipeChain),
+      rpc: vi.fn(() => Promise.resolve({ data: null, error: { message: 'duplicate name' } })),
     }
 
     await expect(createRecipe(supabase as never, createInput)).rejects.toThrow(
@@ -251,44 +232,58 @@ describe('recipes query helpers', () => {
     expect(chain.eq).toHaveBeenNthCalledWith(2, 'user_id', 'user-1')
   })
 
-  it('updateRecipe throws and does not clear ingredients when no owner recipe is updated', async () => {
+  it('updateRecipe calls transactional RPC with owner and current payloads', async () => {
     const { updateRecipe } = await import('@/lib/db/queries/recipes')
 
-    const updateChain: Record<string, unknown> = {}
-    updateChain.update = vi.fn(() => updateChain)
-    updateChain.eq = vi.fn(() => updateChain)
-    updateChain.select = vi.fn(() => updateChain)
-    updateChain.single = vi.fn(() =>
-      Promise.resolve({ data: null, error: { message: 'No rows returned' } })
-    )
-
-    const deleteChain: Record<string, unknown> = {}
-    deleteChain.delete = vi.fn(() => deleteChain)
-    deleteChain.eq = vi.fn(() => Promise.resolve({ data: null, error: null }))
-
-    const insertChain = {
-      insert: vi.fn(() => Promise.resolve({ data: null, error: null })),
+    const supabase = {
+      rpc: vi.fn(() => Promise.resolve({ data: null, error: null })),
+      from: vi.fn(),
     }
 
-    let ingredientTableCalls = 0
-    const supabase = {
-      from: vi.fn((table: string) => {
-        if (table === 'user_recipes') return updateChain
-        if (table === 'recipe_ingredients') {
-          ingredientTableCalls++
-          return ingredientTableCalls === 1 ? deleteChain : insertChain
-        }
-        throw new Error(`unexpected table: ${table}`)
+    await updateRecipe(supabase as never, 'recipe-1', 'user-1', createInput)
+
+    expect(supabase.rpc).toHaveBeenCalledWith(
+      'update_user_recipe_with_ingredients',
+      expect.objectContaining({
+        p_recipe_id: 'recipe-1',
+        p_user_id: 'user-1',
+        p_recipe: expect.objectContaining({
+          name: 'Bolo de banana',
+          total_weight_grams: 600,
+          total_calories: 585,
+          notes: 'sem açúcar',
+        }),
+        p_ingredients: expect.arrayContaining([
+          expect.objectContaining({
+            food_name: 'Banana',
+            quantity_grams: 200,
+            calories: 196,
+          }),
+        ]),
       }),
+    )
+    const rpcPayload = supabase.rpc.mock.calls[0][1]
+    expect(rpcPayload.p_ingredients[0]).not.toHaveProperty('recipe_id')
+    expect(supabase.from).not.toHaveBeenCalled()
+  })
+
+  it('updateRecipe throws on RPC error and does not perform separate ingredient writes', async () => {
+    const { updateRecipe } = await import('@/lib/db/queries/recipes')
+
+    const supabase = {
+      rpc: vi.fn(() =>
+        Promise.resolve({
+          data: null,
+          error: { message: 'Recipe not found or not owned by user' },
+        })
+      ),
+      from: vi.fn(),
     }
 
     await expect(updateRecipe(supabase as never, 'recipe-1', 'other-user', createInput))
-      .rejects.toThrow('Failed to update recipe: No rows returned')
+      .rejects.toThrow('Failed to update recipe: Recipe not found or not owned by user')
 
-    expect(updateChain.select).toHaveBeenCalledWith('id')
-    expect(updateChain.single).toHaveBeenCalled()
-    expect(deleteChain.delete).not.toHaveBeenCalled()
-    expect(insertChain.insert).not.toHaveBeenCalled()
+    expect(supabase.from).not.toHaveBeenCalled()
   })
 
   it('getRecipeWithIngredients returns recipe joined with ingredients', async () => {
