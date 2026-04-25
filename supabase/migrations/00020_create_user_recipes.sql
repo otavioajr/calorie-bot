@@ -13,21 +13,21 @@ CREATE TABLE user_recipes (
     total_weight_grams          NUMERIC(8,2) NOT NULL CHECK (total_weight_grams > 0),
     servings                    NUMERIC(5,2) NOT NULL CHECK (servings > 0),
     weight_per_serving_grams    NUMERIC(8,2) NOT NULL CHECK (weight_per_serving_grams > 0),
-    total_calories              NUMERIC(8,2) NOT NULL DEFAULT 0,
-    total_protein_g             NUMERIC(8,2) NOT NULL DEFAULT 0,
-    total_carbs_g               NUMERIC(8,2) NOT NULL DEFAULT 0,
-    total_fat_g                 NUMERIC(8,2) NOT NULL DEFAULT 0,
-    per_serving_calories        NUMERIC(8,2) NOT NULL DEFAULT 0,
-    per_serving_protein_g       NUMERIC(8,2) NOT NULL DEFAULT 0,
-    per_serving_carbs_g         NUMERIC(8,2) NOT NULL DEFAULT 0,
-    per_serving_fat_g           NUMERIC(8,2) NOT NULL DEFAULT 0,
+    total_calories              NUMERIC(8,2) NOT NULL DEFAULT 0 CHECK (total_calories >= 0),
+    total_protein_g             NUMERIC(8,2) NOT NULL DEFAULT 0 CHECK (total_protein_g >= 0),
+    total_carbs_g               NUMERIC(8,2) NOT NULL DEFAULT 0 CHECK (total_carbs_g >= 0),
+    total_fat_g                 NUMERIC(8,2) NOT NULL DEFAULT 0 CHECK (total_fat_g >= 0),
+    per_serving_calories        NUMERIC(8,2) NOT NULL DEFAULT 0 CHECK (per_serving_calories >= 0),
+    per_serving_protein_g       NUMERIC(8,2) NOT NULL DEFAULT 0 CHECK (per_serving_protein_g >= 0),
+    per_serving_carbs_g         NUMERIC(8,2) NOT NULL DEFAULT 0 CHECK (per_serving_carbs_g >= 0),
+    per_serving_fat_g           NUMERIC(8,2) NOT NULL DEFAULT 0 CHECK (per_serving_fat_g >= 0),
     notes                       TEXT,
     created_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE UNIQUE INDEX user_recipes_user_name_unique
-    ON user_recipes (user_id, lower(name));
+    ON user_recipes (user_id, lower(btrim(name)));
 
 CREATE INDEX user_recipes_user_id_idx ON user_recipes (user_id);
 CREATE INDEX user_recipes_name_trgm_idx ON user_recipes USING gin (name gin_trgm_ops);
@@ -38,33 +38,29 @@ CREATE TABLE recipe_ingredients (
     recipe_id           UUID NOT NULL REFERENCES user_recipes(id) ON DELETE CASCADE,
     food_name           TEXT NOT NULL,
     quantity_grams      NUMERIC(8,2) NOT NULL CHECK (quantity_grams > 0),
-    calories            NUMERIC(8,2) NOT NULL DEFAULT 0,
-    protein_g           NUMERIC(8,2) NOT NULL DEFAULT 0,
-    carbs_g             NUMERIC(8,2) NOT NULL DEFAULT 0,
-    fat_g               NUMERIC(8,2) NOT NULL DEFAULT 0,
+    calories            NUMERIC(8,2) NOT NULL DEFAULT 0 CHECK (calories >= 0),
+    protein_g           NUMERIC(8,2) NOT NULL DEFAULT 0 CHECK (protein_g >= 0),
+    carbs_g             NUMERIC(8,2) NOT NULL DEFAULT 0 CHECK (carbs_g >= 0),
+    fat_g               NUMERIC(8,2) NOT NULL DEFAULT 0 CHECK (fat_g >= 0),
     source              TEXT NOT NULL CHECK (source IN ('taco', 'user_label')),
     taco_id             INTEGER REFERENCES taco_foods(id),
     taco_food_base      TEXT,
     taco_food_variant   TEXT,
     label_override      JSONB,
     display_order       SMALLINT NOT NULL,
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CHECK (
+        (source = 'taco' AND taco_id IS NOT NULL AND label_override IS NULL)
+        OR (source = 'user_label' AND label_override IS NOT NULL AND taco_id IS NULL)
+    )
 );
 
 CREATE INDEX recipe_ingredients_recipe_id_idx ON recipe_ingredients (recipe_id);
 
--- 4. updated_at trigger on user_recipes (reuse helper if present; fallback inline).
-CREATE OR REPLACE FUNCTION set_user_recipes_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at := NOW();
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
+-- 4. updated_at trigger on user_recipes.
 CREATE TRIGGER user_recipes_set_updated_at
     BEFORE UPDATE ON user_recipes
-    FOR EACH ROW EXECUTE FUNCTION set_user_recipes_updated_at();
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- 5. RLS.
 ALTER TABLE user_recipes ENABLE ROW LEVEL SECURITY;
@@ -119,4 +115,5 @@ CREATE POLICY "recipe_ingredients_owner_delete" ON recipe_ingredients
 -- 6. Add 'recipe' to meal_items.source CHECK constraint (used when logging from a saved recipe).
 ALTER TABLE meal_items DROP CONSTRAINT IF EXISTS meal_items_source_check;
 ALTER TABLE meal_items ADD CONSTRAINT meal_items_source_check
-    CHECK (source IN ('approximate', 'taco', 'taco_decomposed', 'manual', 'user_provided', 'user_history', 'off', 'recipe'));
+    CHECK (source IN ('approximate', 'taco', 'taco_decomposed', 'manual', 'user_provided', 'user_history', 'off', 'recipe')) NOT VALID;
+ALTER TABLE meal_items VALIDATE CONSTRAINT meal_items_source_check;
