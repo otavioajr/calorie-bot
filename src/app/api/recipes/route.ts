@@ -6,7 +6,7 @@ import { createServiceRoleClient } from '@/lib/db/supabase'
 import { createRecipe, getRecipesByUser } from '@/lib/db/queries/recipes'
 import type { TacoFood } from '@/lib/db/queries/taco'
 import { computeRecipeMacros } from '@/lib/recipes/compute'
-import type { LabelOverride, RecipeIngredientInput } from '@/lib/recipes/types'
+import type { ComputedRecipeMacros, LabelOverride, RecipeIngredientInput } from '@/lib/recipes/types'
 
 const TACO_SELECT =
   'id, food_name, category, calories_per_100g, protein_per_100g, carbs_per_100g, fat_per_100g, fiber_per_100g, food_base, food_variant, is_default'
@@ -112,6 +112,33 @@ function isDuplicateCreateError(error: unknown): boolean {
   return message.includes('duplicate') || message.includes('unique constraint')
 }
 
+function isPersistedNumericInRange(value: number): boolean {
+  return Number.isFinite(value) && value <= NUMERIC_8_2_MAX
+}
+
+function areComputedMacrosPersistable(macros: ComputedRecipeMacros): boolean {
+  const recipeValues = [
+    macros.weightPerServingGrams,
+    macros.totalCalories,
+    macros.totalProteinG,
+    macros.totalCarbsG,
+    macros.totalFatG,
+    macros.perServingCalories,
+    macros.perServingProteinG,
+    macros.perServingCarbsG,
+    macros.perServingFatG,
+  ]
+
+  const ingredientValues = macros.ingredientMacros.flatMap((ingredient) => [
+    ingredient.calories,
+    ingredient.proteinG,
+    ingredient.carbsG,
+    ingredient.fatG,
+  ])
+
+  return [...recipeValues, ...ingredientValues].every(isPersistedNumericInRange)
+}
+
 export async function GET(): Promise<NextResponse> {
   const cookieStore = await cookies()
   const userId = cookieStore.get('caloriebot-user-id')?.value
@@ -212,6 +239,10 @@ export async function POST(request: Request): Promise<NextResponse> {
         }
       }),
     })
+
+    if (!areComputedMacrosPersistable(precomputedMacros)) {
+      return NextResponse.json({ error: 'invalid_body' }, { status: 400 })
+    }
 
     const id = await createRecipe(supabase, {
       userId,

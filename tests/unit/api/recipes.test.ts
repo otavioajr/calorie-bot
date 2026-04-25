@@ -209,6 +209,30 @@ describe('/api/recipes', () => {
       expect(mockCreateRecipe).not.toHaveBeenCalled()
     })
 
+    it('returns 400 when computed macros exceed persisted numeric range', async () => {
+      const response = await POST(
+        makePostRequest({
+          ...validUserLabelBody(),
+          totalWeightGrams: 999999.99,
+          ingredients: [
+            {
+              ...validUserLabelBody().ingredients[0],
+              quantityGrams: 999999.99,
+              labelOverride: {
+                ...validUserLabelBody().ingredients[0].labelOverride,
+                kcalPer100g: 900,
+              },
+            },
+          ],
+        }),
+      )
+      const body = await response.json()
+
+      expect(response.status).toBe(400)
+      expect(body).toEqual({ error: 'invalid_body' })
+      expect(mockCreateRecipe).not.toHaveBeenCalled()
+    })
+
     it('creates a TACO recipe using exact tacoId lookup', async () => {
       const response = await POST(makePostRequest(validTacoBody()))
       const body = await response.json()
