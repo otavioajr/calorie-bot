@@ -57,8 +57,10 @@ export function IngredientRow({
   onRecompute,
 }: IngredientRowProps) {
   const [labelOpen, setLabelOpen] = useState(false)
-  const [nameDraft, setNameDraft] = useState(value.foodName)
-  const [gramsDraft, setGramsDraft] = useState(String(value.quantityGrams))
+  const [nameDraft, setNameDraft] = useState("")
+  const [gramsDraft, setGramsDraft] = useState("")
+  const [editingName, setEditingName] = useState(false)
+  const [editingGrams, setEditingGrams] = useState(false)
   const [recomputing, setRecomputing] = useState(false)
 
   function updateName(foodName: string) {
@@ -102,8 +104,8 @@ export function IngredientRow({
   }
 
   async function commitDraft() {
-    const foodName = nameDraft.trim()
-    const quantityGrams = Number(gramsDraft)
+    const foodName = (editingName ? nameDraft : value.foodName).trim()
+    const quantityGrams = Number(editingGrams ? gramsDraft : value.quantityGrams)
 
     if (!foodName || !Number.isFinite(quantityGrams)) {
       onChange({
@@ -120,6 +122,8 @@ export function IngredientRow({
         carbsG: 0,
         fatG: 0,
       })
+      setEditingName(false)
+      setEditingGrams(false)
       return
     }
 
@@ -134,6 +138,8 @@ export function IngredientRow({
       })
     } finally {
       setRecomputing(false)
+      setEditingName(false)
+      setEditingGrams(false)
     }
   }
 
@@ -144,8 +150,8 @@ export function IngredientRow({
   }
 
   async function applyLabel(labelOverride: LabelOverride) {
-    const foodName = nameDraft.trim()
-    const quantityGrams = Number(gramsDraft)
+    const foodName = (editingName ? nameDraft : value.foodName).trim()
+    const quantityGrams = Number(editingGrams ? gramsDraft : value.quantityGrams)
     const validGrams = Number.isFinite(quantityGrams) ? quantityGrams : value.quantityGrams
 
     setRecomputing(true)
@@ -165,17 +171,25 @@ export function IngredientRow({
       setLabelOpen(false)
     } finally {
       setRecomputing(false)
+      setEditingName(false)
+      setEditingGrams(false)
     }
   }
 
   const isLabelPending = value.source === "user_label" && !value.labelOverride
+  const displayedName = editingName ? nameDraft : value.foodName
+  const displayedGrams = editingGrams ? gramsDraft : String(value.quantityGrams)
 
   return (
     <div className="grid gap-2 border-b py-3 last:border-b-0 md:grid-cols-[2rem_minmax(12rem,1fr)_7rem_5rem_6rem_auto] md:items-center">
       <div className="text-sm text-muted-foreground">{index + 1}</div>
 
       <Input
-        value={nameDraft}
+        value={displayedName}
+        onFocus={() => {
+          setNameDraft(value.foodName)
+          setEditingName(true)
+        }}
         onChange={(event) => updateName(event.target.value)}
         onBlur={commitDraft}
         onKeyDown={handleCommitKeyDown}
@@ -189,7 +203,11 @@ export function IngredientRow({
           type="number"
           min={0.01}
           step="0.01"
-          value={gramsDraft}
+          value={displayedGrams}
+          onFocus={() => {
+            setGramsDraft(String(value.quantityGrams))
+            setEditingGrams(true)
+          }}
           onChange={(event) => updateGrams(event.target.value)}
           onBlur={commitDraft}
           onKeyDown={handleCommitKeyDown}
