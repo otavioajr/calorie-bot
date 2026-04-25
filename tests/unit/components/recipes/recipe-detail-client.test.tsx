@@ -59,9 +59,6 @@ const recipe: RecipeWithIngredients = {
       foodName: "Banana",
       quantityGrams: 100,
       source: "user_label",
-      tacoId: null,
-      tacoFoodBase: null,
-      tacoFoodVariant: null,
       labelOverride: {
         kcalPer100g: 90,
         proteinPer100g: 1,
