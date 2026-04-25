@@ -12,6 +12,8 @@ import type { LabelOverride, RecipeWithIngredients } from "@/lib/recipes/types"
 
 interface RecipeWizardProps {
   initial?: RecipeWithIngredients
+  onCancel?: () => void
+  onSaved?: (recipeId: string) => void
 }
 
 interface ParseIngredientResult {
@@ -135,7 +137,7 @@ function validateIngredients(ingredients: IngredientRowState[]): string | null {
   return null
 }
 
-export function RecipeWizard({ initial }: RecipeWizardProps) {
+export function RecipeWizard({ initial, onCancel, onSaved }: RecipeWizardProps) {
   const router = useRouter()
   const [name, setName] = useState(initial?.name ?? "")
   const [ingredientText, setIngredientText] = useState("")
@@ -363,6 +365,12 @@ export function RecipeWizard({ initial }: RecipeWizardProps) {
         throw new Error("save_failed")
       }
 
+      if (onSaved) {
+        onSaved(recipeId)
+        setSaving(false)
+        return
+      }
+
       router.push(`/recipes/${recipeId}`)
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "save_failed")
@@ -541,7 +549,7 @@ export function RecipeWizard({ initial }: RecipeWizardProps) {
         <Button type="button" onClick={handleSave} disabled={saving || Boolean(validationError)}>
           {saving ? "Salvando..." : initial ? "Atualizar" : "Salvar receita"}
         </Button>
-        <Button type="button" variant="outline" onClick={() => router.back()}>
+        <Button type="button" variant="outline" onClick={onCancel ?? (() => router.back())}>
           Cancelar
         </Button>
       </div>

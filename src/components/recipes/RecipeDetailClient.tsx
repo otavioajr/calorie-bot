@@ -123,7 +123,14 @@ export function RecipeDetailClient({ recipe }: RecipeDetailClientProps) {
           <p className="mt-1 text-sm text-muted-foreground">{recipe.name}</p>
         </div>
 
-        <RecipeWizard initial={recipe} />
+        <RecipeWizard
+          initial={recipe}
+          onCancel={() => setEditing(false)}
+          onSaved={() => {
+            setEditing(false)
+            router.refresh()
+          }}
+        />
       </div>
     )
   }
