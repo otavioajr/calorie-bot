@@ -3,7 +3,6 @@ import { cookies } from 'next/headers'
 import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createServiceRoleClient } from '@/lib/db/supabase'
-import { getUserWithSettings } from '@/lib/db/queries/users'
 import { parseRecipeIngredients } from '@/lib/llm/parsers/recipe-ingredients'
 import { calculateMacros, SIMILARITY_THRESHOLD, type TacoFood } from '@/lib/db/queries/taco'
 
@@ -62,6 +61,28 @@ async function lookupTacoFood(
   return mapTacoRow(rows[0])
 }
 
+async function verifyUserExists(supabase: SupabaseClient, userId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('users')
+    .select('id')
+    .eq('id', userId)
+    .single()
+
+  if (error?.code === 'PGRST116') {
+    return false
+  }
+
+  if (error) {
+    throw error
+  }
+
+  if (!data) {
+    return false
+  }
+
+  return true
+}
+
 export async function POST(request: Request): Promise<NextResponse> {
   const cookieStore = await cookies()
   const userId = cookieStore.get('caloriebot-user-id')?.value
@@ -84,9 +105,15 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   const supabase = createServiceRoleClient()
 
+  let userExists: boolean
   try {
-    await getUserWithSettings(supabase, userId)
-  } catch {
+    userExists = await verifyUserExists(supabase, userId)
+  } catch (error) {
+    console.error('[recipes parse-ingredients] auth lookup failed:', error)
+    return NextResponse.json({ error: 'auth_lookup_failed' }, { status: 503 })
+  }
+
+  if (!userExists) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

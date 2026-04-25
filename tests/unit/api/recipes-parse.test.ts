@@ -3,13 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const {
   mockCookies,
   mockCreateServiceRoleClient,
-  mockGetUserWithSettings,
   mockParseRecipeIngredients,
   mockCalculateMacros,
 } = vi.hoisted(() => ({
   mockCookies: vi.fn(),
   mockCreateServiceRoleClient: vi.fn(),
-  mockGetUserWithSettings: vi.fn(),
   mockParseRecipeIngredients: vi.fn(),
   mockCalculateMacros: vi.fn(),
 }))
@@ -20,10 +18,6 @@ vi.mock('next/headers', () => ({
 
 vi.mock('@/lib/db/supabase', () => ({
   createServiceRoleClient: mockCreateServiceRoleClient,
-}))
-
-vi.mock('@/lib/db/queries/users', () => ({
-  getUserWithSettings: mockGetUserWithSettings,
 }))
 
 vi.mock('@/lib/llm/parsers/recipe-ingredients', () => ({
@@ -37,7 +31,17 @@ vi.mock('@/lib/db/queries/taco', () => ({
 
 import { POST } from '@/app/api/recipes/parse-ingredients/route'
 
-const supabase = { rpc: vi.fn() }
+const mockAuthSingle = vi.fn()
+const mockAuthEq = vi.fn(() => ({ single: mockAuthSingle }))
+const mockAuthSelect = vi.fn(() => ({ eq: mockAuthEq }))
+const supabase = {
+  from: vi.fn(() => ({ select: mockAuthSelect })),
+  rpc: vi.fn(),
+}
+
+function mockAuthLookup(data: unknown, error: unknown = null) {
+  mockAuthSingle.mockResolvedValue({ data, error })
+}
 
 function setCookie(value?: string) {
   mockCookies.mockResolvedValue({
@@ -66,7 +70,7 @@ describe('POST /api/recipes/parse-ingredients', () => {
     vi.clearAllMocks()
     setCookie('user-123')
     mockCreateServiceRoleClient.mockReturnValue(supabase)
-    mockGetUserWithSettings.mockResolvedValue({ user: { id: 'user-123' }, settings: null })
+    mockAuthLookup({ id: 'user-123' })
     mockParseRecipeIngredients.mockResolvedValue([
       { food: 'arroz branco', quantityGrams: 150 },
     ])
@@ -108,14 +112,28 @@ describe('POST /api/recipes/parse-ingredients', () => {
   })
 
   it('returns 401 when auth cookie points to a missing user', async () => {
-    mockGetUserWithSettings.mockRejectedValue(new Error('No rows found'))
+    mockAuthLookup(null, { code: 'PGRST116', message: 'No rows found' })
 
     const response = await POST(makeRequest({ text: '150g arroz branco' }))
     const body = await response.json()
 
     expect(response.status).toBe(401)
     expect(body).toEqual({ error: 'Unauthorized' })
-    expect(mockGetUserWithSettings).toHaveBeenCalledWith(supabase, 'user-123')
+    expect(supabase.from).toHaveBeenCalledWith('users')
+    expect(mockAuthSelect).toHaveBeenCalledWith('id')
+    expect(mockAuthEq).toHaveBeenCalledWith('id', 'user-123')
+    expect(mockAuthSingle).toHaveBeenCalledOnce()
+    expect(mockParseRecipeIngredients).not.toHaveBeenCalled()
+  })
+
+  it('returns 503 when user validation query fails', async () => {
+    mockAuthLookup(null, { code: '08006', message: 'connection failure' })
+
+    const response = await POST(makeRequest({ text: '150g arroz branco' }))
+    const body = await response.json()
+
+    expect(response.status).toBe(503)
+    expect(body).toEqual({ error: 'auth_lookup_failed' })
     expect(mockParseRecipeIngredients).not.toHaveBeenCalled()
   })
 
@@ -143,7 +161,7 @@ describe('POST /api/recipes/parse-ingredients', () => {
 
     expect(response.status).toBe(200)
     expect(mockCreateServiceRoleClient).toHaveBeenCalledOnce()
-    expect(mockGetUserWithSettings).toHaveBeenCalledWith(supabase, 'user-123')
+    expect(supabase.from).toHaveBeenCalledWith('users')
     expect(mockParseRecipeIngredients).toHaveBeenCalledWith('150g arroz branco')
     expect(supabase.rpc).toHaveBeenCalledWith('match_taco_food', {
       query_name: 'arroz branco',
