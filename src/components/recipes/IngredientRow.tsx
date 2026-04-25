@@ -9,6 +9,7 @@ import { LabelOverrideModal } from "./LabelOverrideModal"
 import type { LabelOverride } from "@/lib/recipes/types"
 
 export interface IngredientRowState {
+  clientId: string
   foodName: string
   quantityGrams: number
   source: "taco" | "user_label"

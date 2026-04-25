@@ -39,6 +39,16 @@ interface SaveRecipeResponse {
 
 const NUMERIC_8_2_MAX = 999999.99
 const NUMERIC_5_2_MAX = 999.99
+let ingredientClientIdCounter = 0
+
+function createIngredientClientId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID()
+  }
+
+  ingredientClientIdCounter += 1
+  return `ingredient-${ingredientClientIdCounter}`
+}
 
 function hasAtMostTwoDecimalPlaces(value: number): boolean {
   if (!Number.isFinite(value)) return false
@@ -69,6 +79,7 @@ function macrosFromOverride(grams: number, override: LabelOverride) {
 function mapInitialIngredients(initial?: RecipeWithIngredients): IngredientRowState[] {
   return (
     initial?.ingredients.map((ingredient) => ({
+      clientId: createIngredientClientId(),
       foodName: ingredient.foodName,
       quantityGrams: ingredient.quantityGrams,
       source: ingredient.source,
@@ -86,6 +97,7 @@ function mapInitialIngredients(initial?: RecipeWithIngredients): IngredientRowSt
 
 function ingredientFromParsed(parsed: ParseIngredientResult): IngredientRowState {
   return {
+    clientId: createIngredientClientId(),
     foodName: parsed.foodName,
     quantityGrams: parsed.quantityGrams,
     source: parsed.source === "taco" ? "taco" : "user_label",
@@ -127,7 +139,7 @@ export function RecipeWizard({ initial }: RecipeWizardProps) {
   const router = useRouter()
   const [name, setName] = useState(initial?.name ?? "")
   const [ingredientText, setIngredientText] = useState("")
-  const [ingredients, setIngredients] = useState<IngredientRowState[]>(
+  const [ingredients, setIngredients] = useState<IngredientRowState[]>(() =>
     mapInitialIngredients(initial),
   )
   const [totalWeight, setTotalWeight] = useState(
@@ -206,6 +218,7 @@ export function RecipeWizard({ initial }: RecipeWizardProps) {
     setIngredients((current) => [
       ...current,
       {
+        clientId: createIngredientClientId(),
         foodName: "",
         quantityGrams: 0,
         source: "user_label",
@@ -406,17 +419,17 @@ export function RecipeWizard({ initial }: RecipeWizardProps) {
             <div>
               {ingredients.map((ingredient, index) => (
                 <IngredientRow
-                  key={index}
+                  key={ingredient.clientId}
                   index={index}
                   value={ingredient}
                   onChange={(next) => {
                     setIngredients((current) =>
-                      current.map((row, rowIndex) => (rowIndex === index ? next : row)),
+                      current.map((row) => (row.clientId === next.clientId ? next : row)),
                     )
                   }}
                   onRemove={() => {
                     setIngredients((current) =>
-                      current.filter((_, rowIndex) => rowIndex !== index),
+                      current.filter((row) => row.clientId !== ingredient.clientId),
                     )
                   }}
                   onRecompute={recomputeIngredient}
