@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { IngredientRow, type IngredientRowState } from "./IngredientRow"
-import type { RecipeWithIngredients } from "@/lib/recipes/types"
+import type { LabelOverride, RecipeWithIngredients } from "@/lib/recipes/types"
 
 interface RecipeWizardProps {
   initial?: RecipeWithIngredients
@@ -53,6 +53,17 @@ function isPositiveDecimal2(value: number, max: number): boolean {
 
 function roundMacro(value: number): number {
   return Math.round(value * 10) / 10
+}
+
+function macrosFromOverride(grams: number, override: LabelOverride) {
+  const factor = grams / 100
+
+  return {
+    calories: roundMacro(override.kcalPer100g * factor),
+    proteinG: roundMacro(override.proteinPer100g * factor),
+    carbsG: roundMacro(override.carbsPer100g * factor),
+    fatG: roundMacro(override.fatPer100g * factor),
+  }
 }
 
 function mapInitialIngredients(initial?: RecipeWithIngredients): IngredientRowState[] {
@@ -206,6 +217,85 @@ export function RecipeWizard({ initial }: RecipeWizardProps) {
     ])
   }
 
+  async function recomputeIngredient(
+    foodName: string,
+    grams: number,
+    override?: LabelOverride,
+  ): Promise<Partial<IngredientRowState>> {
+    if (override) {
+      return {
+        ...macrosFromOverride(grams, override),
+        source: "user_label",
+        labelOverride: override,
+        tacoId: undefined,
+        tacoFoodBase: undefined,
+        tacoFoodVariant: undefined,
+      }
+    }
+
+    if (!foodName.trim() || !Number.isFinite(grams) || grams <= 0) {
+      return {
+        source: "user_label",
+        labelOverride: undefined,
+        tacoId: undefined,
+        tacoFoodBase: undefined,
+        tacoFoodVariant: undefined,
+        calories: 0,
+        proteinG: 0,
+        carbsG: 0,
+        fatG: 0,
+      }
+    }
+
+    try {
+      const response = await fetch("/api/recipes/parse-ingredients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: `${grams}g ${foodName}` }),
+      })
+      const data = (await response.json()) as ParseIngredientsResponse
+      const parsed = data.ingredients?.[0]
+
+      if (!response.ok || !parsed || parsed.source !== "taco" || !parsed.tacoId) {
+        return {
+          source: "user_label",
+          labelOverride: undefined,
+          tacoId: undefined,
+          tacoFoodBase: undefined,
+          tacoFoodVariant: undefined,
+          calories: 0,
+          proteinG: 0,
+          carbsG: 0,
+          fatG: 0,
+        }
+      }
+
+      return {
+        source: "taco",
+        tacoId: parsed.tacoId,
+        tacoFoodBase: parsed.tacoFoodBase,
+        tacoFoodVariant: parsed.tacoFoodVariant,
+        labelOverride: undefined,
+        calories: parsed.calories,
+        proteinG: parsed.proteinG,
+        carbsG: parsed.carbsG,
+        fatG: parsed.fatG,
+      }
+    } catch {
+      return {
+        source: "user_label",
+        labelOverride: undefined,
+        tacoId: undefined,
+        tacoFoodBase: undefined,
+        tacoFoodVariant: undefined,
+        calories: 0,
+        proteinG: 0,
+        carbsG: 0,
+        fatG: 0,
+      }
+    }
+  }
+
   async function handleSave() {
     if (validationError) {
       setError(validationError)
@@ -329,6 +419,7 @@ export function RecipeWizard({ initial }: RecipeWizardProps) {
                       current.filter((_, rowIndex) => rowIndex !== index),
                     )
                   }}
+                  onRecompute={recomputeIngredient}
                 />
               ))}
             </div>

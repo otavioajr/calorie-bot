@@ -27,6 +27,11 @@ interface IngredientRowProps {
   value: IngredientRowState
   onChange: (next: IngredientRowState) => void
   onRemove: () => void
+  onRecompute: (
+    foodName: string,
+    grams: number,
+    override?: LabelOverride,
+  ) => Promise<Partial<IngredientRowState>>
 }
 
 function roundMacro(value: number): number {
@@ -44,62 +49,123 @@ function macrosFromOverride(grams: number, override: LabelOverride) {
   }
 }
 
-function scaleMacros(row: IngredientRowState, nextGrams: number) {
-  if (!Number.isFinite(nextGrams) || nextGrams <= 0 || row.quantityGrams <= 0) {
-    return {
-      calories: 0,
-      proteinG: 0,
-      carbsG: 0,
-      fatG: 0,
-    }
-  }
-
-  const ratio = nextGrams / row.quantityGrams
-
-  return {
-    calories: roundMacro(row.calories * ratio),
-    proteinG: roundMacro(row.proteinG * ratio),
-    carbsG: roundMacro(row.carbsG * ratio),
-    fatG: roundMacro(row.fatG * ratio),
-  }
-}
-
 export function IngredientRow({
   index,
   value,
   onChange,
   onRemove,
+  onRecompute,
 }: IngredientRowProps) {
   const [labelOpen, setLabelOpen] = useState(false)
+  const [nameDraft, setNameDraft] = useState(value.foodName)
+  const [gramsDraft, setGramsDraft] = useState(String(value.quantityGrams))
+  const [recomputing, setRecomputing] = useState(false)
 
   function updateName(foodName: string) {
-    onChange({ ...value, foodName })
-  }
+    setNameDraft(foodName)
 
-  function updateGrams(input: string) {
-    const quantityGrams = Number(input)
-    const nextMacros = value.labelOverride
-      ? macrosFromOverride(quantityGrams, value.labelOverride)
-      : scaleMacros(value, quantityGrams)
+    if (value.source !== "taco") return
 
     onChange({
       ...value,
-      ...nextMacros,
+      foodName,
+      source: "user_label",
+      labelOverride: undefined,
+      tacoId: undefined,
+      tacoFoodBase: undefined,
+      tacoFoodVariant: undefined,
+      calories: 0,
+      proteinG: 0,
+      carbsG: 0,
+      fatG: 0,
+    })
+  }
+
+  function updateGrams(input: string) {
+    setGramsDraft(input)
+
+    const quantityGrams = Number(input)
+    const emptyMacros = {
+      calories: 0,
+      proteinG: 0,
+      carbsG: 0,
+      fatG: 0,
+    }
+
+    onChange({
+      ...value,
+      ...(value.labelOverride && Number.isFinite(quantityGrams)
+        ? macrosFromOverride(quantityGrams, value.labelOverride)
+        : emptyMacros),
       quantityGrams,
     })
   }
 
-  function applyLabel(labelOverride: LabelOverride) {
-    onChange({
-      ...value,
-      ...macrosFromOverride(value.quantityGrams, labelOverride),
-      source: "user_label",
-      labelOverride,
-      tacoId: undefined,
-      tacoFoodBase: undefined,
-      tacoFoodVariant: undefined,
-    })
-    setLabelOpen(false)
+  async function commitDraft() {
+    const foodName = nameDraft.trim()
+    const quantityGrams = Number(gramsDraft)
+
+    if (!foodName || !Number.isFinite(quantityGrams)) {
+      onChange({
+        ...value,
+        foodName,
+        quantityGrams,
+        source: "user_label",
+        labelOverride: undefined,
+        tacoId: undefined,
+        tacoFoodBase: undefined,
+        tacoFoodVariant: undefined,
+        calories: 0,
+        proteinG: 0,
+        carbsG: 0,
+        fatG: 0,
+      })
+      return
+    }
+
+    setRecomputing(true)
+    try {
+      const partial = await onRecompute(foodName, quantityGrams, value.labelOverride)
+      onChange({
+        ...value,
+        ...partial,
+        foodName,
+        quantityGrams,
+      })
+    } finally {
+      setRecomputing(false)
+    }
+  }
+
+  function handleCommitKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Enter") return
+
+    event.currentTarget.blur()
+  }
+
+  async function applyLabel(labelOverride: LabelOverride) {
+    const foodName = nameDraft.trim()
+    const quantityGrams = Number(gramsDraft)
+    const validGrams = Number.isFinite(quantityGrams) ? quantityGrams : value.quantityGrams
+
+    setRecomputing(true)
+    try {
+      const partial = await onRecompute(foodName, validGrams, labelOverride)
+      onChange({
+        ...value,
+        ...partial,
+        foodName,
+        quantityGrams: validGrams,
+        source: "user_label",
+        labelOverride,
+        tacoId: undefined,
+        tacoFoodBase: undefined,
+        tacoFoodVariant: undefined,
+      })
+      setLabelOpen(false)
+    } finally {
+      setRecomputing(false)
+    }
   }
 
   const isLabelPending = value.source === "user_label" && !value.labelOverride
@@ -109,10 +175,13 @@ export function IngredientRow({
       <div className="text-sm text-muted-foreground">{index + 1}</div>
 
       <Input
-        value={value.foodName}
+        value={nameDraft}
         onChange={(event) => updateName(event.target.value)}
+        onBlur={commitDraft}
+        onKeyDown={handleCommitKeyDown}
         placeholder="Ingrediente"
         aria-label={`Ingrediente ${index + 1}`}
+        disabled={recomputing}
       />
 
       <div className="relative">
@@ -120,18 +189,23 @@ export function IngredientRow({
           type="number"
           min={0.01}
           step="0.01"
-          value={Number.isFinite(value.quantityGrams) ? String(value.quantityGrams) : ""}
+          value={gramsDraft}
           onChange={(event) => updateGrams(event.target.value)}
+          onBlur={commitDraft}
+          onKeyDown={handleCommitKeyDown}
           placeholder="g"
           aria-label={`Gramas do ingrediente ${index + 1}`}
           className="pr-7"
+          disabled={recomputing}
         />
         <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
           g
         </span>
       </div>
 
-      <div className="text-sm tabular-nums">{roundMacro(value.calories)} kcal</div>
+      <div className="text-sm tabular-nums">
+        {recomputing ? "..." : `${roundMacro(value.calories)} kcal`}
+      </div>
 
       <div
         className={cn(
