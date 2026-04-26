@@ -34,40 +34,31 @@ Nova ordem (passos 5-8 inseridos antes do LLM, **gated por classificador**):
 2. TACO base-name match
 3. TACO token search
 4. TACO fuzzy
-5. **GUARDRAIL — Classificador `kind: 'generic' | 'branded' | 'unknown'`** (ver seção "Guardrail" abaixo)
-6. **NOVO — Catálogo de produtos aprovados** (`products.status='aprovado'`) — **só se `kind='branded'`**
-7. **NOVO — Produtos privados do usuário** (`products.status='privado' AND created_by=userId`) — **só se `kind='branded'`**
-8. **NOVO — Open Food Facts** (busca por nome; se confirmado, salva como `aprovado`) — **só se `kind='branded'`**
-9. **NOVO — Cadastro manual via rótulo** (interativo; salva como `privado`) — **só se `kind='branded'`**
+5. **GUARDRAIL — `portion_type === 'packaged'` + filtros defensivos** (ver seção "Guardrail" abaixo)
+6. **NOVO — Catálogo de produtos aprovados** (`products.status='aprovado'`) — **só se passou no guardrail**
+7. **NOVO — Produtos privados do usuário** (`products.status='privado' AND created_by=userId`) — **só se passou no guardrail**
+8. **NOVO — Open Food Facts** (busca por nome; se confirmado, salva como `aprovado`) — **só se passou no guardrail**
+9. **NOVO — Cadastro manual via rótulo** (interativo; salva como `privado`) — **só se passou no guardrail**
 10. LLM decomposition + ingredient re-match (existente) — caminho padrão pra `generic`/`unknown`
 11. LLM estimate direto (existente)
 
 A inserção é **antes** da decomposição LLM porque produto industrializado não deve ser decomposto em ingredientes. O guardrail garante que **só itens claramente industrializados** caem nessa rota — "arroz blanco" (typo de "arroz branco") **não** entra aqui, vai direto pra TACO fuzzy ampliada / decomposição LLM.
 
-### Guardrail — classificador `kind`
+### Guardrail — quando disparar o fluxo de produto
 
-O fluxo de produto só dispara quando o item é claramente industrializado/de marca. Implementação em três camadas:
+O fluxo de produto só dispara quando o item é claramente industrializado/de marca. **Reutiliza o campo `portion_type` que já existe** no schema `MealItemSchema` (`src/lib/llm/schemas/meal-analysis.ts:4`) e que o prompt `analyze.ts:24-27` já classifica como `packaged` pra produtos industrializados ("Magic Toast, Yakult, Danone, whey, suplementos, produtos com nome de marca").
 
-**1. Campo no parser LLM existente** (zero custo extra — já chamamos LLM pra extrair `food`/`quantity_grams`):
-```ts
-{
-  food: "magic toast",
-  quantity_grams: 30,
-  kind: "branded"   // novo: 'generic' | 'branded' | 'unknown'
-}
-```
-Prompt instrui:
-- `branded` — produto industrializado de marca específica. Exemplos: Magic Toast, Yopro, barra Trio, whey de marca, biscoito Negresco, Coca-Cola.
-- `generic` — alimento comum sem marca. Exemplos: arroz, feijão, frango, banana, pão francês, leite, ovo.
-- `unknown` — ambíguo (ex: "biscoito recheado" sem marca).
+Não cria campo novo no schema. Em vez disso aplica três camadas de filtro sobre `portion_type === 'packaged'`:
 
-**2. Lista de palavras genéricas** (`src/lib/products/classify.ts`, ~50 itens em PT-BR: `arroz`, `feijão`, `frango`, `carne`, `peixe`, `banana`, `maçã`, `pão`, `leite`, `ovo`, `batata`, `tomate`, `cebola`, `alface`, `queijo`, `iogurte`, ...). Se o token base do `food` está nessa lista E não tem marca declarada → força `kind='generic'` mesmo se LLM disse outra coisa.
+**1. Sinal primário (já existe)**: se `portion_type !== 'packaged'`, **pula direto pra decomposição LLM** — não toca em produtos.
 
-**3. Verificação de proximidade TACO** (rede de segurança final): se `kind='branded'` mas o nome normalizado tem `pg_trgm similarity > 0.5` com qualquer entrada TACO → reclassifica pra `generic`. Cobre o caso "arroz blanco" (similarity ~0.7 com "arroz, branco") que LLM possivelmente classificaria errado por desconhecer a palavra.
+**2. Lista de palavras genéricas defensiva** (`src/lib/products/classify.ts`, ~50 itens em PT-BR: `arroz`, `feijão`, `frango`, `carne`, `peixe`, `banana`, `maçã`, `pão`, `leite`, `ovo`, `batata`, `tomate`, `cebola`, `alface`, `queijo`, `iogurte`, ...). Se o token base do `food` está nessa lista, **força saída do fluxo de produto** mesmo com `portion_type='packaged'`. Protege quando o LLM erra (ex: classifica "leite" como packaged só porque o usuário falou "1 caixa de leite").
 
-**4. Heurística de reforço pra `branded`** (não obrigatória, só inflama prioridade): nome escrito com **maiúscula no meio** ("Magic Toast") ou **entre aspas** no input original do usuário → bias pra `branded`. Útil quando LLM hesita.
+**3. Verificação de proximidade TACO** (rede de segurança final): se passou nas camadas 1 e 2, mas `pg_trgm similarity(name_normalized, taco_food_name) > 0.5` retorna match na TACO, **força saída**. Cobre o caso "arroz blanco" (typo de "arroz branco") que poderia escapar — TACO deve resolver.
 
-Resultado: pra cair no fluxo de produto industrializado, o item precisa: (a) ser classificado como `branded` pelo LLM, (b) não estar na lista de genéricos, (c) não ter match de proximidade na TACO. Triple-gate.
+Resultado: pra cair no fluxo de produto industrializado, o item precisa: (a) ter `portion_type='packaged'` vindo do parser, (b) não estar na lista de genéricos, (c) não ter match de proximidade na TACO. Triple-gate.
+
+**Observação sobre o prompt**: o prompt `analyze.ts` já está bem calibrado pra `packaged`. Não precisamos editá-lo nessa v1 — só adicionar exemplos novos (Yopro, barra Trio, Coca-Cola) **se** os testes mostrarem precisão ruim de classificação.
 
 ### Novas tabelas
 
@@ -151,11 +142,11 @@ ALTER TABLE meal_items ADD COLUMN product_id UUID REFERENCES products(id);
 - `recordUsage(supabase, productId, userId)`.
 
 **`src/lib/products/lookup.ts`** — orquestra camadas 6-9 do pipeline.
-- `tryProductLookup(supabase, item, userId): Promise<EnrichedItem | null>` — **só executa se `item.kind === 'branded'` após classify**. Retorna match em catálogo aprovado, privado ou OFF (com confirmação pendente). Se nada bate, retorna `null` e o fluxo segue pra decomposição LLM.
+- `tryProductLookup(supabase, item, userId): Promise<ProductLookupOutcome>` — **só executa se `shouldUseProductFlow(item, supabase)` retornar `true`**. Retorna `{kind:'matched', enriched}` (achou em catálogo aprovado/privado), `{kind:'needs_off_choice', candidates}` (achou no OFF, precisa interação), `{kind:'needs_label', food}` (não achou em lugar nenhum), ou `{kind:'skip'}` (guardrail rejeitou).
 - Reaproveita `normalizeFoodNameForTaco()` de `src/lib/utils/food-normalize.ts` pra gerar `name_normalized`.
 
-**`src/lib/products/classify.ts`** — guardrail de classificação.
-- `classifyKind(item, originalText, supabase): Promise<'generic'|'branded'|'unknown'>` — aplica camadas 2-4 do guardrail (lista de genéricos, similarity TACO, heurística de capitalização) sobre o `kind` retornado pelo LLM no parser.
+**`src/lib/products/classify.ts`** — guardrail de elegibilidade.
+- `shouldUseProductFlow(item: MealItem, supabase): Promise<boolean>` — checa as três camadas do guardrail (`portion_type==='packaged'` + lista de genéricos + similarity TACO). Retorna `true` apenas se passou em todas.
 - Lista `GENERIC_FOOD_TOKENS` exportada e versionada no arquivo.
 
 **`src/lib/bot/flows/product-confirm.ts`** — fluxo de confirmação interativo (estado em `conversation_state`).
@@ -243,15 +234,14 @@ A pergunta extra acontece **uma única vez por produto**: o segundo usuário (e 
 | `supabase/migrations/00021_create_products.sql` | Novo: tabelas `products`, `product_usage`, índices, RLS, novo source em `meal_items` |
 | `src/lib/products/off-client.ts` | Novo: cliente OFF |
 | `src/lib/products/queries.ts` | Novo: queries Supabase |
-| `src/lib/products/lookup.ts` | Novo: orquestração das camadas 6-9 (gated por `kind='branded'`) |
-| `src/lib/products/classify.ts` | Novo: guardrail `classifyKind` (lista genéricos + similarity TACO + heurística) |
+| `src/lib/products/lookup.ts` | Novo: orquestração das camadas 6-9 (gated por `shouldUseProductFlow`) |
+| `src/lib/products/classify.ts` | Novo: guardrail `shouldUseProductFlow` (`portion_type='packaged'` + lista genéricos + similarity TACO) |
 | `src/lib/products/normalize.ts` | Novo: helpers de normalização |
-| `src/lib/llm/schemas/meal-parse.ts` | Adicionar campo `kind` no schema Zod retornado pelo parser |
-| `src/lib/llm/prompts/meal-parse.ts` (ou equivalente) | Atualizar prompt do parser pra retornar `kind` com exemplos |
 | `src/lib/products/consensus.ts` | Novo: job de auto-promoção |
 | `src/lib/bot/flows/product-confirm.ts` | Novo: fluxo conversacional de confirmação |
 | `src/lib/bot/flows/meal-log.ts` | Modificar `enrichItemsWithTaco` em ~189 pra chamar `tryProductLookup` antes da decomposição LLM (~325) |
-| `src/lib/bot/state.ts` | Adicionar contextos `awaiting_off_choice`, `awaiting_off_brand`, `awaiting_off_confirm`, `awaiting_label_input`, `awaiting_label_confirm` |
+| `src/lib/db/queries/context.ts` | Adicionar tipos `awaiting_off_choice`, `awaiting_off_brand`, `awaiting_off_confirm`, `awaiting_label_input`, `awaiting_label_confirm` em `ContextType` e `CONTEXT_TTLS` |
+| `src/lib/bot/router.ts` | Rotear novos context types pro `product-confirm.ts` |
 | `src/app/api/cron/products-consensus/route.ts` | Novo: endpoint pra cron diário |
 | `vercel.ts` | Adicionar `crons` entry pra `/api/cron/products-consensus` |
 | `src/lib/db/types.ts` | Tipos do Supabase regenerados (`Product`, `ProductUsage`) |
