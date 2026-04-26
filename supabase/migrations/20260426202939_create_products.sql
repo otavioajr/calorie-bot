@@ -75,14 +75,16 @@ CREATE TRIGGER products_set_updated_at
     BEFORE UPDATE ON products
     FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
-CREATE OR REPLACE FUNCTION taco_max_similarity(query_name TEXT)
+CREATE OR REPLACE FUNCTION taco_max_similarity(input TEXT)
 RETURNS REAL
 LANGUAGE sql
 STABLE
 AS $$
-    SELECT COALESCE(MAX(similarity(lower(t.food_name), lower(query_name))), 0)::REAL
+    SELECT COALESCE(MAX(similarity(lower(t.food_name), lower(input))), 0)::REAL
     FROM taco_foods t;
 $$;
+
+GRANT EXECUTE ON FUNCTION taco_max_similarity(TEXT) TO anon, authenticated, service_role;
 
 ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE product_usage ENABLE ROW LEVEL SECURITY;
