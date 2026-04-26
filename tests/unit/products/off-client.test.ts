@@ -88,7 +88,7 @@ describe('searchByName', () => {
     expect(url.searchParams.get('fields')).toBe(
       'code,product_name,brands,nutriments,quantity,serving_size',
     )
-    expect(request.headers.get('User-Agent')).toBe('CalorieBot/1.0 (otavioajr@gmail.com)')
+    expect(request.headers.get('User-Agent')).toBe('CalorieBot/1.0 (caloriebot@example.com)')
   })
 
   it('converts energy-kj_100g when energy-kcal_100g is missing', async () => {
@@ -219,7 +219,7 @@ describe('getByBarcode', () => {
     expect(request.url).toBe(
       'https://world.openfoodfacts.org/api/v2/product/7891000315507.json',
     )
-    expect(request.headers.get('User-Agent')).toBe('CalorieBot/1.0 (otavioajr@gmail.com)')
+    expect(request.headers.get('User-Agent')).toBe('CalorieBot/1.0 (caloriebot@example.com)')
   })
 
   it('returns null when barcode is not found or the product is implausible', async () => {

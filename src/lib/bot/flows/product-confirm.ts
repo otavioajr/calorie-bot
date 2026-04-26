@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { clearState, setState, type ConversationContext } from '@/lib/bot/state'
-import { createProduct, recordUsage } from '@/lib/products/queries'
+import { createProduct, findByBarcode, recordUsage } from '@/lib/products/queries'
+import type { MealItem } from '@/lib/llm/schemas/meal-analysis'
 import type { OffProduct, Product } from '@/lib/products/types'
 
 export interface ProductConfirmResult {
@@ -22,6 +23,8 @@ export interface ProductPendingMeal {
   originalMessage: string
   food: string
   quantityDisplay: string | null
+  mealItems?: MealItem[]
+  productItemIndex?: number
 }
 
 interface LabelProductDraft {
@@ -130,15 +133,9 @@ function matchNutrient(text: string, patterns: RegExp[]): number | null {
 function parseLabelInput(message: string, productName: string): LabelProductDraft | null {
   const brandMatch = message.match(/marca\s*:?\s*([^,;\n]+)/i)
   const firstField = message.split(/[,;\n]/)[0]?.trim()
-
-  // Check if firstField looks like a nutrient (contains digits, kcal, g, etc.)
-  const firstFieldIsNutrient = firstField && (
-    /\d/.test(firstField) ||
-    /\d+\s*kcal/i.test(firstField) ||
-    /\d+\s*g/i.test(firstField)
-  )
-
-  const brand = brandMatch?.[1]?.trim() ?? (firstFieldIsNutrient ? undefined : firstField)
+  const firstFieldLooksLikeBrand =
+    !!firstField && firstField.length >= 2 && !/\d/.test(firstField)
+  const brand = brandMatch?.[1]?.trim() ?? (firstFieldLooksLikeBrand ? firstField : null)
 
   const calories = matchNutrient(message, [
     /(\d+(?:[,.]\d+)?)\s*kcal/i,
@@ -338,6 +335,18 @@ export async function handleAwaitingOffConfirm(
     return {
       response: 'Responda sim para usar este produto ou não para cadastrar pelo rótulo.',
       completed: false,
+    }
+  }
+
+  const existingProduct = candidate.code ? await findByBarcode(supabase, candidate.code) : null
+  if (existingProduct) {
+    await recordUsage(supabase, existingProduct.id, userId)
+    await clearState(userId)
+    return {
+      response: `Produto salvo: ${existingProduct.name}.`,
+      completed: true,
+      productId: existingProduct.id,
+      product: existingProduct,
     }
   }
 

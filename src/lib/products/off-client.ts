@@ -2,7 +2,7 @@ import type { OffProduct } from './types'
 
 const SEARCH_URL = 'https://search.openfoodfacts.org/search'
 const PRODUCT_URL = 'https://world.openfoodfacts.org/api/v2/product'
-const USER_AGENT = `CalorieBot/1.0 (${process.env.OFF_USER_AGENT_CONTACT || 'caloriebot@example.com'})`
+const USER_AGENT = `CalorieBot/1.0 (${process.env.OFF_USER_AGENT_CONTACT ?? 'caloriebot@example.com'})`
 const TIMEOUT_MS = 3000
 const RETRY_BACKOFF_MS = 500
 const FIELDS = 'code,product_name,brands,nutriments,quantity,serving_size'

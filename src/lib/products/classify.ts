@@ -87,10 +87,12 @@ async function hasNearbyTacoMatch(item: MealItem, supabase: SupabaseClient): Pro
   if (!input) return false
 
   const { data, error } = await supabase.rpc('taco_max_similarity', { input })
-  if (error || data === null || data === undefined) {
-    console.error('[classify] taco_max_similarity RPC failed:', error, 'for input:', input)
-    return true  // Fail closed: treat as TACO match to avoid routing real TACO foods to product flow
+  if (error) {
+    console.error('[classify] taco_max_similarity RPC failed:', { error, input })
+    // Fail closed: assume there is a nearby TACO match so we don't push generic foods through the OFF flow.
+    return true
   }
+  if (data === null || data === undefined) return false
 
   const similarity = Number(data)
   return Number.isFinite(similarity) && similarity > 0.5

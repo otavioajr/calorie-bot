@@ -18,11 +18,12 @@ vi.mock('@/lib/bot/state', () => ({
 
 vi.mock('@/lib/products/queries', () => ({
   createProduct: vi.fn(),
+  findByBarcode: vi.fn(),
   recordUsage: vi.fn().mockResolvedValue(undefined),
 }))
 
 import { clearState, setState } from '@/lib/bot/state'
-import { createProduct, recordUsage } from '@/lib/products/queries'
+import { createProduct, findByBarcode, recordUsage } from '@/lib/products/queries'
 
 const supabase = {} as SupabaseClient
 const userId = 'user-1'
@@ -92,6 +93,7 @@ function context(
 describe('product-confirm flow', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(findByBarcode).mockResolvedValue(null)
     vi.mocked(createProduct).mockResolvedValue(product())
   })
 
@@ -232,6 +234,29 @@ describe('product-confirm flow', () => {
       expect.objectContaining({
         completed: true,
         productId: 'saved-off-1',
+      }),
+    )
+  })
+
+  it('reuses an existing approved product with the same barcode before creating from OFF', async () => {
+    const existingProduct = product({ id: 'existing-off-1' })
+    vi.mocked(findByBarcode).mockResolvedValue(existingProduct)
+    const currentContext = context('awaiting_off_confirm', {
+      quantityGrams: 25,
+      candidate: offCandidateWithBrand,
+    })
+
+    const result = await handleAwaitingOffConfirm(supabase, userId, 'sim', currentContext)
+
+    expect(findByBarcode).toHaveBeenCalledWith(supabase, '7891000000000')
+    expect(createProduct).not.toHaveBeenCalled()
+    expect(recordUsage).toHaveBeenCalledWith(supabase, 'existing-off-1', userId)
+    expect(clearState).toHaveBeenCalledWith(userId)
+    expect(result).toEqual(
+      expect.objectContaining({
+        completed: true,
+        productId: 'existing-off-1',
+        product: existingProduct,
       }),
     )
   })

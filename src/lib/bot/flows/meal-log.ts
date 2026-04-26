@@ -30,7 +30,7 @@ export interface MealLogResult {
 // Types for enriched items
 // ---------------------------------------------------------------------------
 
-interface EnrichedItem {
+export interface EnrichedItem {
   food: string
   quantityGrams: number
   quantityDisplay?: string | null
@@ -332,12 +332,15 @@ export async function enrichItemsWithTaco(
     const outcome = await tryProductLookup(supabase, item, userId)
 
     if (outcome.kind === 'matched') {
-      const resolvedQty = outcome.quantityGrams ?? outcome.product.servingSizeG ?? 100
-      const macros = calculateMacrosFromProduct(outcome.product, resolvedQty)
+      const resolvedQuantity = outcome.quantityGrams ?? outcome.product.servingSizeG ?? 100
+      const quantityDisplay = item.quantity_display
+        ?? outcome.product.servingDisplay
+        ?? (outcome.quantityGrams === null && outcome.product.servingSizeG === null ? '100 g estimado' : null)
+      const macros = calculateMacrosFromProduct(outcome.product, resolvedQuantity)
       enriched[index] = {
         food: outcome.product.name,
-        quantityGrams: resolvedQty,
-        quantityDisplay: item.quantity_display,
+        quantityGrams: resolvedQuantity,
+        quantityDisplay,
         calories: macros.calories,
         protein: macros.protein,
         carbs: macros.carbs,
@@ -613,12 +616,15 @@ async function startProductInteraction(
   const first = pendingInteractions[0]
   const item = first.item
   const outcome = first.outcome
+  const productItemIndex = first.index
 
   const pendingMeal = {
     mealType: meal.meal_type,
     originalMessage,
     food: item.food,
     quantityDisplay: item.quantity_display,
+    mealItems: meal.items,
+    productItemIndex,
   }
 
   if (outcome.kind === 'needs_off_choice') {

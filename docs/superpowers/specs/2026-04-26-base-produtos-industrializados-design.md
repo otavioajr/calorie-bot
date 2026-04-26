@@ -90,7 +90,7 @@ CREATE TABLE products (
   contributor_ids UUID[]                       -- usuários do cluster de consenso
 );
 
-CREATE UNIQUE INDEX idx_products_barcode_unique ON products (barcode) WHERE barcode IS NOT NULL;
+CREATE UNIQUE INDEX products_barcode_unique ON products (barcode) WHERE barcode IS NOT NULL;
 CREATE INDEX idx_products_name_norm ON products USING gin (name_normalized gin_trgm_ops);
 CREATE INDEX idx_products_brand_name_norm ON products (brand_normalized, name_normalized) WHERE status = 'aprovado';
 CREATE INDEX idx_products_private_owner ON products (created_by, name_normalized) WHERE status = 'privado';
@@ -123,7 +123,7 @@ ALTER TABLE meal_items ADD COLUMN product_id UUID REFERENCES products(id);
 - `searchByName(query: string): Promise<OffProduct[]>` — top 5 resultados via **`https://search.openfoodfacts.org/search`** (Search-A-Licious v2). **Importante**: o endpoint legacy `/cgi/search.pl` está aposentado/retornando 503 — usar o engine novo.
   - Query string: `?q={query}&page_size=10&fields=code,product_name,brands,nutriments,quantity,serving_size`
 - `getByBarcode(barcode: string): Promise<OffProduct | null>` — via `https://world.openfoodfacts.org/api/v2/product/{code}.json`.
-- User-Agent: `CalorieBot/1.0 (otavioajr@gmail.com)`.
+- User-Agent: `CalorieBot/1.0 (${OFF_USER_AGENT_CONTACT})` — contato definido via env, com fallback `caloriebot@example.com` se ausente.
 - Timeout 3s, retry 1x com backoff de 500ms. Falha silenciosa (retorna `[]` ou `null` — não bloqueia o fluxo).
 - Normaliza unidades: OFF retorna kcal e gramas; converte de kJ se vier nesse formato.
 - **Filtros de plausibilidade pré-retorno** (testes locais mostraram dados sujos: ex. "Magic toast" com 64 kcal/100g — impossível pra biscoito):
@@ -166,7 +166,7 @@ ALTER TABLE meal_items ADD COLUMN product_id UUID REFERENCES products(id);
   - Se passa: cria nova linha `status='aprovado'`, `source='consenso_usuarios'`, `contributor_ids=[ids]`, `created_by=NULL`, `promoted_at=now()` com macros medianos.
   - Privados originais permanecem (autores continuam vendo o "deles"; lookups públicos passam a achar o aprovado primeiro).
 - **Não promove** se `brand` for nulo em qualquer membro do grupo.
-- Trigger: cron diário (Vercel Cron `vercel.ts` ou rota `/api/cron/products-consensus` chamada por agendador externo).
+- Trigger: cron diário (Vercel Cron `vercel.json` ou rota `/api/cron/products-consensus` chamada por agendador externo).
 
 **`src/lib/products/normalize.ts`** — utilitários específicos.
 - `normalizeProductName(s)` — reusa lower+accent+trim de `food-normalize.ts`, mas mantém marcadores de marca (não aplica synonyms TACO).
@@ -242,7 +242,7 @@ A pergunta extra acontece **uma única vez por produto**: o segundo usuário (e 
 | `src/lib/db/queries/context.ts` | Adicionar tipos `awaiting_off_choice`, `awaiting_off_brand`, `awaiting_off_confirm`, `awaiting_label_input`, `awaiting_label_confirm` em `ContextType` e `CONTEXT_TTLS` |
 | `src/lib/bot/router.ts` | Rotear novos context types pro `product-confirm.ts` |
 | `src/app/api/cron/products-consensus/route.ts` | Novo: endpoint pra cron diário |
-| `vercel.ts` | Adicionar `crons` entry pra `/api/cron/products-consensus` |
+| `vercel.json` | Adicionar `crons` entry pra `/api/cron/products-consensus` |
 | `src/lib/db/types.ts` | Tipos do Supabase regenerados (`Product`, `ProductUsage`) |
 | `tests/unit/products/lookup.test.ts` | Testes de cada camada e fallback |
 | `tests/unit/products/consensus.test.ts` | Testes de cluster, mediana, threshold, exigência de marca |

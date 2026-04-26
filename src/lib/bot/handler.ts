@@ -3,7 +3,7 @@ import { findUserByPhone, createUser, getUserWithSettings } from '@/lib/db/queri
 import { getState, setState, clearState, type ConversationContext } from '@/lib/bot/state'
 import { classifyByRules, isCancelCommand } from '@/lib/bot/router'
 import { handleOnboarding } from '@/lib/bot/flows/onboarding'
-import { handleMealLog } from '@/lib/bot/flows/meal-log'
+import { enrichItemsWithTaco, handleMealLog, type EnrichedItem } from '@/lib/bot/flows/meal-log'
 import { handleSummary } from '@/lib/bot/flows/summary'
 import { handleQuery, handleQueryConfirmation, registerFromQuotedQuery } from '@/lib/bot/flows/query'
 import { handleEdit } from '@/lib/bot/flows/edit'
@@ -37,7 +37,7 @@ import { scaleNutritionLabelItem } from '@/lib/bot/nutrition-label'
 import { getUserLocalTime, resolveMealTypeFromContext } from '@/lib/utils/meal-time'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ImageAnalysis } from '@/lib/llm/schemas/image-analysis'
-import type { MealAnalysis } from '@/lib/llm/schemas/meal-analysis'
+import type { MealAnalysis, MealItem } from '@/lib/llm/schemas/meal-analysis'
 import { buildContextualCorrectionPrompt } from '@/lib/llm/prompts/contextual-correction'
 import type { RecentMealItem } from '@/lib/llm/prompts/contextual-correction'
 import type { Product } from '@/lib/products/types'
@@ -89,6 +89,71 @@ function productMacros(product: Product, quantityGrams: number) {
   }
 }
 
+function totalCaloriesFromConfirmedItems(items: EnrichedItem[]): number {
+  return Math.round(items.reduce((sum, item) => sum + item.calories, 0))
+}
+
+function confirmedProductItem(
+  pendingMeal: ProductPendingMeal,
+  product: Product,
+  quantityGrams: number | null,
+): EnrichedItem {
+  const resolvedQuantity = quantityGrams ?? product.servingSizeG ?? 100
+  const quantityDisplay = pendingMeal.quantityDisplay
+    ?? product.servingDisplay
+    ?? (quantityGrams === null && product.servingSizeG === null ? '100 g estimado' : null)
+  const macros = productMacros(product, resolvedQuantity)
+
+  return {
+    food: product.name,
+    quantityGrams: resolvedQuantity,
+    quantityDisplay,
+    calories: macros.calories,
+    protein: macros.protein,
+    carbs: macros.carbs,
+    fat: macros.fat,
+    source: 'product',
+    productId: product.id,
+  }
+}
+
+async function buildConfirmedProductMealItems(
+  supabase: SupabaseClient,
+  userId: string,
+  pendingMeal: ProductPendingMeal,
+  product: Product,
+  quantityGrams: number | null,
+): Promise<EnrichedItem[]> {
+  const productItem = confirmedProductItem(pendingMeal, product, quantityGrams)
+  const mealItems = pendingMeal.mealItems
+  const productItemIndex = pendingMeal.productItemIndex
+
+  if (!mealItems || typeof productItemIndex !== 'number') {
+    return [productItem]
+  }
+
+  const remainingItems = mealItems
+    .map((item, index) => ({ item: item as MealItem, index }))
+    .filter(({ index }) => index !== productItemIndex)
+
+  const enrichedRemaining = remainingItems.length > 0
+    ? await enrichItemsWithTaco(supabase, remainingItems.map(({ item }) => item), getLLMProvider(), userId)
+    : []
+
+  const items: EnrichedItem[] = []
+  let remainingIndex = 0
+  for (let index = 0; index < mealItems.length; index += 1) {
+    if (index === productItemIndex) {
+      items.push(productItem)
+    } else {
+      items.push(enrichedRemaining[remainingIndex])
+      remainingIndex += 1
+    }
+  }
+
+  return items.filter(Boolean)
+}
+
 async function registerConfirmedProductMeal(
   supabase: SupabaseClient,
   userId: string,
@@ -98,32 +163,33 @@ async function registerConfirmedProductMeal(
   user: { dailyCalorieTarget: number | null; timezone?: string },
 ): Promise<{ response: string; mealId: string }> {
   const assumedDefaultQuantity = quantityGrams === null && product.servingSizeG == null
-  const resolvedQuantity = quantityGrams ?? product.servingSizeG ?? 100
-  const macros = productMacros(product, resolvedQuantity)
+  const items = await buildConfirmedProductMealItems(supabase, userId, pendingMeal, product, quantityGrams)
+  const totalCalories = totalCaloriesFromConfirmedItems(items)
 
   const mealId = await createMeal(supabase, {
     userId,
     mealType: pendingMeal.mealType,
-    totalCalories: macros.calories,
-    originalMessage: pendingMeal.food,
+    totalCalories,
+    originalMessage: pendingMeal.originalMessage,
     llmResponse: {
       product_id: product.id,
       source: 'product-confirm',
       original_food: pendingMeal.food,
       original_message: pendingMeal.originalMessage,
     },
-    items: [{
-      foodName: product.name,
-      quantityGrams: resolvedQuantity,
-      quantityDisplay: pendingMeal.quantityDisplay ?? product.servingDisplay ?? undefined,
-      calories: macros.calories,
-      proteinG: macros.protein,
-      carbsG: macros.carbs,
-      fatG: macros.fat,
-      source: 'product',
-      productId: product.id,
-      confidence: 'high',
-    }],
+    items: items.map((item) => ({
+      foodName: item.food,
+      quantityGrams: item.quantityGrams,
+      quantityDisplay: item.quantityDisplay ?? undefined,
+      calories: item.calories,
+      proteinG: item.protein,
+      carbsG: item.carbs,
+      fatG: item.fat,
+      source: item.source,
+      tacoId: item.tacoId,
+      productId: item.productId,
+      confidence: item.source === 'approximate' ? 'low' : 'high',
+    })),
   })
 
   const mealWithItems = await getMealWithItems(supabase, mealId)
@@ -148,13 +214,13 @@ async function registerConfirmedProductMeal(
   const target = user.dailyCalorieTarget ?? 2000
   let response = formatMealBreakdown(
     pendingMeal.mealType,
-    [{
-      food: product.name,
-      quantityGrams: resolvedQuantity,
-      quantityDisplay: pendingMeal.quantityDisplay ?? product.servingDisplay,
-      calories: macros.calories,
-    }],
-    macros.calories,
+    items.map((item) => ({
+      food: item.food,
+      quantityGrams: item.quantityGrams,
+      quantityDisplay: item.quantityDisplay,
+      calories: item.calories,
+    })),
+    totalCalories,
     dailyConsumed,
     target,
   )

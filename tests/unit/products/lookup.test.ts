@@ -110,6 +110,16 @@ describe('tryProductLookup', () => {
     expect(recordUsage).toHaveBeenCalledWith(supabase, 'approved-1', 'user-1')
   })
 
+  it('preserves missing quantity on matched approved product', async () => {
+    const approved = product({ id: 'approved-1' })
+    vi.mocked(shouldUseProductFlow).mockResolvedValue(true)
+    vi.mocked(findApprovedProduct).mockResolvedValue(approved)
+
+    const result = await tryProductLookup(supabase, mealItem({ quantity_grams: null }), 'user-1')
+
+    expect(result).toEqual({ kind: 'matched', product: approved, quantityGrams: null })
+  })
+
   it('falls through to private product when approved catalog has no match', async () => {
     const privateProduct = product({ id: 'private-1', status: 'privado', createdBy: 'user-1' })
     vi.mocked(shouldUseProductFlow).mockResolvedValue(true)
