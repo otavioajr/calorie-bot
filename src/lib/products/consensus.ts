@@ -123,7 +123,7 @@ export async function runConsensusPromotion(
 
   const clustersByKey = new Map<string, ProductConsensusRow[]>()
 
-  for (const row of (data ?? []) as ProductConsensusRow[]) {
+  for (const row of (data ?? []) as unknown as ProductConsensusRow[]) {
     if (!row.brand_normalized || !row.name_normalized || !row.created_by) continue
 
     const key = `${row.brand_normalized}:${row.name_normalized}`

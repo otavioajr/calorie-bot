@@ -1,18 +1,27 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { clearState, setState, type ConversationContext } from '@/lib/bot/state'
 import { createProduct, recordUsage } from '@/lib/products/queries'
-import type { OffProduct } from '@/lib/products/types'
+import type { OffProduct, Product } from '@/lib/products/types'
 
 export interface ProductConfirmResult {
   response: string
   completed: boolean
   productId?: string
+  product?: Product
 }
 
 interface StartOffChoiceInput {
   query: string
   candidates: OffProduct[]
   quantityGrams: number | null
+  pendingMeal?: ProductPendingMeal
+}
+
+export interface ProductPendingMeal {
+  mealType: string
+  originalMessage: string
+  food: string
+  quantityDisplay: string | null
 }
 
 interface LabelProductDraft {
@@ -60,6 +69,11 @@ function getCandidate(context: ConversationContext): OffProduct | null {
 function getQuantityGrams(context: ConversationContext): number | null {
   const value = context.contextData.quantityGrams
   return typeof value === 'number' ? value : null
+}
+
+function getPendingMeal(context: ConversationContext): ProductPendingMeal | undefined {
+  const value = context.contextData.pendingMeal
+  return value && typeof value === 'object' ? (value as ProductPendingMeal) : undefined
 }
 
 function getLabelName(context: ConversationContext): string {
@@ -173,8 +187,9 @@ async function moveToLabelInput(
   userId: string,
   name: string,
   quantityGrams: number | null,
+  pendingMeal?: ProductPendingMeal,
 ): Promise<ProductConfirmResult> {
-  await setState(userId, 'awaiting_label_input', { name, quantityGrams })
+  await setState(userId, 'awaiting_label_input', { name, quantityGrams, pendingMeal })
   return {
     response: labelInputPrompt(name),
     completed: false,
@@ -189,6 +204,7 @@ export async function handleStartOffChoice(
     query: input.query,
     quantityGrams: input.quantityGrams,
     candidates: input.candidates,
+    pendingMeal: input.pendingMeal,
   })
 
   const options = input.candidates
@@ -205,6 +221,17 @@ export async function handleStartOffChoice(
   }
 }
 
+export async function handleStartLabelInput(
+  userId: string,
+  input: {
+    food: string
+    quantityGrams: number | null
+    pendingMeal?: ProductPendingMeal
+  },
+): Promise<ProductConfirmResult> {
+  return moveToLabelInput(userId, input.food, input.quantityGrams, input.pendingMeal)
+}
+
 export async function handleAwaitingOffChoice(
   userId: string,
   message: string,
@@ -215,7 +242,7 @@ export async function handleAwaitingOffChoice(
   const quantityGrams = getQuantityGrams(context)
 
   if (isNone(message)) {
-    return moveToLabelInput(userId, query, quantityGrams)
+    return moveToLabelInput(userId, query, quantityGrams, getPendingMeal(context))
   }
 
   const choice = Number.parseInt(message.trim(), 10)
@@ -229,14 +256,22 @@ export async function handleAwaitingOffChoice(
   }
 
   if (!candidate.brand?.trim()) {
-    await setState(userId, 'awaiting_off_brand', { candidate, quantityGrams })
+    await setState(userId, 'awaiting_off_brand', {
+      candidate,
+      quantityGrams,
+      pendingMeal: getPendingMeal(context),
+    })
     return {
       response: `Qual é a marca de "${candidate.productName}"?`,
       completed: false,
     }
   }
 
-  await setState(userId, 'awaiting_off_confirm', { candidate, quantityGrams })
+  await setState(userId, 'awaiting_off_confirm', {
+    candidate,
+    quantityGrams,
+    pendingMeal: getPendingMeal(context),
+  })
   return {
     response: formatOffConfirmation(candidate),
     completed: false,
@@ -252,7 +287,7 @@ export async function handleAwaitingOffBrand(
   const candidate = getCandidate(context)
 
   if (!candidate) {
-    return moveToLabelInput(userId, 'Produto', getQuantityGrams(context))
+    return moveToLabelInput(userId, 'Produto', getQuantityGrams(context), getPendingMeal(context))
   }
 
   if (brand.length === 0) {
@@ -266,6 +301,7 @@ export async function handleAwaitingOffBrand(
   await setState(userId, 'awaiting_off_confirm', {
     candidate: candidateWithBrand,
     quantityGrams: getQuantityGrams(context),
+    pendingMeal: getPendingMeal(context),
   })
 
   return {
@@ -283,11 +319,11 @@ export async function handleAwaitingOffConfirm(
   const candidate = getCandidate(context)
 
   if (!candidate) {
-    return moveToLabelInput(userId, 'Produto', getQuantityGrams(context))
+    return moveToLabelInput(userId, 'Produto', getQuantityGrams(context), getPendingMeal(context))
   }
 
   if (isNo(message)) {
-    return moveToLabelInput(userId, candidate.productName, getQuantityGrams(context))
+    return moveToLabelInput(userId, candidate.productName, getQuantityGrams(context), getPendingMeal(context))
   }
 
   if (!isYes(message)) {
@@ -321,6 +357,7 @@ export async function handleAwaitingOffConfirm(
     response: `Produto salvo: ${product.name}.`,
     completed: true,
     productId: product.id,
+    product,
   }
 }
 
@@ -342,6 +379,7 @@ export async function handleAwaitingLabelInput(
   await setState(userId, 'awaiting_label_confirm', {
     product: parsed,
     quantityGrams: getQuantityGrams(context),
+    pendingMeal: getPendingMeal(context),
   })
 
   return {
@@ -359,11 +397,11 @@ export async function handleAwaitingLabelConfirm(
   const productDraft = context.contextData.product as LabelProductDraft | undefined
 
   if (!productDraft) {
-    return moveToLabelInput(userId, getLabelName(context), getQuantityGrams(context))
+    return moveToLabelInput(userId, getLabelName(context), getQuantityGrams(context), getPendingMeal(context))
   }
 
   if (isNo(message)) {
-    return moveToLabelInput(userId, productDraft.name, getQuantityGrams(context))
+    return moveToLabelInput(userId, productDraft.name, getQuantityGrams(context), getPendingMeal(context))
   }
 
   if (!isYes(message)) {
@@ -392,5 +430,6 @@ export async function handleAwaitingLabelConfirm(
     response: `Produto salvo para seu uso: ${product.name}.`,
     completed: true,
     productId: product.id,
+    product,
   }
 }

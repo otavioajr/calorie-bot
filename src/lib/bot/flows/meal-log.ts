@@ -12,6 +12,9 @@ import { sendTextMessage } from '@/lib/whatsapp/client'
 import { searchMealHistory, HistoryMatch } from '@/lib/db/queries/meal-history-search'
 import { normalizeFoodNameForTaco, applySynonyms, tokenMatchScore } from '@/lib/utils/food-normalize'
 import { getUserLocalTime } from '@/lib/utils/meal-time'
+import { handleStartLabelInput, handleStartOffChoice } from '@/lib/bot/flows/product-confirm'
+import { tryProductLookup } from '@/lib/products/lookup'
+import type { Product, ProductLookupOutcome } from '@/lib/products/types'
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -37,9 +40,21 @@ interface EnrichedItem {
   fat: number
   source: string
   tacoId?: number
+  productId?: string
   usedDefault?: boolean
   defaultFoodBase?: string
   defaultFoodVariant?: string
+}
+
+type PendingProductOutcome = Extract<ProductLookupOutcome, { kind: 'needs_off_choice' | 'needs_label' }>
+
+class ProductInteractionRequired extends Error {
+  constructor(
+    readonly item: MealItem,
+    readonly outcome: PendingProductOutcome,
+  ) {
+    super('Product interaction required')
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -60,6 +75,16 @@ function safeParseJSON(raw: string): unknown {
       try { return JSON.parse(match[1].trim()) } catch { /* fall through */ }
     }
     return null
+  }
+}
+
+function calculateMacrosFromProduct(product: Product, quantityGrams: number) {
+  const factor = quantityGrams / 100
+  return {
+    calories: Math.round(product.caloriesPer100g * factor),
+    protein: Math.round(product.proteinPer100g * factor * 10) / 10,
+    carbs: Math.round(product.carbsPer100g * factor * 10) / 10,
+    fat: Math.round(product.fatPer100g * factor * 10) / 10,
   }
 }
 
@@ -293,14 +318,42 @@ export async function enrichItemsWithTaco(
     stillNeedsFuzzy.push({ item, index })
   }
 
+  // Step 1.7: Try industrialized product base before LLM decomposition.
+  const stillNeedsAfterProducts: { item: MealItem; index: number }[] = []
+  for (const { item, index } of stillNeedsFuzzy) {
+    const outcome = await tryProductLookup(supabase, item, userId)
+
+    if (outcome.kind === 'matched') {
+      const macros = calculateMacrosFromProduct(outcome.product, outcome.quantityGrams)
+      enriched[index] = {
+        food: outcome.product.name,
+        quantityGrams: outcome.quantityGrams,
+        quantityDisplay: item.quantity_display,
+        calories: macros.calories,
+        protein: macros.protein,
+        carbs: macros.carbs,
+        fat: macros.fat,
+        source: 'product',
+        productId: outcome.product.id,
+      }
+      continue
+    }
+
+    if (outcome.kind === 'needs_off_choice' || outcome.kind === 'needs_label') {
+      throw new ProductInteractionRequired(item, outcome)
+    }
+
+    stillNeedsAfterProducts.push({ item, index })
+  }
+
   // Step 2: Fuzzy match for items that didn't match any base
   const needsDecomposition: { item: MealItem; index: number }[] = []
 
-  if (stillNeedsFuzzy.length > 0) {
-    const fuzzyNames = stillNeedsFuzzy.map(d => d.item.food)
+  if (stillNeedsAfterProducts.length > 0) {
+    const fuzzyNames = stillNeedsAfterProducts.map(d => d.item.food)
     const tacoMatches = await fuzzyMatchTacoMultiple(supabase, fuzzyNames)
 
-    for (const { item, index } of stillNeedsFuzzy) {
+    for (const { item, index } of stillNeedsAfterProducts) {
       const itemQty = item.quantity_grams ?? 0
       const tacoMatch = tacoMatches.get(item.food.toLowerCase())
       if (tacoMatch) {
@@ -534,6 +587,38 @@ export async function handleMealLog(
   return analyzeAndRegister(supabase, userId, trimmed, trimmed, user)
 }
 
+async function startProductInteraction(
+  userId: string,
+  meal: MealAnalysis,
+  originalMessage: string,
+  item: MealItem,
+  outcome: PendingProductOutcome,
+): Promise<MealLogResult> {
+  const pendingMeal = {
+    mealType: meal.meal_type,
+    originalMessage,
+    food: item.food,
+    quantityDisplay: item.quantity_display,
+  }
+
+  if (outcome.kind === 'needs_off_choice') {
+    const result = await handleStartOffChoice(userId, {
+      query: outcome.query,
+      candidates: outcome.candidates,
+      quantityGrams: outcome.quantityGrams,
+      pendingMeal,
+    })
+    return { response: result.response, completed: false }
+  }
+
+  const result = await handleStartLabelInput(userId, {
+    food: outcome.food,
+    quantityGrams: outcome.quantityGrams,
+    pendingMeal,
+  })
+  return { response: result.response, completed: false }
+}
+
 // ---------------------------------------------------------------------------
 // History selection handler
 // ---------------------------------------------------------------------------
@@ -614,6 +699,7 @@ async function saveMeals(
         fatG: item.fat,
         source: item.source,
         tacoId: item.tacoId,
+        productId: item.productId,
         confidence: item.source === 'approximate' ? 'low' : 'high',
         quantityDisplay: item.quantityDisplay ?? undefined,
       })),
@@ -823,6 +909,7 @@ async function handleBulkQuantitiesResponse(
       fat_g: item.fat,
       source: item.source,
       taco_id: item.tacoId ?? null,
+      product_id: item.productId ?? null,
       confidence: item.source === 'approximate' ? 'low' : 'high',
       quantity_display: item.quantityDisplay ?? null,
     }))
@@ -999,7 +1086,15 @@ async function analyzeAndRegister(
       let resolvedMealId: string | null = null
 
       if (resolvedItems.length > 0) {
-        const enriched = await enrichItemsWithTaco(supabase, resolvedItems, llm, userId)
+        let enriched: EnrichedItem[]
+        try {
+          enriched = await enrichItemsWithTaco(supabase, resolvedItems, llm, userId)
+        } catch (error) {
+          if (error instanceof ProductInteractionRequired) {
+            return startProductInteraction(userId, meal, originalMessage, error.item, error.outcome)
+          }
+          throw error
+        }
         const partialAnalysis: MealAnalysis = { ...meal, items: resolvedItems }
         const savedIds = await saveMeals(supabase, userId, [partialAnalysis], [enriched], originalMessage)
         resolvedMealId = savedIds[savedIds.length - 1] ?? null
@@ -1031,7 +1126,15 @@ async function analyzeAndRegister(
   // Enrich all meal items with TACO data
   const enrichedMeals: EnrichedItem[][] = []
   for (const meal of meals) {
-    const enriched = await enrichItemsWithTaco(supabase, meal.items, llm, userId)
+    let enriched: EnrichedItem[]
+    try {
+      enriched = await enrichItemsWithTaco(supabase, meal.items, llm, userId)
+    } catch (error) {
+      if (error instanceof ProductInteractionRequired) {
+        return startProductInteraction(userId, meal, originalMessage, error.item, error.outcome)
+      }
+      throw error
+    }
     enrichedMeals.push(enriched)
   }
 

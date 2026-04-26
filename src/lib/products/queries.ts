@@ -116,7 +116,7 @@ export async function findApprovedProduct(
   const { data, error } = await query.limit(1).maybeSingle()
   if (error || !data) return null
 
-  return rowToProduct(data as ProductRow)
+  return rowToProduct(data as unknown as ProductRow)
 }
 
 export async function findPrivateProduct(
@@ -135,7 +135,7 @@ export async function findPrivateProduct(
 
   if (error || !data) return null
 
-  return rowToProduct(data as ProductRow)
+  return rowToProduct(data as unknown as ProductRow)
 }
 
 export async function findByBarcode(
@@ -151,7 +151,7 @@ export async function findByBarcode(
 
   if (error || !data) return null
 
-  return rowToProduct(data as ProductRow)
+  return rowToProduct(data as unknown as ProductRow)
 }
 
 export async function createProduct(
@@ -186,7 +186,7 @@ export async function createProduct(
     throw new Error(`createProduct failed: ${error?.message ?? 'unknown error'}`)
   }
 
-  return rowToProduct(data as ProductRow)
+  return rowToProduct(data as unknown as ProductRow)
 }
 
 export async function recordUsage(
