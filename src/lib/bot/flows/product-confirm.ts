@@ -130,7 +130,15 @@ function matchNutrient(text: string, patterns: RegExp[]): number | null {
 function parseLabelInput(message: string, productName: string): LabelProductDraft | null {
   const brandMatch = message.match(/marca\s*:?\s*([^,;\n]+)/i)
   const firstField = message.split(/[,;\n]/)[0]?.trim()
-  const brand = brandMatch?.[1]?.trim() ?? firstField
+
+  // Check if firstField looks like a nutrient (contains digits, kcal, g, etc.)
+  const firstFieldIsNutrient = firstField && (
+    /\d/.test(firstField) ||
+    /\d+\s*kcal/i.test(firstField) ||
+    /\d+\s*g/i.test(firstField)
+  )
+
+  const brand = brandMatch?.[1]?.trim() ?? (firstFieldIsNutrient ? undefined : firstField)
 
   const calories = matchNutrient(message, [
     /(\d+(?:[,.]\d+)?)\s*kcal/i,

@@ -18,13 +18,13 @@ export async function tryProductLookup(
   const approvedProduct = await findApprovedProduct(supabase, item.food)
   if (approvedProduct) {
     await recordUsage(supabase, approvedProduct.id, userId)
-    return { kind: 'matched', product: approvedProduct, quantityGrams: quantityGrams ?? 0 }
+    return { kind: 'matched', product: approvedProduct, quantityGrams }
   }
 
   const privateProduct = await findPrivateProduct(supabase, userId, item.food)
   if (privateProduct) {
     await recordUsage(supabase, privateProduct.id, userId)
-    return { kind: 'matched', product: privateProduct, quantityGrams: quantityGrams ?? 0 }
+    return { kind: 'matched', product: privateProduct, quantityGrams }
   }
 
   const candidates = await searchByName(item.food)

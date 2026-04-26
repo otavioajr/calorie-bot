@@ -87,14 +87,13 @@ CREATE TABLE products (
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now(),
   promoted_at TIMESTAMPTZ,                     -- quando virou aprovado por consenso
-  contributor_ids UUID[],                      -- usuários do cluster de consenso
-  UNIQUE (barcode) WHERE barcode IS NOT NULL
+  contributor_ids UUID[]                       -- usuários do cluster de consenso
 );
 
+CREATE UNIQUE INDEX idx_products_barcode_unique ON products (barcode) WHERE barcode IS NOT NULL;
 CREATE INDEX idx_products_name_norm ON products USING gin (name_normalized gin_trgm_ops);
 CREATE INDEX idx_products_brand_name_norm ON products (brand_normalized, name_normalized) WHERE status = 'aprovado';
 CREATE INDEX idx_products_private_owner ON products (created_by, name_normalized) WHERE status = 'privado';
-CREATE INDEX idx_products_barcode ON products (barcode) WHERE barcode IS NOT NULL;
 ```
 
 **`product_usage`** — pra rastrear consumo e aquecer cache do consenso.

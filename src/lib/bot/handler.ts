@@ -97,6 +97,7 @@ async function registerConfirmedProductMeal(
   quantityGrams: number | null,
   user: { dailyCalorieTarget: number | null; timezone?: string },
 ): Promise<{ response: string; mealId: string }> {
+  const assumedDefaultQuantity = quantityGrams === null && product.servingSizeG == null
   const resolvedQuantity = quantityGrams ?? product.servingSizeG ?? 100
   const macros = productMacros(product, resolvedQuantity)
 
@@ -104,11 +105,12 @@ async function registerConfirmedProductMeal(
     userId,
     mealType: pendingMeal.mealType,
     totalCalories: macros.calories,
-    originalMessage: pendingMeal.originalMessage,
+    originalMessage: pendingMeal.food,
     llmResponse: {
       product_id: product.id,
       source: 'product-confirm',
       original_food: pendingMeal.food,
+      original_message: pendingMeal.originalMessage,
     },
     items: [{
       foodName: product.name,
@@ -144,7 +146,7 @@ async function registerConfirmedProductMeal(
 
   const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user.timezone)
   const target = user.dailyCalorieTarget ?? 2000
-  const response = formatMealBreakdown(
+  let response = formatMealBreakdown(
     pendingMeal.mealType,
     [{
       food: product.name,
@@ -156,6 +158,10 @@ async function registerConfirmedProductMeal(
     dailyConsumed,
     target,
   )
+
+  if (assumedDefaultQuantity) {
+    response = response.replace('Algo errado?', '(assumi 100 g — me corrija se quiser)\n\nAlgo errado?')
+  }
 
   return { response, mealId }
 }

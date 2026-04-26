@@ -102,11 +102,14 @@ export async function findApprovedProduct(
   name: string,
   brand?: string | null,
 ): Promise<Product | null> {
+  const nameNormalized = normalizeProductName(name)
+  if (!nameNormalized) return null
+
   let query = supabase
     .from('products')
     .select(PRODUCT_COLUMNS)
     .eq('status', 'aprovado')
-    .eq('name_normalized', normalizeProductName(name))
+    .eq('name_normalized', nameNormalized)
 
   const brandNormalized = normalizeBrand(brand)
   if (brandNormalized) {
@@ -124,12 +127,15 @@ export async function findPrivateProduct(
   userId: string,
   name: string,
 ): Promise<Product | null> {
+  const nameNormalized = normalizeProductName(name)
+  if (!nameNormalized) return null
+
   const { data, error } = await supabase
     .from('products')
     .select(PRODUCT_COLUMNS)
     .eq('status', 'privado')
     .eq('created_by', userId)
-    .eq('name_normalized', normalizeProductName(name))
+    .eq('name_normalized', nameNormalized)
     .limit(1)
     .maybeSingle()
 
@@ -158,11 +164,16 @@ export async function createProduct(
   supabase: SupabaseClient,
   input: CreateProductInput,
 ): Promise<Product> {
+  const nameNormalized = normalizeProductName(input.name)
+  if (!nameNormalized) {
+    throw new Error('createProduct failed: product name cannot be empty')
+  }
+
   const { data, error } = await supabase
     .from('products')
     .insert({
       name: input.name,
-      name_normalized: normalizeProductName(input.name),
+      name_normalized: nameNormalized,
       brand: input.brand,
       brand_normalized: normalizeBrand(input.brand),
       barcode: input.barcode ?? null,

@@ -56,7 +56,7 @@ export interface OffProduct {
 }
 
 export type ProductLookupOutcome =
-  | { kind: 'matched'; product: Product; quantityGrams: number }
+  | { kind: 'matched'; product: Product; quantityGrams: number | null }
   | {
       kind: 'needs_off_choice'
       query: string

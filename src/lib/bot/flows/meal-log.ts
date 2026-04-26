@@ -48,10 +48,16 @@ interface EnrichedItem {
 
 type PendingProductOutcome = Extract<ProductLookupOutcome, { kind: 'needs_off_choice' | 'needs_label' }>
 
+interface PendingProductInteraction {
+  item: MealItem
+  index: number
+  outcome: PendingProductOutcome
+}
+
 class ProductInteractionRequired extends Error {
   constructor(
-    readonly item: MealItem,
-    readonly outcome: PendingProductOutcome,
+    readonly pendingInteractions: PendingProductInteraction[],
+    readonly enrichedItems: Array<EnrichedItem | null>,
   ) {
     super('Product interaction required')
   }
@@ -320,14 +326,17 @@ export async function enrichItemsWithTaco(
 
   // Step 1.7: Try industrialized product base before LLM decomposition.
   const stillNeedsAfterProducts: { item: MealItem; index: number }[] = []
+  const pendingInteractions: PendingProductInteraction[] = []
+
   for (const { item, index } of stillNeedsFuzzy) {
     const outcome = await tryProductLookup(supabase, item, userId)
 
     if (outcome.kind === 'matched') {
-      const macros = calculateMacrosFromProduct(outcome.product, outcome.quantityGrams)
+      const resolvedQty = outcome.quantityGrams ?? outcome.product.servingSizeG ?? 100
+      const macros = calculateMacrosFromProduct(outcome.product, resolvedQty)
       enriched[index] = {
         food: outcome.product.name,
-        quantityGrams: outcome.quantityGrams,
+        quantityGrams: resolvedQty,
         quantityDisplay: item.quantity_display,
         calories: macros.calories,
         protein: macros.protein,
@@ -340,10 +349,16 @@ export async function enrichItemsWithTaco(
     }
 
     if (outcome.kind === 'needs_off_choice' || outcome.kind === 'needs_label') {
-      throw new ProductInteractionRequired(item, outcome)
+      pendingInteractions.push({ item, index, outcome })
+      continue
     }
 
     stillNeedsAfterProducts.push({ item, index })
+  }
+
+  // If we have pending interactions, throw after collecting all of them
+  if (pendingInteractions.length > 0) {
+    throw new ProductInteractionRequired(pendingInteractions, enriched)
   }
 
   // Step 2: Fuzzy match for items that didn't match any base
@@ -591,9 +606,14 @@ async function startProductInteraction(
   userId: string,
   meal: MealAnalysis,
   originalMessage: string,
-  item: MealItem,
-  outcome: PendingProductOutcome,
+  pendingInteractions: PendingProductInteraction[],
 ): Promise<MealLogResult> {
+  // For now, handle only the first pending interaction
+  // TODO: Future enhancement - support multiple interactions in sequence or batch
+  const first = pendingInteractions[0]
+  const item = first.item
+  const outcome = first.outcome
+
   const pendingMeal = {
     mealType: meal.meal_type,
     originalMessage,
@@ -1091,7 +1111,7 @@ async function analyzeAndRegister(
           enriched = await enrichItemsWithTaco(supabase, resolvedItems, llm, userId)
         } catch (error) {
           if (error instanceof ProductInteractionRequired) {
-            return startProductInteraction(userId, meal, originalMessage, error.item, error.outcome)
+            return startProductInteraction(userId, meal, originalMessage, error.pendingInteractions)
           }
           throw error
         }
@@ -1131,7 +1151,7 @@ async function analyzeAndRegister(
       enriched = await enrichItemsWithTaco(supabase, meal.items, llm, userId)
     } catch (error) {
       if (error instanceof ProductInteractionRequired) {
-        return startProductInteraction(userId, meal, originalMessage, error.item, error.outcome)
+        return startProductInteraction(userId, meal, originalMessage, error.pendingInteractions)
       }
       throw error
     }

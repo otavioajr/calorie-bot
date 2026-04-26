@@ -22,8 +22,9 @@ function normalizeText(value: string): string {
     .replace(/\s+/g, ' ')
 }
 
-export function normalizeProductName(name: string): string {
-  return normalizeText(name)
+export function normalizeProductName(name: string): string | null {
+  const normalized = normalizeText(name)
+  return normalized.length > 0 ? normalized : null
 }
 
 export function normalizeBrand(brand: string | null | undefined): string | null {

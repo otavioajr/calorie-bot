@@ -11,7 +11,7 @@ CREATE TABLE products (
     barcode             TEXT,
     serving_size_g      NUMERIC,
     serving_display     TEXT,
-    calories_per_100g   NUMERIC NOT NULL CHECK (calories_per_100g >= 0 AND calories_per_100g <= 900),
+    calories_per_100g   NUMERIC NOT NULL CHECK (calories_per_100g >= 0 AND calories_per_100g <= 950),
     protein_per_100g    NUMERIC NOT NULL CHECK (protein_per_100g >= 0 AND protein_per_100g <= 100),
     carbs_per_100g      NUMERIC NOT NULL CHECK (carbs_per_100g >= 0 AND carbs_per_100g <= 100),
     fat_per_100g        NUMERIC NOT NULL CHECK (fat_per_100g >= 0 AND fat_per_100g <= 100),

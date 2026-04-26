@@ -3,7 +3,10 @@ import { createServiceRoleClient } from '@/lib/db/supabase'
 import { runConsensusPromotion } from '@/lib/products/consensus'
 
 function isAuthorized(request: Request): boolean {
-  return request.headers.get('authorization') === `Bearer ${process.env.CRON_SECRET}`
+  const secret = process.env.CRON_SECRET?.trim()
+  if (!secret) return false
+
+  return request.headers.get('authorization') === `Bearer ${secret}`
 }
 
 async function handleProductsConsensus(request: Request) {
