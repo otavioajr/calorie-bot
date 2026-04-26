@@ -3,7 +3,7 @@ import { cookies } from 'next/headers'
 import { z } from 'zod'
 import { createServiceRoleClient } from '@/lib/db/supabase'
 import { parseRecipeIngredients } from '@/lib/llm/parsers/recipe-ingredients'
-import { calculateMacros, fuzzyMatchTaco } from '@/lib/db/queries/taco'
+import { calculateMacros, resolveTacoFood } from '@/lib/db/queries/taco'
 import { verifyUserExists } from '@/lib/db/queries/users'
 
 const BodySchema = z.object({
@@ -55,7 +55,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     const enriched = await Promise.all(
       parsedIngredients.map(async (ingredient) => {
-        const taco = await fuzzyMatchTaco(supabase, ingredient.food, { throwOnError: true })
+        const taco = await resolveTacoFood(supabase, ingredient.food, { throwOnError: true })
 
         if (!taco) {
           return {

@@ -4,6 +4,7 @@ import {
   fuzzyMatchTacoMultiple,
   calculateMacros,
   matchTacoByBase,
+  resolveTacoFood,
   getLearnedDefault,
   recordTacoUsage,
 } from '@/lib/db/queries/taco'
@@ -75,6 +76,34 @@ describe('matchTacoByBase', () => {
     const supabase = createMockSupabase([])
     const result = await matchTacoByBase(supabase, 'BigMac')
     expect(result).toEqual([])
+  })
+})
+
+describe('resolveTacoFood', () => {
+  it('falls back to base-token default when fuzzy phrasing includes a missing variant', async () => {
+    const rpc = vi.fn()
+      .mockResolvedValueOnce({
+        data: [],
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: [
+          { id: 40, food_name: 'Macarrão, trigo, cru', food_base: 'Macarrão', food_variant: 'trigo, cru', is_default: false, calories_per_100g: 371, protein_per_100g: 10, carbs_per_100g: 77, fat_per_100g: 1.3, fiber_per_100g: 2.9 },
+          { id: 41, food_name: 'Macarrão, trigo, cru, com ovos', food_base: 'Macarrão', food_variant: 'trigo, cru, com ovos', is_default: true, calories_per_100g: 371, protein_per_100g: 10.3, carbs_per_100g: 76.6, fat_per_100g: 2, fiber_per_100g: 2.3 },
+          { id: 39, food_name: 'Macarrão, instantâneo', food_base: 'Macarrão', food_variant: 'instantâneo', is_default: false, calories_per_100g: 436, protein_per_100g: 8.8, carbs_per_100g: 62.4, fat_per_100g: 17.2, fiber_per_100g: 5.6 },
+        ],
+        error: null,
+      })
+
+    const supabase = { rpc } as unknown as import('@supabase/supabase-js').SupabaseClient
+
+    const result = await resolveTacoFood(supabase, 'macarrão penne')
+
+    expect(result).not.toBeNull()
+    expect(result!.foodName).toBe('Macarrão, trigo, cru, com ovos')
+    expect(rpc).toHaveBeenLastCalledWith('match_taco_by_base', {
+      query_base: 'macarrão',
+    })
   })
 })
 

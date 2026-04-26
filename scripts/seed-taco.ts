@@ -35,7 +35,7 @@ const DEFAULTS: Record<string, string> = {
   'Chocolate': 'ao leite',
   'Batata': 'inglesa, cozida',
   'Iogurte': 'natural',
-  'Macarrão': 'trigo, cru',
+  'Macarrão': 'trigo, cru, com ovos',
   'Bolo': 'pronto, chocolate',
   'Laranja': 'pêra, crua',
   'Mandioca': 'cozida',

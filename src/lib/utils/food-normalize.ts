@@ -4,6 +4,7 @@
  * Longest matches first to avoid partial replacements.
  */
 const SYNONYMS: [string, string][] = [
+  ['macarrao', 'macarrão'],
   ['semi desnatado', 'semidesnatado'],
   ['semi-desnatado', 'semidesnatado'],
   ['leite semidesnatado', 'leite, de vaca, semidesnatado'],

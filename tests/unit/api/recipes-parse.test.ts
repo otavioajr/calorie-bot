@@ -5,13 +5,13 @@ const {
   mockCreateServiceRoleClient,
   mockParseRecipeIngredients,
   mockCalculateMacros,
-  mockFuzzyMatchTaco,
+  mockResolveTacoFood,
 } = vi.hoisted(() => ({
   mockCookies: vi.fn(),
   mockCreateServiceRoleClient: vi.fn(),
   mockParseRecipeIngredients: vi.fn(),
   mockCalculateMacros: vi.fn(),
-  mockFuzzyMatchTaco: vi.fn(),
+  mockResolveTacoFood: vi.fn(),
 }))
 
 vi.mock('next/headers', () => ({
@@ -28,7 +28,7 @@ vi.mock('@/lib/llm/parsers/recipe-ingredients', () => ({
 
 vi.mock('@/lib/db/queries/taco', () => ({
   calculateMacros: mockCalculateMacros,
-  fuzzyMatchTaco: mockFuzzyMatchTaco,
+  resolveTacoFood: mockResolveTacoFood,
 }))
 
 import { POST } from '@/app/api/recipes/parse-ingredients/route'
@@ -75,7 +75,7 @@ describe('POST /api/recipes/parse-ingredients', () => {
     mockParseRecipeIngredients.mockResolvedValue([
       { food: 'arroz branco', quantityGrams: 150 },
     ])
-    mockFuzzyMatchTaco.mockResolvedValue({
+    mockResolveTacoFood.mockResolvedValue({
       id: 10,
       foodName: 'Arroz, branco, cozido',
       category: 'Cereais',
@@ -159,7 +159,7 @@ describe('POST /api/recipes/parse-ingredients', () => {
     expect(mockCreateServiceRoleClient).toHaveBeenCalledOnce()
     expect(supabase.from).toHaveBeenCalledWith('users')
     expect(mockParseRecipeIngredients).toHaveBeenCalledWith('150g arroz branco')
-    expect(mockFuzzyMatchTaco).toHaveBeenCalledWith(supabase, 'arroz branco', {
+    expect(mockResolveTacoFood).toHaveBeenCalledWith(supabase, 'arroz branco', {
       throwOnError: true,
     })
     expect(mockCalculateMacros).toHaveBeenCalledWith(expect.objectContaining({ id: 10 }), 150)
@@ -185,13 +185,13 @@ describe('POST /api/recipes/parse-ingredients', () => {
     mockParseRecipeIngredients.mockResolvedValue([
       { food: 'ingrediente raro', quantityGrams: 100 },
     ])
-    mockFuzzyMatchTaco.mockResolvedValue(null)
+    mockResolveTacoFood.mockResolvedValue(null)
 
     const response = await POST(makeRequest({ text: '100g ingrediente raro' }))
     const body = await response.json()
 
     expect(response.status).toBe(200)
-    expect(mockFuzzyMatchTaco).toHaveBeenCalledWith(supabase, 'ingrediente raro', {
+    expect(mockResolveTacoFood).toHaveBeenCalledWith(supabase, 'ingrediente raro', {
       throwOnError: true,
     })
     expect(mockCalculateMacros).not.toHaveBeenCalled()
@@ -218,11 +218,11 @@ describe('POST /api/recipes/parse-ingredients', () => {
 
     expect(response.status).toBe(502)
     expect(body).toEqual({ error: 'parse_failed' })
-    expect(mockFuzzyMatchTaco).not.toHaveBeenCalled()
+    expect(mockResolveTacoFood).not.toHaveBeenCalled()
   })
 
   it('returns 502 when TACO lookup RPC fails', async () => {
-    mockFuzzyMatchTaco.mockRejectedValue(new Error('RPC unavailable'))
+    mockResolveTacoFood.mockRejectedValue(new Error('RPC unavailable'))
 
     const response = await POST(makeRequest({ text: '150g arroz branco' }))
     const body = await response.json()

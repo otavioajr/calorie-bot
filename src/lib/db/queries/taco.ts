@@ -1,6 +1,7 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { fromDB } from '@/lib/db/utils'
 import { TacoNotFoundError } from '@/lib/recipes/errors'
+import { applySynonyms, normalizeFoodNameForTaco, tokenMatchScore } from '@/lib/utils/food-normalize'
 
 export const SIMILARITY_THRESHOLD = 0.4
 export const TACO_SELECT =
@@ -129,6 +130,71 @@ export async function fuzzyMatchTacoMultiple(
   }
 
   return result
+}
+
+function pickBestResolvedVariant(foodName: string, variants: TacoFood[]): TacoFood {
+  const normalizedName = normalizeFoodNameForTaco(applySynonyms(normalizeFoodNameForTaco(foodName)))
+  const inputTokens = normalizedName.split(/[\s,]+/).filter(t => t.length > 1)
+
+  const directVariantMatch = variants.find((variant) => {
+    const variantName = normalizeFoodNameForTaco(variant.foodName)
+    const variantType = normalizeFoodNameForTaco(variant.foodVariant.split(',')[0] ?? '')
+
+    return (
+      (variantType.length >= 4 && normalizedName.includes(variantType)) ||
+      variantName.includes(normalizedName) ||
+      normalizedName.includes(variantName)
+    )
+  })
+
+  if (directVariantMatch) {
+    return directVariantMatch
+  }
+
+  let bestMatch: TacoFood | null = null
+  let bestScore = 0
+
+  for (const variant of variants) {
+    const candidateTokens = normalizeFoodNameForTaco(variant.foodName)
+      .split(/[\s,]+/)
+      .filter(t => t.length > 1)
+    const score = tokenMatchScore(inputTokens, candidateTokens)
+
+    if (score > bestScore) {
+      bestScore = score
+      bestMatch = variant
+    }
+  }
+
+  if (bestMatch && bestScore >= 0.6) {
+    return bestMatch
+  }
+
+  return variants.find(variant => variant.isDefault) ?? variants[0]
+}
+
+export async function resolveTacoFood(
+  supabase: SupabaseClient,
+  foodName: string,
+  options: { throwOnError?: boolean } = {},
+): Promise<TacoFood | null> {
+  const normalized = normalizeFoodNameForTaco(foodName)
+  const synonymName = applySynonyms(normalized)
+  const baseCandidates = [
+    foodName.trim(),
+    foodName.trim().split(/\s+/)[0],
+    synonymName.split(',')[0]?.trim(),
+    synonymName.split(/[\s,]+/)[0],
+  ].filter((candidate): candidate is string => Boolean(candidate))
+
+  for (const base of [...new Set(baseCandidates)]) {
+    const variants = await matchTacoByBase(supabase, base)
+    if (variants.length > 0) {
+      return pickBestResolvedVariant(foodName, variants)
+    }
+  }
+
+  return fuzzyMatchTaco(supabase, foodName, options)
 }
 
 // ---------------------------------------------------------------------------

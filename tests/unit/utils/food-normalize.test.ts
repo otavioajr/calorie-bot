@@ -32,6 +32,10 @@ describe('applySynonyms', () => {
     expect(applySynonyms('arroz branco')).toBe('arroz, tipo 1, cozido')
   })
 
+  it('restores accent for macarrao base lookups', () => {
+    expect(applySynonyms('macarrao penne')).toBe('macarrão penne')
+  })
+
   it('returns input unchanged when no synonym matches', () => {
     expect(applySynonyms('abacaxi')).toBe('abacaxi')
   })
