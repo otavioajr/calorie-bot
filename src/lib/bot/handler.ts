@@ -3,7 +3,7 @@ import { findUserByPhone, createUser, getUserWithSettings } from '@/lib/db/queri
 import { getState, setState, clearState, type ConversationContext } from '@/lib/bot/state'
 import { classifyByRules, isCancelCommand } from '@/lib/bot/router'
 import { handleOnboarding } from '@/lib/bot/flows/onboarding'
-import { handleMealLog } from '@/lib/bot/flows/meal-log'
+import { enrichItemsWithTaco, handleMealLog, type EnrichedItem } from '@/lib/bot/flows/meal-log'
 import { handleSummary } from '@/lib/bot/flows/summary'
 import { handleQuery, handleQueryConfirmation, registerFromQuotedQuery } from '@/lib/bot/flows/query'
 import { handleEdit } from '@/lib/bot/flows/edit'
@@ -12,6 +12,14 @@ import { handleSettings } from '@/lib/bot/flows/settings'
 import { handleHelp, handleUserData } from '@/lib/bot/flows/help'
 import { handleRecalculate } from '@/lib/bot/flows/recalculate'
 import { handleMealDetail } from '@/lib/bot/flows/meal-detail'
+import {
+  handleAwaitingLabelConfirm,
+  handleAwaitingLabelInput,
+  handleAwaitingOffBrand,
+  handleAwaitingOffChoice,
+  handleAwaitingOffConfirm,
+  type ProductPendingMeal,
+} from '@/lib/bot/flows/product-confirm'
 import { getLLMProvider } from '@/lib/llm/index'
 import { sendTextMessage } from '@/lib/whatsapp/client'
 import { formatOutOfScope, formatError, formatMealBreakdown } from '@/lib/utils/formatters'
@@ -29,9 +37,10 @@ import { scaleNutritionLabelItem } from '@/lib/bot/nutrition-label'
 import { getUserLocalTime, resolveMealTypeFromContext } from '@/lib/utils/meal-time'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ImageAnalysis } from '@/lib/llm/schemas/image-analysis'
-import type { MealAnalysis } from '@/lib/llm/schemas/meal-analysis'
+import type { MealAnalysis, MealItem } from '@/lib/llm/schemas/meal-analysis'
 import { buildContextualCorrectionPrompt } from '@/lib/llm/prompts/contextual-correction'
 import type { RecentMealItem } from '@/lib/llm/prompts/contextual-correction'
+import type { Product } from '@/lib/products/types'
 
 const MAX_IMAGE_SIZE = 5_242_880 // 5MB
 
@@ -68,6 +77,159 @@ async function saveBotMessages(
       metadata: metadata ?? null,
     })
   }
+}
+
+function productMacros(product: Product, quantityGrams: number) {
+  const factor = quantityGrams / 100
+  return {
+    calories: Math.round(product.caloriesPer100g * factor),
+    protein: Math.round(product.proteinPer100g * factor * 10) / 10,
+    carbs: Math.round(product.carbsPer100g * factor * 10) / 10,
+    fat: Math.round(product.fatPer100g * factor * 10) / 10,
+  }
+}
+
+function totalCaloriesFromConfirmedItems(items: EnrichedItem[]): number {
+  return Math.round(items.reduce((sum, item) => sum + item.calories, 0))
+}
+
+function confirmedProductItem(
+  pendingMeal: ProductPendingMeal,
+  product: Product,
+  quantityGrams: number | null,
+): EnrichedItem {
+  const resolvedQuantity = quantityGrams ?? product.servingSizeG ?? 100
+  const quantityDisplay = pendingMeal.quantityDisplay
+    ?? product.servingDisplay
+    ?? (quantityGrams === null && product.servingSizeG === null ? '100 g estimado' : null)
+  const macros = productMacros(product, resolvedQuantity)
+
+  return {
+    food: product.name,
+    quantityGrams: resolvedQuantity,
+    quantityDisplay,
+    calories: macros.calories,
+    protein: macros.protein,
+    carbs: macros.carbs,
+    fat: macros.fat,
+    source: 'product',
+    productId: product.id,
+  }
+}
+
+async function buildConfirmedProductMealItems(
+  supabase: SupabaseClient,
+  userId: string,
+  pendingMeal: ProductPendingMeal,
+  product: Product,
+  quantityGrams: number | null,
+): Promise<EnrichedItem[]> {
+  const productItem = confirmedProductItem(pendingMeal, product, quantityGrams)
+  const mealItems = pendingMeal.mealItems
+  const productItemIndex = pendingMeal.productItemIndex
+
+  if (!mealItems || typeof productItemIndex !== 'number') {
+    return [productItem]
+  }
+
+  const remainingItems = mealItems
+    .map((item, index) => ({ item: item as MealItem, index }))
+    .filter(({ index }) => index !== productItemIndex)
+
+  const enrichedRemaining = remainingItems.length > 0
+    ? await enrichItemsWithTaco(supabase, remainingItems.map(({ item }) => item), getLLMProvider(), userId)
+    : []
+
+  const items: EnrichedItem[] = []
+  let remainingIndex = 0
+  for (let index = 0; index < mealItems.length; index += 1) {
+    if (index === productItemIndex) {
+      items.push(productItem)
+    } else {
+      items.push(enrichedRemaining[remainingIndex])
+      remainingIndex += 1
+    }
+  }
+
+  return items.filter(Boolean)
+}
+
+async function registerConfirmedProductMeal(
+  supabase: SupabaseClient,
+  userId: string,
+  pendingMeal: ProductPendingMeal,
+  product: Product,
+  quantityGrams: number | null,
+  user: { dailyCalorieTarget: number | null; timezone?: string },
+): Promise<{ response: string; mealId: string }> {
+  const assumedDefaultQuantity = quantityGrams === null && product.servingSizeG == null
+  const items = await buildConfirmedProductMealItems(supabase, userId, pendingMeal, product, quantityGrams)
+  const totalCalories = totalCaloriesFromConfirmedItems(items)
+
+  const mealId = await createMeal(supabase, {
+    userId,
+    mealType: pendingMeal.mealType,
+    totalCalories,
+    originalMessage: pendingMeal.originalMessage,
+    llmResponse: {
+      product_id: product.id,
+      source: 'product-confirm',
+      original_food: pendingMeal.food,
+      original_message: pendingMeal.originalMessage,
+    },
+    items: items.map((item) => ({
+      foodName: item.food,
+      quantityGrams: item.quantityGrams,
+      quantityDisplay: item.quantityDisplay ?? undefined,
+      calories: item.calories,
+      proteinG: item.protein,
+      carbsG: item.carbs,
+      fatG: item.fat,
+      source: item.source,
+      tacoId: item.tacoId,
+      productId: item.productId,
+      confidence: item.source === 'approximate' ? 'low' : 'high',
+    })),
+  })
+
+  const mealWithItems = await getMealWithItems(supabase, mealId)
+  if (mealWithItems && mealWithItems.items.length > 0) {
+    await setState(userId, 'recent_meal', {
+      mealId,
+      mealType: mealWithItems.mealType,
+      items: mealWithItems.items.map(i => ({
+        id: i.id,
+        foodName: i.foodName,
+        quantityGrams: i.quantityGrams,
+        quantityDisplay: i.quantityDisplay,
+        calories: i.calories,
+        proteinG: i.proteinG,
+        carbsG: i.carbsG,
+        fatG: i.fatG,
+      })),
+    })
+  }
+
+  const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user.timezone)
+  const target = user.dailyCalorieTarget ?? 2000
+  let response = formatMealBreakdown(
+    pendingMeal.mealType,
+    items.map((item) => ({
+      food: item.food,
+      quantityGrams: item.quantityGrams,
+      quantityDisplay: item.quantityDisplay,
+      calories: item.calories,
+    })),
+    totalCalories,
+    dailyConsumed,
+    target,
+  )
+
+  if (assumedDefaultQuantity) {
+    response = response.replace('Algo errado?', '(assumi 100 g — me corrija se quiser)\n\nAlgo errado?')
+  }
+
+  return { response, mealId }
 }
 
 export async function handleIncomingMessage(
@@ -270,6 +432,61 @@ export async function handleIncomingMessage(
             timezone: user.timezone,
           })
           saveMessage(supabase, user.id, 'user', text).catch(() => {})
+          return
+        }
+        case 'awaiting_off_choice': {
+          const productResult = await handleAwaitingOffChoice(user.id, text, context)
+          const sentId = await sendTextMessage(from, productResult.response)
+          saveHistory(supabase, user.id, text, productResult.response)
+          await saveBotMessages(supabase, user.id, messageId, sentId, null, null)
+          return
+        }
+        case 'awaiting_off_brand': {
+          const productResult = await handleAwaitingOffBrand(user.id, text, context)
+          const sentId = await sendTextMessage(from, productResult.response)
+          saveHistory(supabase, user.id, text, productResult.response)
+          await saveBotMessages(supabase, user.id, messageId, sentId, null, null)
+          return
+        }
+        case 'awaiting_off_confirm':
+        case 'awaiting_label_confirm': {
+          const productResult = context.contextType === 'awaiting_off_confirm'
+            ? await handleAwaitingOffConfirm(supabase, user.id, text, context)
+            : await handleAwaitingLabelConfirm(supabase, user.id, text, context)
+
+          const pendingMeal = context.contextData.pendingMeal as ProductPendingMeal | undefined
+          const quantityGrams = typeof context.contextData.quantityGrams === 'number'
+            ? context.contextData.quantityGrams
+            : null
+
+          if (productResult.completed && productResult.product && pendingMeal) {
+            const registered = await registerConfirmedProductMeal(
+              supabase,
+              user.id,
+              pendingMeal,
+              productResult.product,
+              quantityGrams,
+              {
+                dailyCalorieTarget: user.dailyCalorieTarget,
+                timezone: user.timezone,
+              },
+            )
+            const sentId = await sendTextMessage(from, registered.response)
+            saveHistory(supabase, user.id, text, registered.response)
+            await saveBotMessages(supabase, user.id, messageId, sentId, 'meal', registered.mealId)
+            return
+          }
+
+          const sentId = await sendTextMessage(from, productResult.response)
+          saveHistory(supabase, user.id, text, productResult.response)
+          await saveBotMessages(supabase, user.id, messageId, sentId, null, null)
+          return
+        }
+        case 'awaiting_label_input': {
+          const productResult = await handleAwaitingLabelInput(user.id, text, context)
+          const sentId = await sendTextMessage(from, productResult.response)
+          saveHistory(supabase, user.id, text, productResult.response)
+          await saveBotMessages(supabase, user.id, messageId, sentId, null, null)
           return
         }
       }

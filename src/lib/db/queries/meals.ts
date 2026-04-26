@@ -13,6 +13,7 @@ export interface MealItemInput {
   fatG: number
   source: string
   tacoId?: number
+  productId?: string
   confidence?: string
   quantityDisplay?: string
 }
@@ -76,6 +77,7 @@ export async function createMeal(
       fat_g: item.fatG,
       source: item.source,
       taco_id: item.tacoId ?? null,
+      product_id: item.productId ?? null,
       confidence: item.confidence ?? 'high',
       quantity_display: item.quantityDisplay ?? null,
     }))

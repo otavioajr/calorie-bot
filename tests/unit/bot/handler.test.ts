@@ -12,6 +12,7 @@ const {
   mockClassifyByRules,
   mockHandleOnboarding,
   mockHandleMealLog,
+  mockEnrichItemsWithTaco,
   mockHandleSummary,
   mockHandleQuery,
   mockHandleEdit,
@@ -31,9 +32,14 @@ const {
   mockDetectMimeType,
   mockAnalyzeImage,
   mockSetState,
+  mockClearState,
   mockGetDailyCalories,
+  mockCreateMeal,
+  mockGetMealWithItems,
   mockFormatMealBreakdown,
   mockSaveMessage,
+  mockHandleAwaitingOffConfirm,
+  mockHandleAwaitingLabelConfirm,
 } = vi.hoisted(() => {
   const mockClassifyIntent = vi.fn()
   const mockAnalyzeImage = vi.fn()
@@ -46,6 +52,7 @@ const {
     mockClassifyByRules: vi.fn(),
     mockHandleOnboarding: vi.fn(),
     mockHandleMealLog: vi.fn(),
+    mockEnrichItemsWithTaco: vi.fn(),
     mockHandleSummary: vi.fn(),
     mockHandleQuery: vi.fn(),
     mockHandleEdit: vi.fn(),
@@ -65,9 +72,14 @@ const {
     mockDownloadImageMedia: vi.fn(),
     mockDetectMimeType: vi.fn().mockReturnValue('image/jpeg'),
     mockSetState: vi.fn().mockResolvedValue(undefined),
+    mockClearState: vi.fn().mockResolvedValue(undefined),
     mockGetDailyCalories: vi.fn().mockResolvedValue(0),
+    mockCreateMeal: vi.fn().mockResolvedValue('mock-meal-id'),
+    mockGetMealWithItems: vi.fn().mockResolvedValue(null),
     mockFormatMealBreakdown: vi.fn().mockReturnValue('meal breakdown message'),
     mockSaveMessage: vi.fn().mockResolvedValue(undefined),
+    mockHandleAwaitingOffConfirm: vi.fn(),
+    mockHandleAwaitingLabelConfirm: vi.fn(),
   }
 })
 
@@ -88,7 +100,7 @@ vi.mock('@/lib/db/queries/users', () => ({
 vi.mock('@/lib/bot/state', () => ({
   getState: mockGetState,
   setState: mockSetState,
-  clearState: vi.fn().mockResolvedValue(undefined),
+  clearState: mockClearState,
 }))
 
 vi.mock('@/lib/bot/router', () => ({
@@ -102,6 +114,15 @@ vi.mock('@/lib/bot/flows/onboarding', () => ({
 
 vi.mock('@/lib/bot/flows/meal-log', () => ({
   handleMealLog: mockHandleMealLog,
+  enrichItemsWithTaco: mockEnrichItemsWithTaco,
+}))
+
+vi.mock('@/lib/bot/flows/product-confirm', () => ({
+  handleAwaitingLabelConfirm: mockHandleAwaitingLabelConfirm,
+  handleAwaitingLabelInput: vi.fn(),
+  handleAwaitingOffBrand: vi.fn(),
+  handleAwaitingOffChoice: vi.fn(),
+  handleAwaitingOffConfirm: mockHandleAwaitingOffConfirm,
 }))
 
 vi.mock('@/lib/bot/flows/summary', () => ({
@@ -167,9 +188,9 @@ vi.mock('@/lib/whatsapp/mime', () => ({
 }))
 
 vi.mock('@/lib/db/queries/meals', () => ({
-  createMeal: vi.fn().mockResolvedValue('mock-meal-id'),
+  createMeal: mockCreateMeal,
   getDailyCalories: mockGetDailyCalories,
-  getMealWithItems: vi.fn().mockResolvedValue(null),
+  getMealWithItems: mockGetMealWithItems,
 }))
 
 vi.mock('@/lib/db/queries/message-history', () => ({
@@ -281,6 +302,7 @@ beforeEach(() => {
   mockGetState.mockResolvedValue(null)
   mockHandleOnboarding.mockResolvedValue({ response: 'onboarding response', completed: false })
   mockHandleMealLog.mockResolvedValue({ response: 'meal log response', completed: false })
+  mockEnrichItemsWithTaco.mockResolvedValue([])
   mockHandleSummary.mockResolvedValue('summary response')
   mockHandleQuery.mockResolvedValue('query response')
   mockHandleEdit.mockResolvedValue('edit response')
@@ -295,6 +317,10 @@ beforeEach(() => {
   mockDownloadImageMedia.mockResolvedValue(Buffer.from([0xFF, 0xD8, 0xFF, 0xE0]))
   mockDetectMimeType.mockReturnValue('image/jpeg')
   mockGetDailyCalories.mockResolvedValue(500)
+  mockCreateMeal.mockResolvedValue('mock-meal-id')
+  mockGetMealWithItems.mockResolvedValue(null)
+  mockHandleAwaitingOffConfirm.mockResolvedValue({ response: 'product response', completed: false })
+  mockHandleAwaitingLabelConfirm.mockResolvedValue({ response: 'product response', completed: false })
   mockAnalyzeImage.mockResolvedValue({
     image_type: 'food',
     meal_type: 'lunch',
@@ -798,6 +824,116 @@ describe('handleIncomingMessage — context-based routing', () => {
 
     expect(mockHandleSettings).toHaveBeenCalled()
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'reset response')
+  })
+
+  it('preserves other parsed meal items when product confirmation completes', async () => {
+    const product = {
+      id: 'product-1',
+      name: 'Magic Toast',
+      nameNormalized: 'magic toast',
+      brand: 'Marilan',
+      brandNormalized: 'marilan',
+      barcode: '789',
+      servingSizeG: 25,
+      servingDisplay: '1 pacote',
+      caloriesPer100g: 400,
+      proteinPer100g: 8,
+      carbsPer100g: 70,
+      fatPer100g: 10,
+      fiberPer100g: null,
+      sodiumPer100g: null,
+      source: 'open_food_facts' as const,
+      sourceRef: null,
+      status: 'aprovado' as const,
+      createdBy: null,
+      createdAt: '2026-04-26T00:00:00.000Z',
+      updatedAt: '2026-04-26T00:00:00.000Z',
+      promotedAt: null,
+      contributorIds: null,
+    }
+    const mockContext = {
+      contextType: 'awaiting_off_confirm',
+      contextData: {
+        quantityGrams: 25,
+        pendingMeal: {
+          mealType: 'lunch',
+          originalMessage: 'almocei magic toast e arroz',
+          food: 'Magic Toast',
+          quantityDisplay: '1 pacote',
+          productItemIndex: 0,
+          mealItems: [
+            {
+              food: 'Magic Toast',
+              quantity_grams: 25,
+              quantity_display: '1 pacote',
+              quantity_source: 'user_reported',
+              portion_type: 'packaged',
+              has_user_quantity: true,
+              calories: null,
+              protein: null,
+              carbs: null,
+              fat: null,
+              confidence: 'high',
+            },
+            {
+              food: 'Arroz',
+              quantity_grams: 100,
+              quantity_display: '100g',
+              quantity_source: 'user_reported',
+              portion_type: 'bulk',
+              has_user_quantity: true,
+              calories: null,
+              protein: null,
+              carbs: null,
+              fat: null,
+              confidence: 'high',
+            },
+          ],
+        },
+      },
+    }
+    mockGetState.mockResolvedValue(mockContext)
+    mockHandleAwaitingOffConfirm.mockResolvedValue({
+      response: 'Produto salvo',
+      completed: true,
+      product,
+      productId: product.id,
+    })
+    mockEnrichItemsWithTaco.mockResolvedValue([{
+      food: 'Arroz',
+      quantityGrams: 100,
+      quantityDisplay: '100g',
+      calories: 128,
+      protein: 2.5,
+      carbs: 28.1,
+      fat: 0.2,
+      source: 'taco',
+      tacoId: 3,
+    }])
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, 'sim')
+
+    expect(mockCreateMeal).toHaveBeenCalledWith(
+      mockSupabase,
+      expect.objectContaining({
+        totalCalories: 228,
+        items: [
+          expect.objectContaining({ foodName: 'Magic Toast', calories: 100, productId: 'product-1' }),
+          expect.objectContaining({ foodName: 'Arroz', calories: 128, tacoId: 3 }),
+        ],
+      }),
+    )
+    expect(mockFormatMealBreakdown).toHaveBeenCalledWith(
+      'lunch',
+      [
+        expect.objectContaining({ food: 'Magic Toast', calories: 100 }),
+        expect.objectContaining({ food: 'Arroz', calories: 128 }),
+      ],
+      228,
+      500,
+      2000,
+    )
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal breakdown message')
   })
 })
 
