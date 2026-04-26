@@ -14,6 +14,11 @@ export const CONTEXT_TTLS: Record<ContextType, number> = {
   awaiting_bulk_quantities: 10,
   awaiting_correction_item: 10,
   awaiting_correction_value: 10,
+  awaiting_off_choice: 10,
+  awaiting_off_brand: 10,
+  awaiting_off_confirm: 10,
+  awaiting_label_input: 10,
+  awaiting_label_confirm: 10,
   recent_meal: 5,
 }
 
@@ -31,6 +36,11 @@ export type ContextType =
   | 'awaiting_bulk_quantities'
   | 'awaiting_correction_item'
   | 'awaiting_correction_value'
+  | 'awaiting_off_choice'
+  | 'awaiting_off_brand'
+  | 'awaiting_off_confirm'
+  | 'awaiting_label_input'
+  | 'awaiting_label_confirm'
   | 'recent_meal'
 
 export interface ConversationContext {
