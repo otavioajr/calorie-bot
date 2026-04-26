@@ -29,6 +29,10 @@ const {
   mockCalculateMacros,
   mockSendTextMessage,
   mockSearchMealHistory,
+  mockTryProductLookup,
+  mockShouldUseProductFlow,
+  mockHandleStartOffChoice,
+  mockHandleStartLabelInput,
 } = vi.hoisted(() => {
   const mockAnalyzeMeal = vi.fn()
   const mockDecomposeMeal = vi.fn()
@@ -68,6 +72,10 @@ const {
     })),
     mockSendTextMessage: vi.fn().mockResolvedValue(undefined),
     mockSearchMealHistory: vi.fn().mockResolvedValue([]),
+    mockTryProductLookup: vi.fn().mockResolvedValue({ kind: 'skip' }),
+    mockShouldUseProductFlow: vi.fn().mockResolvedValue(false),
+    mockHandleStartOffChoice: vi.fn().mockResolvedValue({ response: 'Escolha um produto', completed: false }),
+    mockHandleStartLabelInput: vi.fn().mockResolvedValue({ response: 'Envie o rótulo', completed: false }),
   }
 })
 
@@ -118,6 +126,19 @@ vi.mock('@/lib/whatsapp/client', () => ({
 
 vi.mock('@/lib/db/queries/meal-history-search', () => ({
   searchMealHistory: mockSearchMealHistory,
+}))
+
+vi.mock('@/lib/products/lookup', () => ({
+  tryProductLookup: mockTryProductLookup,
+}))
+
+vi.mock('@/lib/products/classify', () => ({
+  shouldUseProductFlow: mockShouldUseProductFlow,
+}))
+
+vi.mock('@/lib/bot/flows/product-confirm', () => ({
+  handleStartOffChoice: mockHandleStartOffChoice,
+  handleStartLabelInput: mockHandleStartLabelInput,
 }))
 
 // ---------------------------------------------------------------------------
@@ -270,6 +291,10 @@ describe('handleMealLog', () => {
     mockRecordTacoUsage.mockResolvedValue(undefined)
     mockFormatDefaultNotice.mockReturnValue('')
     mockSearchMealHistory.mockResolvedValue([])
+    mockTryProductLookup.mockResolvedValue({ kind: 'skip' })
+    mockShouldUseProductFlow.mockResolvedValue(false)
+    mockHandleStartOffChoice.mockResolvedValue({ response: 'Escolha um produto', completed: false })
+    mockHandleStartLabelInput.mockResolvedValue({ response: 'Envie o rótulo', completed: false })
   })
 
   // -------------------------------------------------------------------------
@@ -324,6 +349,73 @@ describe('handleMealLog', () => {
       const result = await handleMealLog(supabase, USER_ID, 'almocei', mockUser, null)
 
       expect(result.completed).toBe(true)
+    })
+
+    it('starts product lookup before generic quantity prompt for packaged items without quantity', async () => {
+      const packagedAnalysis: MealAnalysis = {
+        meal_type: 'snack',
+        confidence: 'high',
+        references_previous: false,
+        reference_query: null,
+        items: [{
+          food: 'Magic Toast',
+          quantity_grams: null,
+          quantity_display: null,
+          quantity_source: 'unknown',
+          portion_type: 'packaged',
+          has_user_quantity: false,
+          calories: null,
+          protein: null,
+          carbs: null,
+          fat: null,
+          confidence: 'high',
+        }],
+        unknown_items: [],
+        needs_clarification: false,
+        clarification_question: undefined,
+      }
+      const candidate = {
+        code: '789',
+        productName: 'Magic Toast Tradicional',
+        brand: 'Marilan',
+        caloriesPer100g: 420,
+        proteinPer100g: 9,
+        carbsPer100g: 72,
+        fatPer100g: 10,
+        servingSizeG: 25,
+        servingDisplay: '2 torradas',
+        sourceUrl: 'https://world.openfoodfacts.org/product/789',
+      }
+      mockAnalyzeMeal.mockResolvedValueOnce([packagedAnalysis])
+      mockShouldUseProductFlow.mockResolvedValueOnce(true)
+      mockTryProductLookup.mockResolvedValueOnce({
+        kind: 'needs_off_choice',
+        query: 'Magic Toast',
+        candidates: [candidate],
+        quantityGrams: null,
+      })
+
+      const result = await handleMealLog(
+        supabase,
+        USER_ID,
+        'comi um magic toast',
+        mockUser,
+        null,
+      )
+
+      expect(mockTryProductLookup).toHaveBeenCalledWith(
+        supabase,
+        packagedAnalysis.items[0],
+        USER_ID,
+      )
+      expect(mockHandleStartOffChoice).toHaveBeenCalledWith(USER_ID, expect.objectContaining({
+        query: 'Magic Toast',
+        candidates: [candidate],
+        quantityGrams: null,
+      }))
+      expect(result.response).toBe('Escolha um produto')
+      expect(result.completed).toBe(false)
+      expect(result.response).not.toContain('Pra registrar, me diz as quantidades')
     })
   })
 

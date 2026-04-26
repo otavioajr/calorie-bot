@@ -14,6 +14,7 @@ import { normalizeFoodNameForTaco, applySynonyms, tokenMatchScore } from '@/lib/
 import { getUserLocalTime } from '@/lib/utils/meal-time'
 import { handleStartLabelInput, handleStartOffChoice } from '@/lib/bot/flows/product-confirm'
 import { tryProductLookup } from '@/lib/products/lookup'
+import { shouldUseProductFlow } from '@/lib/products/classify'
 import type { Product, ProductLookupOutcome } from '@/lib/products/types'
 
 // ---------------------------------------------------------------------------
@@ -1102,6 +1103,8 @@ async function analyzeAndRegister(
       const userProvided = item.has_user_quantity === true
 
       if (hasQuantity || isUnit || userProvided) {
+        resolvedItems.push(item)
+      } else if (await shouldUseProductFlow(item, supabase)) {
         resolvedItems.push(item)
       } else {
         pendingItems.push({ food: item.food, portion_type: item.portion_type ?? 'bulk' })
