@@ -476,7 +476,7 @@ export async function handleIncomingMessage(
 
           const parsedQuantity = parseProductQuantity(text, product)
           if (!parsedQuantity) {
-            const response = buildProductQuantityParseFailureMessage(text.trim())
+            const response = buildProductQuantityParseFailureMessage(text.trim(), product.servingSizeG)
             const sentId = await sendTextMessage(from, response)
             saveHistory(supabase, user.id, text, response)
             await saveBotMessages(supabase, user.id, messageId, sentId, null, null)
@@ -529,6 +529,7 @@ export async function handleIncomingMessage(
               const response = buildProductQuantityPrompt(
                 productResult.product.name,
                 productResult.product.servingDisplay,
+                productResult.product.servingSizeG,
               )
               await setState(user.id, 'awaiting_product_quantity', {
                 product: productResult.product,

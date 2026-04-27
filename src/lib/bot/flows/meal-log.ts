@@ -640,6 +640,7 @@ async function startProductInteraction(
     const response = buildProductQuantityPrompt(
       outcome.product.name,
       outcome.product.servingDisplay,
+      outcome.product.servingSizeG,
     )
     return { response, completed: false }
   }

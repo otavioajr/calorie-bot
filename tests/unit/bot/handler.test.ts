@@ -1015,6 +1015,10 @@ describe('handleIncomingMessage — context-based routing', () => {
       FROM,
       expect.stringContaining('Não sei quanto pesa uma unidade de Magic Toast.'),
     )
+    expect(mockSendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('porções do rótulo'),
+    )
   })
 
   it('registers confirmed product with the exact grams provided after quantity prompt', async () => {
@@ -1134,6 +1138,14 @@ describe('handleIncomingMessage — context-based routing', () => {
     expect(mockSendTextMessage).toHaveBeenCalledWith(
       FROM,
       expect.stringContaining('Não consegui converter "2 torradas" para gramas.'),
+    )
+    expect(mockSendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('Me manda o peso em gramas (ex: "30g").'),
+    )
+    expect(mockSendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.not.stringMatching(/porções do rótulo/),
     )
   })
 })
