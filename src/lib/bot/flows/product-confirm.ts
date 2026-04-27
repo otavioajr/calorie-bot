@@ -39,6 +39,28 @@ interface LabelProductDraft {
 const LABEL_FORMAT_MESSAGE =
   'Me envie os dados do rótulo neste formato: Marca NomeDaMarca, 420 kcal, proteína 9g, carbo 72g, gordura 10g por 100g.'
 
+/** Prompt when we need grams or label portions (no implicit unit weight). */
+export function buildProductQuantityPrompt(productName: string, servingDisplay: string | null): string {
+  const servingLine = servingDisplay?.trim()
+    ? `(Porção do rótulo: ${servingDisplay.trim()})`
+    : null
+
+  return [
+    `Não sei quanto pesa uma unidade de ${productName}.`,
+    ...(servingLine ? [servingLine] : []),
+    'Os valores nutricionais que tenho são por grama, então preciso que você me diga:',
+    '• o peso exato em gramas (ex: "30g")',
+    '• ou quantas porções do rótulo (ex: "2 porções", "1 pacote")',
+  ].join('\n')
+}
+
+export function buildProductQuantityParseFailureMessage(userInput: string): string {
+  return [
+    `Não consegui converter "${userInput}" para gramas.`,
+    'Me manda em gramas (ex: "30g") ou em porções do rótulo (ex: "2 porções", "1 pacote").',
+  ].join('\n')
+}
+
 function normalizeAnswer(message: string): string {
   return message
     .normalize('NFD')
