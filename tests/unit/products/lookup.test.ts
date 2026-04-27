@@ -7,13 +7,14 @@ vi.mock('@/lib/products/classify', () => ({ shouldUseProductFlow: vi.fn() }))
 vi.mock('@/lib/products/queries', () => ({
   findApprovedProduct: vi.fn(),
   findPrivateProduct: vi.fn(),
+  findRecentlyUsedProduct: vi.fn(),
   recordUsage: vi.fn(),
 }))
 vi.mock('@/lib/products/off-client', () => ({ searchByName: vi.fn() }))
 
 import { shouldUseProductFlow } from '@/lib/products/classify'
 import { searchByName } from '@/lib/products/off-client'
-import { findApprovedProduct, findPrivateProduct, recordUsage } from '@/lib/products/queries'
+import { findApprovedProduct, findPrivateProduct, findRecentlyUsedProduct, recordUsage } from '@/lib/products/queries'
 
 const supabase = {} as Parameters<typeof tryProductLookup>[0]
 
@@ -104,9 +105,10 @@ describe('tryProductLookup', () => {
 
     const result = await tryProductLookup(supabase, mealItem(), 'user-1')
 
-    expect(result).toEqual({ kind: 'matched', product: approved, quantityGrams: null })
+    expect(result).toEqual({ kind: 'matched', product: approved, quantityGrams: 30 })
     expect(findApprovedProduct).toHaveBeenCalledWith(supabase, 'Magic Toast')
     expect(findPrivateProduct).not.toHaveBeenCalled()
+    expect(findRecentlyUsedProduct).not.toHaveBeenCalled()
     expect(recordUsage).toHaveBeenCalledWith(supabase, 'approved-1', 'user-1')
   })
 
@@ -120,14 +122,14 @@ describe('tryProductLookup', () => {
     expect(result).toEqual({ kind: 'matched', product: approved, quantityGrams: 30 })
   })
 
-  it('preserves missing quantity on matched approved product', async () => {
+  it('uses product serving size when matched product has no explicit gram quantity', async () => {
     const approved = product({ id: 'approved-1' })
     vi.mocked(shouldUseProductFlow).mockResolvedValue(true)
     vi.mocked(findApprovedProduct).mockResolvedValue(approved)
 
     const result = await tryProductLookup(supabase, mealItem({ quantity_grams: null }), 'user-1')
 
-    expect(result).toEqual({ kind: 'matched', product: approved, quantityGrams: null })
+    expect(result).toEqual({ kind: 'matched', product: approved, quantityGrams: 30 })
   })
 
   it('falls through to private product when approved catalog has no match', async () => {
@@ -138,15 +140,36 @@ describe('tryProductLookup', () => {
 
     const result = await tryProductLookup(supabase, mealItem(), 'user-1')
 
-    expect(result).toEqual({ kind: 'matched', product: privateProduct, quantityGrams: null })
+    expect(result).toEqual({ kind: 'matched', product: privateProduct, quantityGrams: 30 })
     expect(findPrivateProduct).toHaveBeenCalledWith(supabase, 'user-1', 'Magic Toast')
+    expect(findRecentlyUsedProduct).not.toHaveBeenCalled()
     expect(recordUsage).toHaveBeenCalledWith(supabase, 'private-1', 'user-1')
+  })
+
+  it('reuses a recently used matching product before searching Open Food Facts', async () => {
+    const recent = product({
+      id: 'recent-1',
+      name: 'Lev Magic Toast',
+      nameNormalized: 'lev magic toast',
+    })
+    vi.mocked(shouldUseProductFlow).mockResolvedValue(true)
+    vi.mocked(findApprovedProduct).mockResolvedValue(null)
+    vi.mocked(findPrivateProduct).mockResolvedValue(null)
+    vi.mocked(findRecentlyUsedProduct).mockResolvedValue(recent)
+
+    const result = await tryProductLookup(supabase, mealItem({ food: 'magic toast' }), 'user-1')
+
+    expect(result).toEqual({ kind: 'matched', product: recent, quantityGrams: 30 })
+    expect(findRecentlyUsedProduct).toHaveBeenCalledWith(supabase, 'user-1', 'magic toast')
+    expect(recordUsage).toHaveBeenCalledWith(supabase, 'recent-1', 'user-1')
+    expect(searchByName).not.toHaveBeenCalled()
   })
 
   it('returns OFF choice request when catalogs miss and OFF has candidates', async () => {
     vi.mocked(shouldUseProductFlow).mockResolvedValue(true)
     vi.mocked(findApprovedProduct).mockResolvedValue(null)
     vi.mocked(findPrivateProduct).mockResolvedValue(null)
+    vi.mocked(findRecentlyUsedProduct).mockResolvedValue(null)
     vi.mocked(searchByName).mockResolvedValue([offCandidate])
 
     const result = await tryProductLookup(supabase, mealItem(), 'user-1')
@@ -173,6 +196,7 @@ describe('tryProductLookup', () => {
     vi.mocked(shouldUseProductFlow).mockResolvedValue(true)
     vi.mocked(findApprovedProduct).mockResolvedValue(null)
     vi.mocked(findPrivateProduct).mockResolvedValue(null)
+    vi.mocked(findRecentlyUsedProduct).mockResolvedValue(null)
     vi.mocked(searchByName).mockResolvedValue([])
 
     const result = await tryProductLookup(supabase, mealItem({ quantity_grams: null }), 'user-1')
