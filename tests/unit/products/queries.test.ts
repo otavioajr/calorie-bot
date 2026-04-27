@@ -204,6 +204,29 @@ describe('product queries', () => {
 
       await expect(findRecentlyUsedProduct(supabase, 'user-1', 'magic toast')).resolves.toBeNull()
     })
+
+    it('returns null when the query has only one searchable token', async () => {
+      const { supabase } = makeSupabase({
+        list: {
+          data: [
+            {
+              used_at: '2026-04-26T13:00:00.000Z',
+              products: {
+                ...productRow,
+                id: 'whey-protein',
+                name: 'Whey Protein',
+                name_normalized: 'whey protein',
+                brand: 'Integralmedica',
+                brand_normalized: 'integralmedica',
+              },
+            },
+          ],
+          error: null,
+        },
+      })
+
+      await expect(findRecentlyUsedProduct(supabase, 'user-1', 'protein')).resolves.toBeNull()
+    })
   })
 
   describe('createProduct', () => {

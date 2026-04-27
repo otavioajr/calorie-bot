@@ -73,12 +73,11 @@ export function tokenizeProductSearchText(value: string | null | undefined): str
 
 export function scoreProductTokenMatch(query: string, candidate: string): number {
   const queryTokens = [...new Set(tokenizeProductSearchText(query))]
-  if (queryTokens.length === 0) return 0
+  if (queryTokens.length < 2) return 0
 
   const candidateTokens = new Set(tokenizeProductSearchText(candidate))
   const matchedCount = queryTokens.filter(token => candidateTokens.has(token)).length
-  const minimumMatches = Math.min(2, queryTokens.length)
-  if (matchedCount < minimumMatches) return 0
+  if (matchedCount < 2) return 0
 
   return matchedCount / queryTokens.length
 }
