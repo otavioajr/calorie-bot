@@ -13,6 +13,8 @@ import { handleHelp, handleUserData } from '@/lib/bot/flows/help'
 import { handleRecalculate } from '@/lib/bot/flows/recalculate'
 import { handleMealDetail } from '@/lib/bot/flows/meal-detail'
 import {
+  buildProductQuantityParseFailureMessage,
+  buildProductQuantityPrompt,
   handleAwaitingLabelConfirm,
   handleAwaitingLabelInput,
   handleAwaitingOffBrand,
@@ -113,13 +115,6 @@ function confirmedProductItem(
     source: 'product',
     productId: product.id,
   }
-}
-
-function productQuantityPrompt(productName: string): string {
-  return [
-    `Qual quantidade você comeu de ${productName}?`,
-    'Pode responder em gramas ou porção do rótulo. Ex: "30g", "2 unidades", "1 pacote".',
-  ].join('\n')
 }
 
 function parseProductQuantity(
@@ -481,10 +476,7 @@ export async function handleIncomingMessage(
 
           const parsedQuantity = parseProductQuantity(text, product)
           if (!parsedQuantity) {
-            const response = [
-              'Para eu não assumir uma quantidade, me diga em gramas ou em uma porção conhecida do rótulo.',
-              `Ex: "30g"${product.servingSizeG ? ', "2 unidades", "1 pacote".' : '.'}`,
-            ].join('\n')
+            const response = buildProductQuantityParseFailureMessage(text.trim(), product.servingSizeG)
             const sentId = await sendTextMessage(from, response)
             saveHistory(supabase, user.id, text, response)
             await saveBotMessages(supabase, user.id, messageId, sentId, null, null)
@@ -534,7 +526,11 @@ export async function handleIncomingMessage(
 
           if (productResult.completed && productResult.product && pendingMeal) {
             if (quantityGrams === null) {
-              const response = productQuantityPrompt(productResult.product.name)
+              const response = buildProductQuantityPrompt(
+                productResult.product.name,
+                productResult.product.servingDisplay,
+                productResult.product.servingSizeG,
+              )
               await setState(user.id, 'awaiting_product_quantity', {
                 product: productResult.product,
                 pendingMeal,

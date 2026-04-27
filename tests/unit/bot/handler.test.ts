@@ -117,13 +117,17 @@ vi.mock('@/lib/bot/flows/meal-log', () => ({
   enrichItemsWithTaco: mockEnrichItemsWithTaco,
 }))
 
-vi.mock('@/lib/bot/flows/product-confirm', () => ({
-  handleAwaitingLabelConfirm: mockHandleAwaitingLabelConfirm,
-  handleAwaitingLabelInput: vi.fn(),
-  handleAwaitingOffBrand: vi.fn(),
-  handleAwaitingOffChoice: vi.fn(),
-  handleAwaitingOffConfirm: mockHandleAwaitingOffConfirm,
-}))
+vi.mock('@/lib/bot/flows/product-confirm', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/bot/flows/product-confirm')>()
+  return {
+    ...actual,
+    handleAwaitingLabelConfirm: mockHandleAwaitingLabelConfirm,
+    handleAwaitingLabelInput: vi.fn(),
+    handleAwaitingOffBrand: vi.fn(),
+    handleAwaitingOffChoice: vi.fn(),
+    handleAwaitingOffConfirm: mockHandleAwaitingOffConfirm,
+  }
+})
 
 vi.mock('@/lib/bot/flows/summary', () => ({
   handleSummary: mockHandleSummary,
@@ -1009,7 +1013,11 @@ describe('handleIncomingMessage — context-based routing', () => {
     )
     expect(mockSendTextMessage).toHaveBeenCalledWith(
       FROM,
-      expect.stringContaining('Qual quantidade você comeu de Magic Toast?'),
+      expect.stringContaining('Não sei quanto pesa uma unidade de Magic Toast.'),
+    )
+    expect(mockSendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('porções do rótulo'),
     )
   })
 
@@ -1129,7 +1137,15 @@ describe('handleIncomingMessage — context-based routing', () => {
     expect(mockCreateMeal).not.toHaveBeenCalled()
     expect(mockSendTextMessage).toHaveBeenCalledWith(
       FROM,
-      expect.stringContaining('Para eu não assumir uma quantidade'),
+      expect.stringContaining('Não consegui converter "2 torradas" para gramas.'),
+    )
+    expect(mockSendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('Me manda o peso em gramas (ex: "30g").'),
+    )
+    expect(mockSendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.not.stringMatching(/porções do rótulo/),
     )
   })
 })

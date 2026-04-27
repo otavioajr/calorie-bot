@@ -12,7 +12,7 @@ import { sendTextMessage } from '@/lib/whatsapp/client'
 import { searchMealHistory, HistoryMatch } from '@/lib/db/queries/meal-history-search'
 import { normalizeFoodNameForTaco, applySynonyms, tokenMatchScore } from '@/lib/utils/food-normalize'
 import { getUserLocalTime } from '@/lib/utils/meal-time'
-import { handleStartLabelInput, handleStartOffChoice } from '@/lib/bot/flows/product-confirm'
+import { buildProductQuantityPrompt, handleStartLabelInput, handleStartOffChoice } from '@/lib/bot/flows/product-confirm'
 import { tryProductLookup } from '@/lib/products/lookup'
 import { shouldUseProductFlow } from '@/lib/products/classify'
 import type { Product, ProductLookupOutcome } from '@/lib/products/types'
@@ -333,10 +333,16 @@ export async function enrichItemsWithTaco(
     const outcome = await tryProductLookup(supabase, item, userId)
 
     if (outcome.kind === 'matched') {
-      const resolvedQuantity = outcome.quantityGrams ?? outcome.product.servingSizeG ?? 100
-      const quantityDisplay = item.quantity_display
-        ?? outcome.product.servingDisplay
-        ?? (outcome.quantityGrams === null && outcome.product.servingSizeG === null ? '100 g estimado' : null)
+      const resolvedQuantity = outcome.quantityGrams ?? outcome.product.servingSizeG
+      if (resolvedQuantity == null || resolvedQuantity <= 0) {
+        pendingInteractions.push({
+          item,
+          index,
+          outcome: { kind: 'needs_quantity', product: outcome.product },
+        })
+        continue
+      }
+      const quantityDisplay = item.quantity_display ?? outcome.product.servingDisplay ?? null
       const macros = calculateMacrosFromProduct(outcome.product, resolvedQuantity)
       enriched[index] = {
         food: outcome.product.name,
@@ -631,10 +637,11 @@ async function startProductInteraction(
       product: outcome.product,
       pendingMeal,
     })
-    const response = [
-      `Qual quantidade você comeu de ${outcome.product.name}?`,
-      `Pode responder em gramas ou porção do rótulo. Ex: "30g", "2 unidades", "1 pacote".`,
-    ].join('\n')
+    const response = buildProductQuantityPrompt(
+      outcome.product.name,
+      outcome.product.servingDisplay,
+      outcome.product.servingSizeG,
+    )
     return { response, completed: false }
   }
 
