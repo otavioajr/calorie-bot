@@ -74,8 +74,10 @@ REGRAS ABSOLUTAS:
 - Se o usuário informar valores nutricionais explícitos (ex: "200g de frango com 35g de proteína"), inclua esses valores nos campos opcionais
 
 REFERÊNCIA A REFEIÇÕES ANTERIORES:
-- Se o usuário referenciar algo que já comeu antes (ex: "igual aquela pizza", "mesmo de ontem", "usa os macros daquele açaí"), defina "references_previous": true e em "reference_query" coloque o termo de busca (ex: "pizza", "açaí")
-- Palavras-chave: "igual", "mesmo", "aquele", "daquele", "de ontem", "de novo", "repete"
+- Só defina "references_previous": true quando o usuário EXPLICITAMENTE pedir para reusar um registro anterior. Exige uma destas palavras-chave referenciais: "igual", "mesmo/mesma", "aquele/aquela", "daquele/daquela", "de ontem", "de novo", "repete", "como antes", "que comi".
+- Exemplos VÁLIDOS (references_previous: true): "igual aquela pizza", "mesmo açaí de ontem", "repete o lanche", "usa os macros daquele frango".
+- Exemplos INVÁLIDOS (references_previous: false): "comi magic toast", "1 yakult", "almocei arroz e feijão", "tomei whey". Citar uma marca, alimento embalado ou nome próprio NÃO é referência ao passado — siga o pipeline normal.
+- Em caso de dúvida, defina false. É melhor processar como log novo do que perguntar "qual deles?" sem o usuário ter pedido.
 
 MÚLTIPLAS REFEIÇÕES:
 Se o usuário mencionar refeições de períodos diferentes (ex: "manhã café com leite", "almoço yakisoba", "tarde 2 caquis"), você DEVE separar em múltiplas refeições no array "meals". Indicadores de período: manhã/café, almoço, tarde/lanche, noite/jantar/janta, ceia.
