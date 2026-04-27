@@ -2,13 +2,25 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { MealItem } from '@/lib/llm/schemas/meal-analysis'
 import { shouldUseProductFlow } from './classify'
 import { searchByName } from './off-client'
-import { findApprovedProduct, findPrivateProduct, recordUsage } from './queries'
-import type { ProductLookupOutcome } from './types'
+import { findApprovedProduct, findPrivateProduct, findRecentlyUsedProduct, recordUsage } from './queries'
+import type { Product, ProductLookupOutcome } from './types'
 
 function hasExplicitGramQuantity(item: MealItem): boolean {
   if (!item.quantity_grams || item.quantity_grams <= 0) return false
   if (!item.quantity_display) return false
   return /\d+\s*(?:g|gramas?|ml|litros?)\b/i.test(item.quantity_display)
+}
+
+function matchedProductOutcome(
+  product: Product,
+  quantityGrams: number | null,
+): ProductLookupOutcome {
+  const resolvedQuantityGrams = quantityGrams ?? product.servingSizeG
+  if (resolvedQuantityGrams == null) {
+    return { kind: 'needs_quantity', product }
+  }
+
+  return { kind: 'matched', product, quantityGrams: resolvedQuantityGrams }
 }
 
 export async function tryProductLookup(
@@ -24,19 +36,19 @@ export async function tryProductLookup(
   const approvedProduct = await findApprovedProduct(supabase, item.food)
   if (approvedProduct) {
     await recordUsage(supabase, approvedProduct.id, userId)
-    if (quantityGrams == null && approvedProduct.servingSizeG == null) {
-      return { kind: 'needs_quantity', product: approvedProduct }
-    }
-    return { kind: 'matched', product: approvedProduct, quantityGrams }
+    return matchedProductOutcome(approvedProduct, quantityGrams)
   }
 
   const privateProduct = await findPrivateProduct(supabase, userId, item.food)
   if (privateProduct) {
     await recordUsage(supabase, privateProduct.id, userId)
-    if (quantityGrams == null && privateProduct.servingSizeG == null) {
-      return { kind: 'needs_quantity', product: privateProduct }
-    }
-    return { kind: 'matched', product: privateProduct, quantityGrams }
+    return matchedProductOutcome(privateProduct, quantityGrams)
+  }
+
+  const recentlyUsedProduct = await findRecentlyUsedProduct(supabase, userId, item.food)
+  if (recentlyUsedProduct) {
+    await recordUsage(supabase, recentlyUsedProduct.id, userId)
+    return matchedProductOutcome(recentlyUsedProduct, quantityGrams)
   }
 
   const candidates = await searchByName(item.food)

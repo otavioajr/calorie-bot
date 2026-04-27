@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { normalizeBrand, normalizeProductName } from './normalize'
+import { normalizeBrand, normalizeProductName, scoreProductTokenMatch } from './normalize'
 import type { Product, ProductSource, ProductStatus } from './types'
 
 const PRODUCT_COLUMNS = [
@@ -27,6 +27,9 @@ const PRODUCT_COLUMNS = [
   'contributor_ids',
 ].join(',')
 
+const RECENT_USAGE_LOOKUP_LIMIT = 20
+const RECENT_USAGE_MATCH_THRESHOLD = 0.75
+
 interface ProductRow {
   id: string
   name: string
@@ -50,6 +53,11 @@ interface ProductRow {
   updated_at: string
   promoted_at: string | null
   contributor_ids: string[] | null
+}
+
+interface ProductUsageProductRow {
+  used_at: string
+  products: ProductRow | ProductRow[] | null
 }
 
 export interface CreateProductInput {
@@ -95,6 +103,10 @@ function rowToProduct(row: ProductRow): Product {
     promotedAt: row.promoted_at,
     contributorIds: row.contributor_ids,
   }
+}
+
+function productSearchText(product: Product): string {
+  return [product.nameNormalized, product.brandNormalized].filter(Boolean).join(' ')
 }
 
 export async function findApprovedProduct(
@@ -158,6 +170,39 @@ export async function findByBarcode(
   if (error || !data) return null
 
   return rowToProduct(data as unknown as ProductRow)
+}
+
+export async function findRecentlyUsedProduct(
+  supabase: SupabaseClient,
+  userId: string,
+  name: string,
+): Promise<Product | null> {
+  const nameNormalized = normalizeProductName(name)
+  if (!nameNormalized) return null
+
+  const { data, error } = await supabase
+    .from('product_usage')
+    .select(`used_at, products!inner(${PRODUCT_COLUMNS})`)
+    .eq('user_id', userId)
+    .order('used_at', { ascending: false })
+    .limit(RECENT_USAGE_LOOKUP_LIMIT)
+
+  if (error || !Array.isArray(data)) return null
+
+  for (const usageRow of data as unknown as ProductUsageProductRow[]) {
+    const productRow = Array.isArray(usageRow.products)
+      ? usageRow.products[0]
+      : usageRow.products
+    if (!productRow) continue
+
+    const product = rowToProduct(productRow)
+    const score = scoreProductTokenMatch(nameNormalized, productSearchText(product))
+    if (score >= RECENT_USAGE_MATCH_THRESHOLD) {
+      return product
+    }
+  }
+
+  return null
 }
 
 export async function createProduct(

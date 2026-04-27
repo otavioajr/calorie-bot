@@ -5,6 +5,7 @@ import {
   findApprovedProduct,
   findByBarcode,
   findPrivateProduct,
+  findRecentlyUsedProduct,
   recordUsage,
 } from '@/lib/products/queries'
 
@@ -36,6 +37,7 @@ const productRow = {
 function makeSupabase(result: {
   maybeSingle?: { data: unknown; error: { message?: string } | null }
   single?: { data: unknown; error: { message?: string } | null }
+  list?: { data: unknown; error: { message?: string } | null }
 }) {
   const builder = {
     select: vi.fn().mockReturnThis(),
@@ -47,6 +49,9 @@ function makeSupabase(result: {
       .fn()
       .mockResolvedValue(result.maybeSingle ?? { data: null, error: null }),
     single: vi.fn().mockResolvedValue(result.single ?? { data: null, error: null }),
+    then: vi.fn((resolve: (value: unknown) => unknown) =>
+      resolve(result.list ?? { data: [], error: null }),
+    ),
   }
 
   return {
@@ -143,6 +148,61 @@ describe('product queries', () => {
 
       expect(builder.eq).toHaveBeenCalledWith('barcode', '7891000000000')
       expect(result?.barcode).toBe('7891000000000')
+    })
+  })
+
+  describe('findRecentlyUsedProduct', () => {
+    it('returns the latest recently used product whose normalized tokens match the query', async () => {
+      const { supabase, builder } = makeSupabase({
+        list: {
+          data: [
+            {
+              used_at: '2026-04-26T13:00:00.000Z',
+              products: {
+                ...productRow,
+                id: 'lev-magic-toast',
+                name: 'Lev Magic Toast',
+                name_normalized: 'lev magic toast',
+                brand: 'Marilan',
+                brand_normalized: 'marilan',
+              },
+            },
+          ],
+          error: null,
+        },
+      })
+
+      const result = await findRecentlyUsedProduct(supabase, 'user-1', 'outra magic toast')
+
+      expect(supabase.from).toHaveBeenCalledWith('product_usage')
+      expect(builder.eq).toHaveBeenCalledWith('user_id', 'user-1')
+      expect(builder.order).toHaveBeenCalledWith('used_at', { ascending: false })
+      expect(builder.limit).toHaveBeenCalledWith(20)
+      expect(result?.id).toBe('lev-magic-toast')
+      expect(result?.name).toBe('Lev Magic Toast')
+    })
+
+    it('returns null when recent products do not meet the token score', async () => {
+      const { supabase } = makeSupabase({
+        list: {
+          data: [
+            {
+              used_at: '2026-04-26T13:00:00.000Z',
+              products: {
+                ...productRow,
+                id: 'other-product',
+                name: 'Whey Protein',
+                name_normalized: 'whey protein',
+                brand: 'Integralmedica',
+                brand_normalized: 'integralmedica',
+              },
+            },
+          ],
+          error: null,
+        },
+      })
+
+      await expect(findRecentlyUsedProduct(supabase, 'user-1', 'magic toast')).resolves.toBeNull()
     })
   })
 
