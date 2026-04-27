@@ -117,6 +117,46 @@ function confirmedProductItem(
   }
 }
 
+function productQuantityPrompt(productName: string): string {
+  return [
+    `Qual quantidade você comeu de ${productName}?`,
+    'Pode responder em gramas ou porção do rótulo. Ex: "30g", "2 unidades", "1 pacote".',
+  ].join('\n')
+}
+
+function parseProductQuantity(
+  message: string,
+  product: Product,
+): { quantityGrams: number; quantityDisplay: string } | null {
+  const trimmed = message.trim()
+  const normalized = trimmed
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+
+  const gramsMatch = normalized.match(/(\d+(?:[,.]\d+)?)\s*(?:g|grama|gramas)\b/)
+  if (gramsMatch?.[1]) {
+    const grams = Number.parseFloat(gramsMatch[1].replace(',', '.'))
+    if (Number.isFinite(grams) && grams > 0) {
+      return { quantityGrams: grams, quantityDisplay: trimmed }
+    }
+  }
+
+  const servingAmountMatch = normalized.match(/(\d+(?:[,.]\d+)?)/)
+  const servingUnitPattern = /\b(?:unidade|unidades|unid|pacote|pacotes|porcao|porcoes|torrada|torradas)\b/
+  if (servingAmountMatch?.[1] && product.servingSizeG && servingUnitPattern.test(normalized)) {
+    const amount = Number.parseFloat(servingAmountMatch[1].replace(',', '.'))
+    if (Number.isFinite(amount) && amount > 0) {
+      return {
+        quantityGrams: Math.round(product.servingSizeG * amount * 10) / 10,
+        quantityDisplay: trimmed,
+      }
+    }
+  }
+
+  return null
+}
+
 async function buildConfirmedProductMealItems(
   supabase: SupabaseClient,
   userId: string,
@@ -434,6 +474,46 @@ export async function handleIncomingMessage(
           saveMessage(supabase, user.id, 'user', text).catch(() => {})
           return
         }
+        case 'awaiting_product_quantity': {
+          const product = context.contextData.product as Product | undefined
+          const pendingMeal = context.contextData.pendingMeal as ProductPendingMeal | undefined
+
+          if (!product || !pendingMeal) {
+            const response = 'Não consegui recuperar o produto. Pode mandar o alimento e a quantidade de novo?'
+            const sentId = await sendTextMessage(from, response)
+            saveHistory(supabase, user.id, text, response)
+            await saveBotMessages(supabase, user.id, messageId, sentId, null, null)
+            return
+          }
+
+          const parsedQuantity = parseProductQuantity(text, product)
+          if (!parsedQuantity) {
+            const response = [
+              'Para eu não assumir uma quantidade, me diga em gramas ou em uma porção conhecida do rótulo.',
+              `Ex: "30g"${product.servingSizeG ? ', "2 unidades", "1 pacote".' : '.'}`,
+            ].join('\n')
+            const sentId = await sendTextMessage(from, response)
+            saveHistory(supabase, user.id, text, response)
+            await saveBotMessages(supabase, user.id, messageId, sentId, null, null)
+            return
+          }
+
+          const registered = await registerConfirmedProductMeal(
+            supabase,
+            user.id,
+            { ...pendingMeal, quantityDisplay: parsedQuantity.quantityDisplay },
+            product,
+            parsedQuantity.quantityGrams,
+            {
+              dailyCalorieTarget: user.dailyCalorieTarget,
+              timezone: user.timezone,
+            },
+          )
+          const sentId = await sendTextMessage(from, registered.response)
+          saveHistory(supabase, user.id, text, registered.response)
+          await saveBotMessages(supabase, user.id, messageId, sentId, 'meal', registered.mealId)
+          return
+        }
         case 'awaiting_off_choice': {
           const productResult = await handleAwaitingOffChoice(user.id, text, context)
           const sentId = await sendTextMessage(from, productResult.response)
@@ -460,6 +540,18 @@ export async function handleIncomingMessage(
             : null
 
           if (productResult.completed && productResult.product && pendingMeal) {
+            if (quantityGrams === null) {
+              const response = productQuantityPrompt(productResult.product.name)
+              await setState(user.id, 'awaiting_product_quantity', {
+                product: productResult.product,
+                pendingMeal,
+              })
+              const sentId = await sendTextMessage(from, response)
+              saveHistory(supabase, user.id, text, response)
+              await saveBotMessages(supabase, user.id, messageId, sentId, null, null)
+              return
+            }
+
             const registered = await registerConfirmedProductMeal(
               supabase,
               user.id,

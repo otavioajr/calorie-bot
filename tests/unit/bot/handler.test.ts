@@ -935,6 +935,203 @@ describe('handleIncomingMessage — context-based routing', () => {
     )
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal breakdown message')
   })
+
+  it('asks for product quantity after confirmation when original message had no quantity', async () => {
+    const product = {
+      id: 'product-1',
+      name: 'Magic Toast',
+      nameNormalized: 'magic toast',
+      brand: 'Marilan',
+      brandNormalized: 'marilan',
+      barcode: '789',
+      servingSizeG: 25,
+      servingDisplay: '1 pacote',
+      caloriesPer100g: 400,
+      proteinPer100g: 8,
+      carbsPer100g: 70,
+      fatPer100g: 10,
+      fiberPer100g: null,
+      sodiumPer100g: null,
+      source: 'open_food_facts' as const,
+      sourceRef: null,
+      status: 'aprovado' as const,
+      createdBy: null,
+      createdAt: '2026-04-26T00:00:00.000Z',
+      updatedAt: '2026-04-26T00:00:00.000Z',
+      promotedAt: null,
+      contributorIds: null,
+    }
+    const pendingMeal = {
+      mealType: 'dinner',
+      originalMessage: 'jantei magic toast',
+      food: 'Magic Toast',
+      quantityDisplay: null,
+      productItemIndex: 0,
+      mealItems: [{
+        food: 'Magic Toast',
+        quantity_grams: null,
+        quantity_display: null,
+        quantity_source: 'unknown',
+        portion_type: 'packaged',
+        has_user_quantity: false,
+        calories: null,
+        protein: null,
+        carbs: null,
+        fat: null,
+        confidence: 'high',
+      }],
+    }
+    const mockContext = {
+      contextType: 'awaiting_off_confirm',
+      contextData: {
+        quantityGrams: null,
+        pendingMeal,
+      },
+    }
+    mockGetState.mockResolvedValue(mockContext)
+    mockHandleAwaitingOffConfirm.mockResolvedValue({
+      response: 'Produto salvo',
+      completed: true,
+      product,
+      productId: product.id,
+    })
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, 'sim')
+
+    expect(mockCreateMeal).not.toHaveBeenCalled()
+    expect(mockSetState).toHaveBeenCalledWith(
+      completedUser.id,
+      'awaiting_product_quantity',
+      expect.objectContaining({
+        product,
+        pendingMeal,
+      }),
+    )
+    expect(mockSendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('Qual quantidade você comeu de Magic Toast?'),
+    )
+  })
+
+  it('registers confirmed product with the exact grams provided after quantity prompt', async () => {
+    const product = {
+      id: 'product-1',
+      name: 'Magic Toast',
+      nameNormalized: 'magic toast',
+      brand: 'Marilan',
+      brandNormalized: 'marilan',
+      barcode: '789',
+      servingSizeG: 25,
+      servingDisplay: '1 pacote',
+      caloriesPer100g: 400,
+      proteinPer100g: 8,
+      carbsPer100g: 70,
+      fatPer100g: 10,
+      fiberPer100g: null,
+      sodiumPer100g: null,
+      source: 'open_food_facts' as const,
+      sourceRef: null,
+      status: 'aprovado' as const,
+      createdBy: null,
+      createdAt: '2026-04-26T00:00:00.000Z',
+      updatedAt: '2026-04-26T00:00:00.000Z',
+      promotedAt: null,
+      contributorIds: null,
+    }
+    const pendingMeal = {
+      mealType: 'dinner',
+      originalMessage: 'jantei magic toast',
+      food: 'Magic Toast',
+      quantityDisplay: null,
+      productItemIndex: 0,
+      mealItems: [{
+        food: 'Magic Toast',
+        quantity_grams: null,
+        quantity_display: null,
+        quantity_source: 'unknown',
+        portion_type: 'packaged',
+        has_user_quantity: false,
+        calories: null,
+        protein: null,
+        carbs: null,
+        fat: null,
+        confidence: 'high',
+      }],
+    }
+    mockGetState.mockResolvedValue({
+      contextType: 'awaiting_product_quantity',
+      contextData: {
+        product,
+        pendingMeal,
+      },
+    })
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, '30g')
+
+    expect(mockCreateMeal).toHaveBeenCalledWith(
+      mockSupabase,
+      expect.objectContaining({
+        totalCalories: 120,
+        items: [
+          expect.objectContaining({
+            foodName: 'Magic Toast',
+            quantityGrams: 30,
+            quantityDisplay: '30g',
+            calories: 120,
+            productId: 'product-1',
+          }),
+        ],
+      }),
+    )
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal breakdown message')
+  })
+
+  it('does not register unit quantity when product has no serving weight', async () => {
+    const product = {
+      id: 'product-1',
+      name: 'Magic Toast',
+      nameNormalized: 'magic toast',
+      brand: 'Marilan',
+      brandNormalized: 'marilan',
+      barcode: '789',
+      servingSizeG: null,
+      servingDisplay: '1 unidade',
+      caloriesPer100g: 400,
+      proteinPer100g: 8,
+      carbsPer100g: 70,
+      fatPer100g: 10,
+      fiberPer100g: null,
+      sodiumPer100g: null,
+      source: 'open_food_facts' as const,
+      sourceRef: null,
+      status: 'aprovado' as const,
+      createdBy: null,
+      createdAt: '2026-04-26T00:00:00.000Z',
+      updatedAt: '2026-04-26T00:00:00.000Z',
+      promotedAt: null,
+      contributorIds: null,
+    }
+    mockGetState.mockResolvedValue({
+      contextType: 'awaiting_product_quantity',
+      contextData: {
+        product,
+        pendingMeal: {
+          mealType: 'dinner',
+          originalMessage: 'jantei magic toast',
+          food: 'Magic Toast',
+          quantityDisplay: null,
+        },
+      },
+    })
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, '2 torradas')
+
+    expect(mockCreateMeal).not.toHaveBeenCalled()
+    expect(mockSendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('Para eu não assumir uma quantidade'),
+    )
+  })
 })
 
 // ---------------------------------------------------------------------------
