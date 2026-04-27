@@ -94,7 +94,7 @@ function formatCandidate(candidate: OffProduct): string {
 function formatOffConfirmation(candidate: OffProduct): string {
   return [
     `Confirma este produto? ${formatCandidate(candidate)}`,
-    `${candidate.caloriesPer100g} kcal, ${candidate.proteinPer100g}g proteína, ${candidate.carbsPer100g}g carbo, ${candidate.fatPer100g}g gordura por 100g.`,
+    `${Math.trunc(candidate.caloriesPer100g)} kcal, ${Math.trunc(candidate.proteinPer100g)}g proteína, ${Math.trunc(candidate.carbsPer100g)}g carbo, ${Math.trunc(candidate.fatPer100g)}g gordura por 100g.`,
     'Responda sim para usar ou não para cadastrar pelo rótulo.',
   ].join('\n')
 }
@@ -109,7 +109,7 @@ function labelInputPrompt(name: string): string {
 function confirmationPrompt(product: LabelProductDraft): string {
   return [
     `Confirma este cadastro? ${product.name} - ${product.brand}`,
-    `${product.caloriesPer100g} kcal, ${product.proteinPer100g}g proteína, ${product.carbsPer100g}g carbo, ${product.fatPer100g}g gordura por 100g.`,
+    `${Math.trunc(product.caloriesPer100g)} kcal, ${Math.trunc(product.proteinPer100g)}g proteína, ${Math.trunc(product.carbsPer100g)}g carbo, ${Math.trunc(product.fatPer100g)}g gordura por 100g.`,
     'Responda sim para salvar ou não para enviar o rótulo novamente.',
   ].join('\n')
 }

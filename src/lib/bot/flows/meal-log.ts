@@ -47,7 +47,7 @@ export interface EnrichedItem {
   defaultFoodVariant?: string
 }
 
-type PendingProductOutcome = Extract<ProductLookupOutcome, { kind: 'needs_off_choice' | 'needs_label' }>
+type PendingProductOutcome = Extract<ProductLookupOutcome, { kind: 'needs_off_choice' | 'needs_label' | 'needs_quantity' }>
 
 interface PendingProductInteraction {
   item: MealItem
@@ -352,7 +352,7 @@ export async function enrichItemsWithTaco(
       continue
     }
 
-    if (outcome.kind === 'needs_off_choice' || outcome.kind === 'needs_label') {
+    if (outcome.kind === 'needs_off_choice' || outcome.kind === 'needs_label' || outcome.kind === 'needs_quantity') {
       pendingInteractions.push({ item, index, outcome })
       continue
     }
@@ -612,8 +612,6 @@ async function startProductInteraction(
   originalMessage: string,
   pendingInteractions: PendingProductInteraction[],
 ): Promise<MealLogResult> {
-  // For now, handle only the first pending interaction
-  // TODO: Future enhancement - support multiple interactions in sequence or batch
   const first = pendingInteractions[0]
   const item = first.item
   const outcome = first.outcome
@@ -626,6 +624,18 @@ async function startProductInteraction(
     quantityDisplay: item.quantity_display,
     mealItems: meal.items,
     productItemIndex,
+  }
+
+  if (outcome.kind === 'needs_quantity') {
+    await setState(userId, 'awaiting_product_quantity', {
+      product: outcome.product,
+      pendingMeal,
+    })
+    const response = [
+      `Qual quantidade você comeu de ${outcome.product.name}?`,
+      `Pode responder em gramas ou porção do rótulo. Ex: "30g", "2 unidades", "1 pacote".`,
+    ].join('\n')
+    return { response, completed: false }
   }
 
   if (outcome.kind === 'needs_off_choice') {

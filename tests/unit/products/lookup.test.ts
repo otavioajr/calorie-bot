@@ -104,10 +104,20 @@ describe('tryProductLookup', () => {
 
     const result = await tryProductLookup(supabase, mealItem(), 'user-1')
 
-    expect(result).toEqual({ kind: 'matched', product: approved, quantityGrams: 30 })
+    expect(result).toEqual({ kind: 'matched', product: approved, quantityGrams: null })
     expect(findApprovedProduct).toHaveBeenCalledWith(supabase, 'Magic Toast')
     expect(findPrivateProduct).not.toHaveBeenCalled()
     expect(recordUsage).toHaveBeenCalledWith(supabase, 'approved-1', 'user-1')
+  })
+
+  it('passes through explicit gram quantity', async () => {
+    const approved = product({ id: 'approved-1' })
+    vi.mocked(shouldUseProductFlow).mockResolvedValue(true)
+    vi.mocked(findApprovedProduct).mockResolvedValue(approved)
+
+    const result = await tryProductLookup(supabase, mealItem({ quantity_grams: 30, quantity_display: '30g' }), 'user-1')
+
+    expect(result).toEqual({ kind: 'matched', product: approved, quantityGrams: 30 })
   })
 
   it('preserves missing quantity on matched approved product', async () => {
@@ -128,7 +138,7 @@ describe('tryProductLookup', () => {
 
     const result = await tryProductLookup(supabase, mealItem(), 'user-1')
 
-    expect(result).toEqual({ kind: 'matched', product: privateProduct, quantityGrams: 30 })
+    expect(result).toEqual({ kind: 'matched', product: privateProduct, quantityGrams: null })
     expect(findPrivateProduct).toHaveBeenCalledWith(supabase, 'user-1', 'Magic Toast')
     expect(recordUsage).toHaveBeenCalledWith(supabase, 'private-1', 'user-1')
   })
@@ -145,8 +155,18 @@ describe('tryProductLookup', () => {
       kind: 'needs_off_choice',
       query: 'Magic Toast',
       candidates: [offCandidate],
-      quantityGrams: 30,
+      quantityGrams: null,
     })
+  })
+
+  it('returns needs_quantity when product has no serving size and quantity is not in grams', async () => {
+    const approved = product({ id: 'approved-1', servingSizeG: null, servingDisplay: null })
+    vi.mocked(shouldUseProductFlow).mockResolvedValue(true)
+    vi.mocked(findApprovedProduct).mockResolvedValue(approved)
+
+    const result = await tryProductLookup(supabase, mealItem({ quantity_display: '2 torradinhas' }), 'user-1')
+
+    expect(result).toEqual({ kind: 'needs_quantity', product: approved })
   })
 
   it('returns label request when catalogs and OFF miss', async () => {

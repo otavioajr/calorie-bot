@@ -98,10 +98,8 @@ function confirmedProductItem(
   product: Product,
   quantityGrams: number | null,
 ): EnrichedItem {
-  const resolvedQuantity = quantityGrams ?? product.servingSizeG ?? 100
-  const quantityDisplay = pendingMeal.quantityDisplay
-    ?? product.servingDisplay
-    ?? (quantityGrams === null && product.servingSizeG === null ? '100 g estimado' : null)
+  const resolvedQuantity = quantityGrams ?? product.servingSizeG ?? 0
+  const quantityDisplay = pendingMeal.quantityDisplay ?? product.servingDisplay ?? null
   const macros = productMacros(product, resolvedQuantity)
 
   return {
@@ -143,7 +141,7 @@ function parseProductQuantity(
   }
 
   const servingAmountMatch = normalized.match(/(\d+(?:[,.]\d+)?)/)
-  const servingUnitPattern = /\b(?:unidade|unidades|unid|pacote|pacotes|porcao|porcoes|torrada|torradas)\b/
+  const servingUnitPattern = /\b(?:unidade|unidades|unid|pacote|pacotes|pacotinho|pacotinhos|porcao|porcoes|torrada|torradas|torradinha|torradinhas|fatia|fatias|barra|barras|barrinha|barrinhas|biscoito|biscoitos)\b/
   if (servingAmountMatch?.[1] && product.servingSizeG && servingUnitPattern.test(normalized)) {
     const amount = Number.parseFloat(servingAmountMatch[1].replace(',', '.'))
     if (Number.isFinite(amount) && amount > 0) {
@@ -202,7 +200,6 @@ async function registerConfirmedProductMeal(
   quantityGrams: number | null,
   user: { dailyCalorieTarget: number | null; timezone?: string },
 ): Promise<{ response: string; mealId: string }> {
-  const assumedDefaultQuantity = quantityGrams === null && product.servingSizeG == null
   const items = await buildConfirmedProductMealItems(supabase, userId, pendingMeal, product, quantityGrams)
   const totalCalories = totalCaloriesFromConfirmedItems(items)
 
@@ -252,7 +249,7 @@ async function registerConfirmedProductMeal(
 
   const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user.timezone)
   const target = user.dailyCalorieTarget ?? 2000
-  let response = formatMealBreakdown(
+  const response = formatMealBreakdown(
     pendingMeal.mealType,
     items.map((item) => ({
       food: item.food,
@@ -264,10 +261,6 @@ async function registerConfirmedProductMeal(
     dailyConsumed,
     target,
   )
-
-  if (assumedDefaultQuantity) {
-    response = response.replace('Algo errado?', '(assumi 100 g — me corrija se quiser)\n\nAlgo errado?')
-  }
 
   return { response, mealId }
 }

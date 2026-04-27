@@ -64,4 +64,5 @@ export type ProductLookupOutcome =
       quantityGrams: number | null
     }
   | { kind: 'needs_label'; food: string; quantityGrams: number | null }
+  | { kind: 'needs_quantity'; product: Product }
   | { kind: 'skip' }

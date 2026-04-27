@@ -74,10 +74,20 @@ function isPlausibleNutrition(
   return Math.abs(macroCalories - calories) / calories <= 0.3
 }
 
+function toDisplayCase(name: string): string {
+  const hasLower = /[a-záàâãéèêíïóôõúüç]/.test(name)
+  if (hasLower) return name
+
+  return name
+    .toLowerCase()
+    .replace(/(?:^|\s|-)\S/g, (ch) => ch.toUpperCase())
+}
+
 function mapProduct(product: RawOffProduct): OffProduct | null {
   const code = product.code?.toString().trim()
-  const productName = product.product_name?.trim()
-  if (!code || !productName) return null
+  const rawName = product.product_name?.trim()
+  if (!code || !rawName) return null
+  const productName = toDisplayCase(rawName)
 
   const caloriesPer100g = normalizeCalories(product.nutriments)
   const proteinPer100g = toNumber(product.nutriments?.proteins_100g)
