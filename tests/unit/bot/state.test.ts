@@ -104,6 +104,10 @@ describe('CONTEXT_TTLS', () => {
     expect(CONTEXT_TTLS.awaiting_weight).toBe(5)
   })
 
+  it('awaiting_product_quantity TTL is 10 minutes', () => {
+    expect(CONTEXT_TTLS.awaiting_product_quantity).toBe(10)
+  })
+
   it('settings_menu TTL is 5 minutes', () => {
     expect(CONTEXT_TTLS.settings_menu).toBe(5)
   })
