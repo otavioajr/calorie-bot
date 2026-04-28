@@ -48,3 +48,8 @@ supabase/.temp/
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local agent/tooling artifacts
+.claude/worktrees/
+.superpowers/
+.openclaude-profile.json
