@@ -86,8 +86,11 @@ export function MealList({ initialMeals }: MealListProps) {
 
   if (meals.length === 0) {
     return (
-      <div className="py-12 text-center text-muted-foreground text-sm">
-        Nenhuma refeição registrada nesta data.
+      <div className="rounded-2xl border border-dashed border-border bg-muted/40 px-4 py-10 text-center">
+        <p className="font-medium text-foreground">Nenhuma refeição nesta data.</p>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          Quando você registrar uma refeição pelo WhatsApp, ela aparece no histórico do dia correspondente.
+        </p>
       </div>
     )
   }

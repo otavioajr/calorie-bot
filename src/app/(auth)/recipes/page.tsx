@@ -22,9 +22,14 @@ export default async function RecipesPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Minhas receitas</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Receitas salvas para registrar refeições com rendimento e macros.
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-secondary">
+            Pratos recorrentes
+          </p>
+          <h1 className="mt-3 font-heading text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
+            Minhas receitas
+          </h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
+            Cadastre receitas caseiras uma vez e registre porções depois com calorias e macros mais consistentes.
           </p>
         </div>
         <Button render={<Link href="/recipes/new" />}>
