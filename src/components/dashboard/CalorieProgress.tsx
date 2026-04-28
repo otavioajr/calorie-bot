@@ -68,14 +68,14 @@ export function CalorieProgress({ consumed, target }: CalorieProgressProps) {
       </div>
 
       {/* Status message */}
-      <p className={cn("text-sm text-center font-medium", colorClass)}>
+      <p className={cn("rounded-full bg-muted px-4 py-2 text-center text-sm font-medium", colorClass)}>
         {displayPercentage > 100
-          ? "⚠️ Meta diária excedida!"
+          ? "Meta diária ultrapassada"
           : displayPercentage >= 80
-            ? "⚡ Quase atingindo a meta"
+            ? "Perto da meta diária"
             : displayPercentage >= 50
-              ? "👍 No caminho certo"
-              : "🌱 Começando o dia"}
+              ? "Ritmo consistente"
+              : "Primeiros registros do dia"}
       </p>
     </div>
   )

@@ -65,8 +65,8 @@ export function WeeklyChart({ data, target }: WeeklyChartProps) {
             />
             <Tooltip
               contentStyle={{
-                backgroundColor: "hsl(var(--card))",
-                border: "1px solid hsl(var(--border))",
+                backgroundColor: "var(--card)",
+                border: "1px solid var(--border)",
                 borderRadius: "8px",
                 fontSize: "12px",
               }}
@@ -77,17 +77,17 @@ export function WeeklyChart({ data, target }: WeeklyChartProps) {
             />
             <ReferenceLine
               y={target}
-              stroke="hsl(var(--secondary))"
+              stroke="var(--secondary)"
               strokeDasharray="6 3"
               label={{ value: "Meta", position: "insideTopRight", fontSize: 11 }}
             />
             <Line
               type="monotone"
               dataKey="calories"
-              stroke="hsl(var(--primary))"
+              stroke="var(--primary)"
               strokeWidth={2}
-              dot={{ fill: "hsl(var(--primary))", r: 3 }}
-              activeDot={{ r: 5, fill: "hsl(var(--primary))" }}
+              dot={{ fill: "var(--primary)", r: 3 }}
+              activeDot={{ r: 5, fill: "var(--primary)" }}
             />
           </LineChart>
         </ResponsiveContainer>

@@ -47,21 +47,23 @@ export function MealBreakdown({ meals }: MealBreakdownProps) {
             key={config.key}
             className={cn(
               "border transition-colors",
-              hasData ? "border-primary/30 bg-accent/50" : "border-border"
+              hasData
+                ? "border-primary/25 bg-accent/60 shadow-sm"
+                : "border-border bg-card/70"
             )}
           >
-            <CardContent className="p-4 flex flex-col items-center text-center gap-2">
-              <span className="text-2xl">{config.icon}</span>
-              <p className="text-xs font-medium text-muted-foreground leading-tight">
+            <CardContent className="flex flex-col items-center gap-2 p-4 text-center">
+              <span className="text-xl" aria-hidden="true">{config.icon}</span>
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground leading-tight">
                 {config.label}
               </p>
               {hasData ? (
-                <p className="text-lg font-bold text-primary">
+                <p className="font-heading text-2xl font-semibold text-primary">
                   {calories.toLocaleString("pt-BR")}
-                  <span className="text-xs font-normal text-muted-foreground ml-1">kcal</span>
+                  <span className="ml-1 font-sans text-xs font-normal text-muted-foreground">kcal</span>
                 </p>
               ) : (
-                <p className="text-xs text-muted-foreground italic">não registrado</p>
+                <p className="text-xs text-muted-foreground">Aguardando registro</p>
               )}
             </CardContent>
           </Card>
