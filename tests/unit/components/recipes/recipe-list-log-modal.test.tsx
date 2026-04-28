@@ -110,7 +110,12 @@ describe("RecipeList", () => {
     render(<RecipeList recipes={[]} />)
 
     expect(
-      screen.getByText("Você ainda não cadastrou nenhuma receita.")
+      screen.getByText("Salve uma receita que você repete.")
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "Pratos caseiros ficam mais fáceis de registrar quando rendimento, porção e macros já estão calculados."
+      )
     ).toBeInTheDocument()
     expect(
       screen.getByRole("link", { name: "Criar primeira receita" })
