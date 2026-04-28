@@ -135,7 +135,7 @@ Erros devem ser visíveis, acessíveis e manter mensagens claras. Empty states d
 - Em até 10 segundos, a home deixa claro que o CalorieBot registra refeições pelo WhatsApp e usa o web app para revisar progresso.
 - O app autenticado parece parte do mesmo produto visual da home.
 - Receitas aparece claramente na navegação.
-- Rotas `/recipes*` ficam protegidas para usuários sem cookie.
+- Rotas `/recipes*` ficam protegidas para usuários sem o cookie HTTP-only `caloriebot-user-id`, usado pela autenticação OTP via WhatsApp para armazenar a sessão.
 - O chart renderiza com as cores novas sem tokens CSS inválidos.
 - O fluxo OTP continua igual funcionalmente.
 
@@ -157,6 +157,6 @@ QA manual:
 - Conferir que erros aparecem visualmente e com semântica acessível.
 - Conferir navegação autenticada com Dashboard, Receitas, Histórico e Configurações.
 - Conferir active state em `/recipes`, `/recipes/new` e rota de detalhe.
-- Conferir que `/recipes`, `/recipes/new` e rotas aninhadas redirecionam para `/` sem cookie.
+- Conferir que `/recipes`, `/recipes/new` e rotas aninhadas redirecionam para `/` quando o cookie HTTP-only `caloriebot-user-id` estiver ausente.
 - Conferir dashboard sem refeições, com refeições e com dados de chart.
 - Conferir contraste de botões, links, texto muted e acento tomate.

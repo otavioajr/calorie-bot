@@ -78,7 +78,7 @@ const body = Source_Serif_4({
 });
 
 const mono = IBM_Plex_Mono({
-  variable: "--font-mono",
+  variable: "--font-ibm-plex-mono",
   subsets: ["latin"],
   weight: ["400", "500", "600"],
 });
@@ -111,7 +111,7 @@ In `src/app/globals.css`, change the `@theme inline` font lines to:
 
 ```css
   --font-sans: var(--font-body);
-  --font-mono: var(--font-mono);
+  --font-mono: var(--font-ibm-plex-mono);
   --font-heading: var(--font-display);
 ```
 

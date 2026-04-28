@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 export default function LoginPage() {
   const router = useRouter()
   const [phone, setPhone] = useState("")
+  const [submittedPhone, setSubmittedPhone] = useState("")
   const [code, setCode] = useState("")
   const [step, setStep] = useState<"phone" | "code">("phone")
   const [loading, setLoading] = useState(false)
@@ -37,6 +38,7 @@ export default function LoginPage() {
   async function handleSendCode(e: React.FormEvent) {
     e.preventDefault()
     setError("")
+    setSubmittedPhone(phone)
     setLoading(true)
 
     try {
@@ -67,7 +69,7 @@ export default function LoginPage() {
       const res = await fetch("/api/auth/otp/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: toE164(phone), code }),
+        body: JSON.stringify({ phone: toE164(submittedPhone || phone), code }),
       })
       const data = (await res.json()) as { success?: boolean; error?: string }
       if (!res.ok || !data.success) {
@@ -174,7 +176,7 @@ export default function LoginPage() {
                 <CardDescription className="text-base leading-7">
                   {step === "phone"
                     ? "Digite seu número para receber o código de acesso no WhatsApp."
-                    : `Código enviado para ${displayPhone(phone)}`}
+                    : `Código enviado para ${displayPhone(submittedPhone || phone)}`}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -188,6 +190,7 @@ export default function LoginPage() {
                         placeholder="11999999999"
                         value={phone}
                         onChange={(e) => setPhone(handlePhoneChange(e.target.value))}
+                        disabled={loading}
                         required
                         className="h-12 bg-background/70 text-base"
                         maxLength={11}
@@ -217,6 +220,7 @@ export default function LoginPage() {
                         placeholder="000000"
                         value={code}
                         onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                        disabled={loading}
                         required
                         className="h-12 bg-background/70 text-center text-2xl tracking-widest"
                         maxLength={6}
@@ -239,8 +243,10 @@ export default function LoginPage() {
                       type="button"
                       variant="ghost"
                       className="w-full"
+                      disabled={loading}
                       onClick={() => {
                         setStep("phone")
+                        setSubmittedPhone("")
                         setCode("")
                         setError("")
                       }}

@@ -75,9 +75,11 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           <button
             onClick={() => setMenuOpen(!menuOpen)}
             className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:hidden"
-            aria-label="Abrir menu"
+            aria-label={menuOpen ? "Fechar menu" : "Abrir menu"}
+            aria-expanded={menuOpen}
+            aria-controls="mobile-menu"
           >
-            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg aria-hidden="true" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               {menuOpen ? (
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               ) : (
@@ -88,7 +90,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         </div>
 
         {menuOpen && (
-          <div className="border-t border-border bg-background/95 px-4 py-3 backdrop-blur md:hidden">
+          <div id="mobile-menu" className="border-t border-border bg-background/95 px-4 py-3 backdrop-blur md:hidden">
             <nav className="mx-auto flex max-w-6xl flex-col gap-1">
               {navLinks.map((link) => {
                 const active = isActivePath(pathname, link.href)

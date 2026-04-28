@@ -80,6 +80,7 @@ export default async function DashboardPage() {
           </div>
           <p className="text-sm capitalize text-muted-foreground">
             {new Date().toLocaleDateString("pt-BR", {
+              timeZone: timezone,
               weekday: "long",
               year: "numeric",
               month: "long",

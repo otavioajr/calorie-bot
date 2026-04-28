@@ -147,7 +147,7 @@
       radial-gradient(circle at 92% 4%, color-mix(in oklch, var(--secondary) 18%, transparent) 0 18rem, transparent 32rem),
       linear-gradient(135deg, color-mix(in oklch, var(--background) 94%, white), var(--background));
     font-feature-settings: "kern", "liga", "calt";
-    text-rendering: optimizeLegibility;
+    text-rendering: optimizelegibility;
   }
 
   ::selection {
