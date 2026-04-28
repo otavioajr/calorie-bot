@@ -62,16 +62,20 @@ function formatMealType(mealType: string): string {
 export function RecentMeals({ meals }: RecentMealsProps) {
   if (meals.length === 0) {
     return (
-      <div className="py-8 text-center text-muted-foreground text-sm">
-        Nenhuma refeição registrada recentemente.
+      <div className="rounded-2xl border border-dashed border-border bg-muted/40 px-4 py-8 text-center">
+        <p className="font-medium text-foreground">Nenhuma refeição recente ainda.</p>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          Quando você registrar pelo WhatsApp, seus últimos registros aparecem aqui.
+          Exemplo: “jantar: omelete com salada”.
+        </p>
       </div>
     )
   }
 
   return (
-    <ul className="divide-y divide-border">
+    <ul className="divide-y divide-border/70">
       {meals.map((meal) => (
-        <li key={meal.id} className="flex items-center justify-between py-3 gap-3">
+        <li key={meal.id} className="flex items-center justify-between gap-3 py-3">
           <div className="flex items-center gap-3">
             <span className="text-2xl w-8 text-center">{getMealIcon(meal.mealType)}</span>
             <div>

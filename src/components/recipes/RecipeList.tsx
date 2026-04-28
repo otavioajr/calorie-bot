@@ -21,12 +21,15 @@ function formatMacro(value: number) {
 export function RecipeList({ recipes }: RecipeListProps) {
   if (recipes.length === 0) {
     return (
-      <Card>
-        <CardContent className="py-10 text-center">
-          <p className="text-sm text-muted-foreground">
-            Você ainda não cadastrou nenhuma receita.
+      <Card className="border-dashed bg-card/85">
+        <CardContent className="px-6 py-10 text-center">
+          <p className="font-heading text-2xl font-semibold text-foreground">
+            Salve uma receita que você repete.
           </p>
-          <Button className="mt-4" render={<Link href="/recipes/new" />}>
+          <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-muted-foreground">
+            Pratos caseiros ficam mais fáceis de registrar quando rendimento, porção e macros já estão calculados.
+          </p>
+          <Button className="mt-5" render={<Link href="/recipes/new" />}>
             <Plus data-icon="inline-start" />
             Criar primeira receita
           </Button>

@@ -99,17 +99,22 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Histórico</h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          Consulte e gerencie suas refeições anteriores
+      <div className="rounded-[2rem] border border-border bg-card/75 p-6 shadow-sm backdrop-blur sm:p-8">
+        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-secondary">
+          Linha do tempo
+        </p>
+        <h1 className="mt-4 font-heading text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
+          Histórico
+        </h1>
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
+          Revise os registros que chegaram pelo WhatsApp e confira os detalhes de cada refeição.
         </p>
       </div>
 
       {/* Date selector */}
-      <Card>
+      <Card className="bg-card/85">
         <CardHeader>
-          <CardTitle className="text-base">Selecionar data</CardTitle>
+          <CardTitle className="font-heading text-2xl font-semibold">Selecionar data</CardTitle>
         </CardHeader>
         <CardContent>
           <form method="GET" action="/history" className="flex gap-3 items-end">
@@ -119,12 +124,12 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
                 name="date"
                 defaultValue={dateStr}
                 max={new Date().toISOString().split("T")[0]}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex h-10 w-full rounded-lg border border-input bg-background/70 px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
             </div>
             <button
               type="submit"
-              className="inline-flex items-center justify-center h-10 px-4 text-sm font-medium bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
+              className="inline-flex h-10 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
               Ver
             </button>

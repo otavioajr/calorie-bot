@@ -14,9 +14,11 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Protected routes: /dashboard, /settings, /history
-  const protectedPaths = ['/dashboard', '/settings', '/history']
-  const isProtected = protectedPaths.some(p => pathname.startsWith(p))
+  // Protected routes: /dashboard, /settings, /history, /recipes
+  const protectedPaths = ['/dashboard', '/settings', '/history', '/recipes']
+  const isProtected = protectedPaths.some(
+    p => pathname === p || pathname.startsWith(`${p}/`)
+  )
 
   if (isProtected) {
     const userId = request.cookies.get('caloriebot-user-id')

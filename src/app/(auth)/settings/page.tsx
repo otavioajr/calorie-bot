@@ -29,10 +29,15 @@ export default async function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Configurações</h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          Gerencie seu perfil e preferências do bot
+      <div className="rounded-[2rem] border border-border bg-card/75 p-6 shadow-sm backdrop-blur sm:p-8">
+        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-secondary">
+          Concierge pessoal
+        </p>
+        <h1 className="mt-4 font-heading text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
+          Configurações
+        </h1>
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
+          Ajuste os dados que orientam suas metas, lembretes e respostas do CalorieBot no WhatsApp.
         </p>
       </div>
 
@@ -45,7 +50,7 @@ export default async function SettingsPage() {
         <TabsContent value="profile">
           <Card>
             <CardHeader>
-              <CardTitle>Dados pessoais</CardTitle>
+              <CardTitle className="font-heading text-2xl font-semibold">Dados pessoais</CardTitle>
               <CardDescription>
                 Atualize suas informações para recalcular sua meta calórica
               </CardDescription>
@@ -59,7 +64,7 @@ export default async function SettingsPage() {
         <TabsContent value="bot">
           <Card>
             <CardHeader>
-              <CardTitle>Preferências do bot</CardTitle>
+              <CardTitle className="font-heading text-2xl font-semibold">Preferências do bot</CardTitle>
               <CardDescription>
                 Configure como o CalorieBot se comporta no WhatsApp
               </CardDescription>
@@ -71,7 +76,7 @@ export default async function SettingsPage() {
         </TabsContent>
       </Tabs>
 
-      <Card className="border-destructive">
+      <Card className="border-destructive/60 bg-card/85">
         <CardHeader>
           <CardTitle className="text-destructive">Zona de Perigo</CardTitle>
           <CardDescription>

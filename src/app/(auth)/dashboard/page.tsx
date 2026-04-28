@@ -64,55 +64,62 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* Greeting */}
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">
-          Olá, {firstName}! 👋
-        </h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          {new Date().toLocaleDateString("pt-BR", {
-            weekday: "long",
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-          })}
+      <div className="rounded-[2rem] border border-border bg-card/75 p-6 shadow-sm backdrop-blur sm:p-8">
+        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-secondary">
+          Painel do dia
         </p>
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h1 className="font-heading text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
+              Olá, {firstName}.
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
+              O registro acontece no WhatsApp. Este painel é o retrovisor do seu dia:
+              calorias, refeições recentes e tendências em um só lugar.
+            </p>
+          </div>
+          <p className="text-sm capitalize text-muted-foreground">
+            {new Date().toLocaleDateString("pt-BR", {
+              timeZone: timezone,
+              weekday: "long",
+              year: "numeric",
+              month: "long",
+              day: "numeric",
+            })}
+          </p>
+        </div>
       </div>
 
-      {/* Calorie Progress */}
-      <Card>
+      <Card className="overflow-hidden bg-card/85">
         <CardHeader>
-          <CardTitle className="text-base">Progresso de hoje</CardTitle>
+          <CardTitle className="font-heading text-2xl font-semibold">Progresso de hoje</CardTitle>
         </CardHeader>
         <CardContent>
           <CalorieProgress consumed={todayCalories} target={target} />
         </CardContent>
       </Card>
 
-      {/* Meal Breakdown */}
-      <Card>
+      <Card className="bg-card/85">
         <CardHeader>
-          <CardTitle className="text-base">Refeições de hoje</CardTitle>
+          <CardTitle className="font-heading text-2xl font-semibold">Refeições de hoje</CardTitle>
         </CardHeader>
         <CardContent>
           <MealBreakdown meals={todayMeals} />
         </CardContent>
       </Card>
 
-      {/* Weekly Chart */}
-      <Card>
+      <Card className="bg-card/85">
         <CardHeader>
-          <CardTitle className="text-base">Histórico de calorias</CardTitle>
+          <CardTitle className="font-heading text-2xl font-semibold">Histórico de calorias</CardTitle>
         </CardHeader>
         <CardContent>
           <WeeklyChart data={weeklyData} target={target} />
         </CardContent>
       </Card>
 
-      {/* Recent Meals */}
-      <Card>
+      <Card className="bg-card/85">
         <CardHeader>
-          <CardTitle className="text-base">Últimas refeições</CardTitle>
+          <CardTitle className="font-heading text-2xl font-semibold">Últimas refeições</CardTitle>
         </CardHeader>
         <CardContent>
           <RecentMeals meals={recentMeals} />
