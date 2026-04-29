@@ -34,7 +34,8 @@ Exemplos de CORREÇÃO:
 - "O leite tem 8g de proteína" → corrigindo proteína
 - "Era queijo cottage, não minas" → trocando alimento
 - "Tira o queijo" → removendo item
-- "Faltou o suco" → adicionando item
+- "Faltou o suco" → adicionando item esquecido (mensagem curta, sem "comi", sem refeição nova completa)
+- "Esqueci a banana" → adicionando item esquecido
 
 Exemplos de CONFIRMAÇÃO:
 - "É só isso" → confirmando que a refeição está completa
@@ -52,11 +53,20 @@ Exemplos de CONFIRMAÇÃO:
 
 Exemplos de OUTRO:
 - "Almocei arroz e feijão" → nova refeição
+- "Comi no café da manhã, 2 fatias de queijo e 220ml de suco" → nova refeição (mesmo tipo, novos itens com quantidade)
+- "Comi também uma maçã no lanche" → nova refeição
+- "No jantar comi frango com salada" → nova refeição
 - "Quantas calorias tem uma pizza?" → consulta
 - "Como estou hoje?" → resumo
 - "Menu" → ajuda
 
-IMPORTANTE: Se a mensagem menciona o nome da refeição (café, almoço, jantar, lanche) + uma confirmação (ex: "Café é só isso"), isso é CONFIRMAÇÃO, NÃO uma nova refeição.
+REGRAS DE DESEMPATE (aplicar nesta ordem):
+
+1. Se a mensagem começa com verbos de ingestão ("Comi", "Almocei", "Jantei", "Tomei", "Bebi") seguidos de itens com quantidades (ex: "2 fatias", "220ml", "100g", "uma unidade"), é OUTRO — nova refeição. NUNCA classificar como CORREÇÃO, mesmo que mencione o mesmo tipo de refeição já registrado.
+
+2. Se a mensagem menciona o nome da refeição (café, almoço, jantar, lanche) + uma confirmação curta (ex: "Café é só isso", "Almoço pronto"), é CONFIRMAÇÃO.
+
+3. CORREÇÃO só se aplica a mensagens curtas que claramente alteram um item existente ("o arroz é 200g", "tira o queijo") ou adicionam um item esquecido sem descrever uma refeição nova ("faltou o suco", "esqueci a banana").
 
 Se for CORREÇÃO, reformule a mensagem como uma instrução explícita de correção.
 
