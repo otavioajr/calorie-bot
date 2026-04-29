@@ -229,8 +229,12 @@ describe('classifyByRules', () => {
       expect(classifyByRules('o que comi no jantar ontem?')).toBe<IntentType>('meal_detail')
     })
 
-    it('returns meal_detail for "comi no cafe da manha"', () => {
-      expect(classifyByRules('comi no cafe da manha')).toBe<IntentType>('meal_detail')
+    it('does NOT match "comi no cafe da manha" without query prefix (ambiguous, falls to LLM)', () => {
+      expect(classifyByRules('comi no cafe da manha')).toBeNull()
+    })
+
+    it('does NOT match "Comi no café da manhã, 2 fatias de queijo" (new meal log, not a query)', () => {
+      expect(classifyByRules('Comi no café da manhã, 2 fatias de queijo prato e 220ml de suco')).toBeNull()
     })
 
     it('returns meal_detail for "o que comi de lanche?"', () => {

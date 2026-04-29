@@ -47,11 +47,6 @@ const MEAL_DETAIL_KEYWORDS: readonly string[] = [
   'o que eu comi de',
   'que comi no',
   'que eu comi no',
-  'comi no cafe',
-  'comi no almoco',
-  'comi no jantar',
-  'comi no lanche',
-  'comi na ceia',
   'que comi de',
   'que eu comi de',
 ]
