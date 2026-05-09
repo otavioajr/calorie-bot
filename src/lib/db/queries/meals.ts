@@ -93,6 +93,40 @@ export async function createMeal(
 }
 
 // ---------------------------------------------------------------------------
+// addMealItems
+// ---------------------------------------------------------------------------
+
+/**
+ * Append items to an existing meal. Does not recalculate the meal total —
+ * call recalculateMealTotal afterwards if needed.
+ */
+export async function addMealItems(
+  supabase: SupabaseClient,
+  mealId: string,
+  items: MealItemInput[],
+): Promise<void> {
+  if (items.length === 0) return
+
+  const itemRows = items.map((item) => ({
+    meal_id: mealId,
+    food_name: item.foodName,
+    quantity_grams: item.quantityGrams,
+    calories: item.calories,
+    protein_g: item.proteinG,
+    carbs_g: item.carbsG,
+    fat_g: item.fatG,
+    source: item.source,
+    taco_id: item.tacoId ?? null,
+    product_id: item.productId ?? null,
+    confidence: item.confidence ?? 'high',
+    quantity_display: item.quantityDisplay ?? null,
+  }))
+
+  const { error } = await supabase.from('meal_items').insert(itemRows)
+  if (error) throw new Error(`Failed to add meal items: ${error.message}`)
+}
+
+// ---------------------------------------------------------------------------
 // getDayBoundsForTimezone (helper)
 // ---------------------------------------------------------------------------
 

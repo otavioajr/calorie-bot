@@ -19,6 +19,7 @@ const {
   mockUpdateMealType,
   mockLLMChat,
   mockAnalyzeMeal,
+  mockAppendItemsToMeal,
 } = vi.hoisted(() => {
   return {
     mockDeleteMeal: vi.fn().mockResolvedValue(undefined),
@@ -34,6 +35,7 @@ const {
     mockUpdateMealType: vi.fn().mockResolvedValue(undefined),
     mockLLMChat: vi.fn(),
     mockAnalyzeMeal: vi.fn(),
+    mockAppendItemsToMeal: vi.fn(),
   }
 })
 
@@ -60,6 +62,10 @@ vi.mock('@/lib/llm/index', () => ({
 
 vi.mock('@/lib/utils/formatters', () => ({
   formatProgress: vi.fn().mockReturnValue('📊 Hoje: 1200 / 2000 kcal'),
+}))
+
+vi.mock('@/lib/bot/flows/meal-log', () => ({
+  appendItemsToMeal: mockAppendItemsToMeal,
 }))
 
 import { handleEdit } from '@/lib/bot/flows/edit'
@@ -395,5 +401,107 @@ describe('handleEdit — update_value via natural language', () => {
     )
     expect(result).toContain('Magic Toast')
     expect(result).toContain('93')
+  })
+})
+
+describe('handleEdit — add_item via natural language', () => {
+  let supabase: SupabaseClient
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    supabase = buildSupabase()
+  })
+
+  it('appends item to existing meal when LLM returns add_item', async () => {
+    mockLLMChat.mockResolvedValue(JSON.stringify({
+      action: 'add_item',
+      target_food: 'suco de laranja',
+      new_quantity: '110ml',
+      confidence: 'high',
+      target_meal_type: null,
+      new_food: null,
+      new_value: null,
+    }))
+
+    mockGetRecentMeals.mockResolvedValue([
+      { id: 'meal-1', mealType: 'breakfast', totalCalories: 304, registeredAt: '2024-03-21T08:00:00Z' },
+    ])
+
+    mockGetMealWithItems.mockResolvedValue({
+      id: 'meal-1',
+      mealType: 'breakfast',
+      totalCalories: 304,
+      registeredAt: '2024-03-21T08:00:00Z',
+      items: [
+        { id: 'item-1', foodName: 'Pão de forma', quantityGrams: 50, calories: 172, proteinG: 5, carbsG: 30, fatG: 2 },
+        { id: 'item-2', foodName: 'Queijo mussarela', quantityGrams: 30, calories: 132, proteinG: 8, carbsG: 1, fatG: 10 },
+      ],
+    })
+
+    mockAppendItemsToMeal.mockResolvedValue({
+      added: [
+        { food: 'Suco de laranja', quantityGrams: 110, quantityDisplay: '110ml', calories: 45, protein: 1, carbs: 10, fat: 0, source: 'taco' },
+      ],
+      newTotal: 349,
+    })
+
+    const result = await handleEdit(
+      supabase,
+      USER_ID,
+      'comi também 110ml de suco de laranja',
+      null,
+      { timezone: 'America/Sao_Paulo', dailyCalorieTarget: 2000 },
+    )
+
+    expect(mockAppendItemsToMeal).toHaveBeenCalledWith(
+      expect.anything(),
+      USER_ID,
+      'meal-1',
+      expect.stringContaining('suco de laranja'),
+      { timezone: 'America/Sao_Paulo' },
+    )
+    expect(result).toContain('Adicionado')
+    expect(result).toContain('Suco de laranja')
+    expect(result).toContain('349')
+    expect(mockClearState).toHaveBeenCalledWith(USER_ID)
+  })
+
+  it('returns helpful error when append fails to resolve item', async () => {
+    mockLLMChat.mockResolvedValue(JSON.stringify({
+      action: 'add_item',
+      target_food: 'suco',
+      new_quantity: null,
+      confidence: 'high',
+      target_meal_type: null,
+      new_food: null,
+      new_value: null,
+    }))
+
+    mockGetRecentMeals.mockResolvedValue([
+      { id: 'meal-1', mealType: 'breakfast', totalCalories: 200, registeredAt: '2024-03-21T08:00:00Z' },
+    ])
+
+    mockGetMealWithItems.mockResolvedValue({
+      id: 'meal-1',
+      mealType: 'breakfast',
+      totalCalories: 200,
+      registeredAt: '2024-03-21T08:00:00Z',
+      items: [
+        { id: 'item-1', foodName: 'Pão', quantityGrams: 50, calories: 200, proteinG: 5, carbsG: 30, fatG: 2 },
+      ],
+    })
+
+    mockAppendItemsToMeal.mockResolvedValue(null)
+
+    const result = await handleEdit(
+      supabase,
+      USER_ID,
+      'esqueci do suco',
+      null,
+      { timezone: 'America/Sao_Paulo', dailyCalorieTarget: 2000 },
+    )
+
+    expect(result).toContain('Não consegui adicionar')
+    expect(mockClearState).toHaveBeenCalledWith(USER_ID)
   })
 })

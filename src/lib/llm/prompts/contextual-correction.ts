@@ -36,6 +36,9 @@ Exemplos de CORREÇÃO:
 - "Tira o queijo" → removendo item
 - "Faltou o suco" → adicionando item esquecido (mensagem curta, sem "comi", sem refeição nova completa)
 - "Esqueci a banana" → adicionando item esquecido
+- "Comi também 110ml de suco" → adicionando item esquecido à MESMA refeição (sem novo meal_type)
+- "Tomei também um café" → adicionando item esquecido à MESMA refeição
+- "Também 2 fatias de pão" → adicionando item esquecido
 
 Exemplos de CONFIRMAÇÃO:
 - "É só isso" → confirmando que a refeição está completa
@@ -53,20 +56,24 @@ Exemplos de CONFIRMAÇÃO:
 
 Exemplos de OUTRO:
 - "Almocei arroz e feijão" → nova refeição
-- "Comi no café da manhã, 2 fatias de queijo e 220ml de suco" → nova refeição (mesmo tipo, novos itens com quantidade)
-- "Comi também uma maçã no lanche" → nova refeição
-- "No jantar comi frango com salada" → nova refeição
+- "Comi no café da manhã, 2 fatias de queijo e 220ml de suco" → nova refeição (mesmo tipo, novos itens com quantidade — usuário descreve refeição completa)
+- "Comi também uma maçã no lanche" → nova refeição (meal_type diferente: "no lanche")
+- "No jantar comi frango com salada" → nova refeição (meal_type explícito)
 - "Quantas calorias tem uma pizza?" → consulta
 - "Como estou hoje?" → resumo
 - "Menu" → ajuda
 
 REGRAS DE DESEMPATE (aplicar nesta ordem):
 
-1. Se a mensagem começa com verbos de ingestão ("Comi", "Almocei", "Jantei", "Tomei", "Bebi") seguidos de itens com quantidades (ex: "2 fatias", "220ml", "100g", "uma unidade"), é OUTRO — nova refeição. NUNCA classificar como CORREÇÃO, mesmo que mencione o mesmo tipo de refeição já registrado.
+1. Se a mensagem usa "também" ou "esqueci"/"faltou" SEM mencionar um meal_type diferente (café, almoço, lanche, jantar, ceia), é CORREÇÃO com add_item — o usuário está adicionando um item que esqueceu na mesma refeição. Exemplos: "comi também 110ml de suco", "tomei também um café", "também 2 fatias de pão".
 
-2. Se a mensagem menciona o nome da refeição (café, almoço, jantar, lanche) + uma confirmação curta (ex: "Café é só isso", "Almoço pronto"), é CONFIRMAÇÃO.
+2. Se a mensagem começa com verbos de ingestão ("Comi", "Almocei", "Jantei", "Tomei", "Bebi") + meal_type EXPLÍCITO diferente ("no lanche", "no jantar", "no café"), é OUTRO — nova refeição.
 
-3. CORREÇÃO só se aplica a mensagens curtas que claramente alteram um item existente ("o arroz é 200g", "tira o queijo") ou adicionam um item esquecido sem descrever uma refeição nova ("faltou o suco", "esqueci a banana").
+3. Se a mensagem começa com verbos de ingestão e DESCREVE uma refeição completa com múltiplos itens e quantidades, sem "também"/"esqueci"/"faltou", é OUTRO — nova refeição.
+
+4. Se a mensagem menciona o nome da refeição (café, almoço, jantar, lanche) + uma confirmação curta (ex: "Café é só isso", "Almoço pronto"), é CONFIRMAÇÃO.
+
+5. CORREÇÃO de outros tipos só se aplica a mensagens curtas que claramente alteram um item existente ("o arroz é 200g", "tira o queijo").
 
 Se for CORREÇÃO, reformule a mensagem como uma instrução explícita de correção.
 

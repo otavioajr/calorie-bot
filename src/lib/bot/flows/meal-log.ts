@@ -3,7 +3,7 @@ import { getLLMProvider } from '@/lib/llm/index'
 import type { MealAnalysis, MealItem } from '@/lib/llm/schemas/meal-analysis'
 import { setState, clearState } from '@/lib/bot/state'
 import type { ConversationContext } from '@/lib/bot/state'
-import { createMeal, getDailyCalories, getDailyMacros, recalculateMealTotal, getMealWithItems } from '@/lib/db/queries/meals'
+import { addMealItems, createMeal, getDailyCalories, getDailyMacros, recalculateMealTotal, getMealWithItems } from '@/lib/db/queries/meals'
 import { formatMealBreakdown, formatMultiMealBreakdown, formatProgress, formatSearchFeedback, formatDefaultNotice } from '@/lib/utils/formatters'
 import { getRecentMessages } from '@/lib/db/queries/message-history'
 import { fuzzyMatchTacoMultiple, calculateMacros, matchTacoByBase, getLearnedDefault, recordTacoUsage } from '@/lib/db/queries/taco'
@@ -610,6 +610,84 @@ export async function handleMealLog(
   }
 
   return analyzeAndRegister(supabase, userId, trimmed, trimmed, user)
+}
+
+// ---------------------------------------------------------------------------
+// appendItemsToMeal — adds new items to an existing meal (for add_item correction)
+// ---------------------------------------------------------------------------
+
+export interface AppendItemsResult {
+  added: EnrichedItem[]
+  newTotal: number
+}
+
+export async function appendItemsToMeal(
+  supabase: SupabaseClient,
+  userId: string,
+  mealId: string,
+  message: string,
+  user?: { timezone?: string },
+): Promise<AppendItemsResult | null> {
+  const llm = getLLMProvider()
+  const history = await getRecentMessages(supabase, userId)
+  const currentTime = getUserLocalTime(user?.timezone)
+
+  const meals: MealAnalysis[] = await llm.analyzeMeal(message, history, currentTime)
+  const items: MealItem[] = meals.flatMap((m) => m.items)
+  if (items.length === 0) return null
+
+  // Skip items that need clarification or are unknown — keep this path simple.
+  for (const result of meals) {
+    if (result.needs_clarification || result.unknown_items.length > 0) {
+      return null
+    }
+  }
+
+  const resolvedItems = items.filter((item) => {
+    const hasQuantity = item.quantity_grams !== null && item.quantity_grams !== undefined && item.quantity_grams > 0
+    const isUnit = item.portion_type === 'unit'
+    const userProvided = item.has_user_quantity === true
+    return hasQuantity || isUnit || userProvided
+  })
+  if (resolvedItems.length === 0) return null
+
+  let enriched: EnrichedItem[]
+  try {
+    enriched = await enrichItemsWithTaco(supabase, resolvedItems, llm, userId)
+  } catch (err) {
+    if (err instanceof ProductInteractionRequired) {
+      // Product flow not supported in this corrective path; bail out.
+      return null
+    }
+    throw err
+  }
+
+  const validEnriched = enriched.filter((e): e is EnrichedItem => e !== null && e !== undefined)
+  if (validEnriched.length === 0) return null
+
+  await addMealItems(supabase, mealId, validEnriched.map((item) => ({
+    foodName: item.food,
+    quantityGrams: item.quantityGrams,
+    calories: item.calories,
+    proteinG: item.protein,
+    carbsG: item.carbs,
+    fatG: item.fat,
+    source: item.source,
+    tacoId: item.tacoId,
+    productId: item.productId,
+    confidence: 'high',
+    quantityDisplay: item.quantityDisplay ?? undefined,
+  })))
+
+  for (const item of validEnriched) {
+    if (item.tacoId && item.source === 'taco') {
+      const foodBase = item.defaultFoodBase ?? item.food
+      await recordTacoUsage(supabase, foodBase, item.tacoId, userId)
+    }
+  }
+
+  const newTotal = await recalculateMealTotal(supabase, mealId)
+  return { added: validEnriched, newTotal }
 }
 
 async function startProductInteraction(

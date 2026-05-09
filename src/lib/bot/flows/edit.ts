@@ -18,6 +18,7 @@ import { getLLMProvider } from '@/lib/llm/index'
 import { buildCorrectionPrompt, buildCorrectionPromptWithItems } from '@/lib/llm/prompts/correction'
 import { CorrectionSchema } from '@/lib/llm/schemas/correction'
 import type { Correction } from '@/lib/llm/schemas/correction'
+import { appendItemsToMeal } from '@/lib/bot/flows/meal-log'
 import { formatProgress } from '@/lib/utils/formatters'
 
 // ---------------------------------------------------------------------------
@@ -358,6 +359,37 @@ async function handleNaturalLanguageCorrectionWithMeal(
         return 'Não entendi qual item trocar. Tenta "corrigir" pro menu guiado.'
       }
       return renameItem(supabase, userId, mealId, targetItem, correction.new_food, user)
+    }
+
+    case 'add_item': {
+      const foodToAdd = correction.target_food ?? correction.new_food
+      if (!foodToAdd) {
+        await clearState(userId)
+        return 'Não entendi qual item adicionar. Tenta "corrigir" pro menu guiado.'
+      }
+      const synthetic = correction.new_quantity
+        ? `Comi ${correction.new_quantity} de ${foodToAdd}`
+        : `Comi ${foodToAdd}`
+
+      const result = await appendItemsToMeal(supabase, userId, mealId, synthetic, {
+        timezone: user?.timezone,
+      })
+      await clearState(userId)
+      if (!result || result.added.length === 0) {
+        return `Não consegui adicionar "${foodToAdd}". Tenta com a quantidade (ex: "200ml de ${foodToAdd}").`
+      }
+      const itemLines = result.added.map((item) => {
+        const display = item.quantityDisplay || `${item.quantityGrams}g`
+        return `• ${item.food} (${display}) — ${item.calories} kcal`
+      }).join('\n')
+      const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user?.timezone)
+      const target = user?.dailyCalorieTarget ?? 2000
+      return [
+        '✅ Adicionado:',
+        itemLines,
+        `Novo total da refeição: ${result.newTotal} kcal`,
+        formatProgress(dailyConsumed, target),
+      ].join('\n')
     }
 
     case 'change_meal_type': {
