@@ -643,6 +643,12 @@ export async function appendItemsToMeal(
     }
   }
 
+  // Defensive guard: if the analyzed meal_type does not match the target meal,
+  // bail out so misclassified add_item messages don't get filed under the wrong meal.
+  const targetMeal = await getMealWithItems(supabase, mealId)
+  if (!targetMeal) return null
+  if (meals.some((meal) => meal.meal_type !== targetMeal.mealType)) return null
+
   const resolvedItems = items.filter((item) => {
     const hasQuantity = item.quantity_grams !== null && item.quantity_grams !== undefined && item.quantity_grams > 0
     const isUnit = item.portion_type === 'unit'
@@ -675,7 +681,7 @@ export async function appendItemsToMeal(
     source: item.source,
     tacoId: item.tacoId,
     productId: item.productId,
-    confidence: 'high',
+    confidence: item.source === 'approximate' ? 'low' : 'high',
     quantityDisplay: item.quantityDisplay ?? undefined,
   })))
 

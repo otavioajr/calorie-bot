@@ -367,6 +367,29 @@ async function handleNaturalLanguageCorrectionWithMeal(
         await clearState(userId)
         return 'Não entendi qual item adicionar. Tenta "corrigir" pro menu guiado.'
       }
+      // If the "new" item is already in the meal, this is almost certainly a quantity update.
+      const existingItem = findItemByFoodName(items, foodToAdd)
+      if (existingItem && correction.new_quantity) {
+        await setState(userId, 'awaiting_correction_value', {
+          mealId,
+          itemId: existingItem.id,
+          foodName: existingItem.foodName,
+          currentGrams: existingItem.quantityGrams,
+        })
+        return handleAwaitingCorrectionValue(
+          supabase, userId, correction.new_quantity,
+          {
+            id: '', userId, contextType: 'awaiting_correction_value',
+            contextData: { mealId, itemId: existingItem.id, foodName: existingItem.foodName, currentGrams: existingItem.quantityGrams },
+            expiresAt: '', createdAt: '',
+          },
+          user,
+        )
+      }
+      if (existingItem) {
+        await clearState(userId)
+        return `"${existingItem.foodName}" já está nessa refeição. Me manda a quantidade nova pra eu atualizar (ex: "200g de ${existingItem.foodName}").`
+      }
       const synthetic = correction.new_quantity
         ? `Comi ${correction.new_quantity} de ${foodToAdd}`
         : `Comi ${foodToAdd}`
