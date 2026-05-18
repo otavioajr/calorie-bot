@@ -32,6 +32,12 @@ SE TABELA NUTRICIONAL:
 4. Se você também conseguir calcular os valores da porção real, pode preencher "calories", "protein", "carbs" e "fat", mas os campos "nutrition_basis_*" devem refletir EXATAMENTE a tabela
 5. Use o nome do produto como nome do item (se visível)
 
+ATENÇÃO CRÍTICA — gramas mencionados pelo usuário na legenda:
+- A legenda do usuário pode conter o peso que ele CONSUMIU (ex: "comi 30g", "adicionar 55g"). Esse valor representa o quanto ele comeu, NÃO a porção do rótulo.
+- "quantity_grams" SEMPRE deve refletir o peso da porção impresso no rótulo da embalagem, mesmo que a legenda diga outro número.
+- Exemplo: rótulo diz "Porção: 60g" e legenda diz "comi 30g" → quantity_grams = 60 (o sistema calcula a quantidade consumida depois).
+- Se o rótulo não mostrar o peso da porção explicitamente, retorne needs_clarification: true; NÃO use o número da legenda para preencher quantity_grams.
+
 EXEMPLO OBRIGATÓRIO:
 - Se a embalagem diz porção 7,5g e a coluna nutricional mostrada está em 5g com 13 kcal e 0,9g de carboidratos:
   - "quantity_grams": 7.5

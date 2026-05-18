@@ -162,6 +162,12 @@ describe('buildVisionPrompt', () => {
     expect(prompt).toContain('nutrition_basis_calories')
   })
 
+  it('warns against using user-mentioned grams as quantity_grams', () => {
+    const prompt = buildVisionPrompt()
+    expect(prompt).toMatch(/legenda.*usuário/i)
+    expect(prompt).toMatch(/quantity_grams.*r[óo]tulo|r[óo]tulo.*quantity_grams/i)
+  })
+
   it('omits meal-type time rule when no currentTime is provided', () => {
     const prompt = buildVisionPrompt()
     expect(prompt).not.toContain('HORÁRIO ATUAL')

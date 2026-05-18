@@ -75,3 +75,17 @@ export function extractLabelPortionsFromCaption(caption?: string | null): number
 
   return parsePortionValue(match[1])
 }
+
+export function extractLabelGramsFromCaption(caption?: string | null): number | null {
+  if (!caption) return null
+
+  const normalized = normalize(caption)
+  const match = normalized.match(/(\d+(?:[.,]\d+)?)\s*g(?:rama)?s?\b/)
+
+  if (!match) return null
+
+  const parsed = parseFloat(match[1].replace(',', '.'))
+  if (Number.isNaN(parsed) || parsed <= 0) return null
+
+  return parsed
+}

@@ -1454,6 +1454,50 @@ describe('handleIncomingImage', () => {
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal breakdown message')
   })
 
+  it('registers nutrition label immediately when caption specifies grams', async () => {
+    mockAnalyzeImage.mockResolvedValue({
+      image_type: 'nutrition_label',
+      meal_type: 'breakfast',
+      confidence: 'high',
+      items: [{
+        food: 'Açaí',
+        quantity_grams: 55,
+        nutrition_basis_grams: 55,
+        calories: 54,
+        protein: 0,
+        carbs: 13.8,
+        fat: 0,
+      }],
+      unknown_items: [],
+      needs_clarification: false,
+    })
+
+    await handleIncomingImage(FROM, MESSAGE_ID, IMAGE_ID, 'Adicionar 55g desse açaí no café da manhã')
+
+    expect(mockSetState).not.toHaveBeenCalledWith(
+      expect.anything(),
+      'awaiting_label_portions',
+      expect.anything(),
+    )
+    expect(mockSendTextMessage).not.toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('Quantas porções'),
+    )
+    expect(mockFormatMealBreakdown).toHaveBeenCalledWith(
+      'breakfast',
+      expect.arrayContaining([
+        expect.objectContaining({
+          food: 'Açaí',
+          quantityGrams: 55,
+          calories: 54,
+        }),
+      ]),
+      54,
+      expect.any(Number),
+      expect.any(Number),
+    )
+  })
+
   it('handles MediaTooLargeError gracefully', async () => {
     mockDownloadImageMedia.mockRejectedValue(new MediaTooLargeError(6_000_000, 5_242_880))
 

@@ -34,7 +34,7 @@ import { saveMessage } from '@/lib/db/queries/message-history'
 import { resolveQuote } from '@/lib/bot/quote'
 import type { QuoteContext } from '@/lib/bot/quote'
 import { saveBotMessage } from '@/lib/db/queries/bot-messages'
-import { extractLabelPortionsFromCaption } from '@/lib/bot/label-portions'
+import { extractLabelGramsFromCaption, extractLabelPortionsFromCaption } from '@/lib/bot/label-portions'
 import { scaleNutritionLabelItem } from '@/lib/bot/nutrition-label'
 import { getUserLocalTime, resolveMealTypeFromContext } from '@/lib/utils/meal-time'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -872,13 +872,21 @@ export async function handleIncomingImage(
     if (imageResult.image_type === 'nutrition_label') {
       const previewItem = scaleNutritionLabelItem(mealAnalysis.items[0])
 
-      if (labelPortionsFromCaption !== null) {
+      const servingGrams = mealAnalysis.items[0]?.quantity_grams ?? 0
+      const labelGramsFromCaption = extractLabelGramsFromCaption(caption)
+      const portionsFromGrams =
+        labelGramsFromCaption !== null && servingGrams > 0
+          ? labelGramsFromCaption / servingGrams
+          : null
+      const resolvedPortions = labelPortionsFromCaption ?? portionsFromGrams
+
+      if (resolvedPortions !== null) {
         await handleLabelPortions(
           supabase,
           from,
           user.id,
           messageId,
-          String(labelPortionsFromCaption),
+          String(resolvedPortions),
           {
             contextData: {
               mealAnalysis: mealAnalysis as unknown as Record<string, unknown>,
