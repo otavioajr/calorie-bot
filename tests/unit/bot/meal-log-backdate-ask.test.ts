@@ -310,4 +310,30 @@ describe('handleMealLog — backdated log asks for meal type', () => {
     // The text re-run seeds recent_meal via analyzeAndRegister's saveRecentMealState.
     expect(mockSetState).toHaveBeenCalledWith(USER_ID, 'recent_meal', expect.objectContaining({ mealId: 'm-arroz' }))
   })
+
+  // Bonus guard — "de ontem" in a references_previous message is part of the REFERENCE
+  // query (which past meal to copy), NOT a backdate of THIS log. It must register for TODAY.
+  it('does NOT backdate a references_previous log even when it says "de ontem" (registers today)', async () => {
+    // single meal, references_previous, single history match → history single-match branch registers
+    mockAnalyzeMeal.mockResolvedValue([{
+      meal_type: 'snack', confidence: 'high', references_previous: true, reference_query: 'açaí',
+      items: [{ food: 'Açaí', quantity_grams: 100, quantity_display: null, quantity_source: 'estimated', portion_type: 'unit', has_user_quantity: true, calories: null, protein: null, carbs: null, fat: null, confidence: 'high' }],
+      unknown_items: [], needs_clarification: false,
+    }])
+    // exactly one history match → single-match branch
+    mockSearchMealHistory.mockResolvedValue([{ foodName: 'Açaí', quantityGrams: 100, calories: 80, protein: 1, carbs: 18, fat: 0.5, tacoId: null, registeredAt: '2026-05-29T12:00:00Z' }])
+    mockFindMealByTypeForDay.mockResolvedValue(null)
+    mockCreateMeal.mockResolvedValue('m-ref')
+    mockGetMealWithItems.mockResolvedValue({ id: 'm-ref', mealType: 'snack', totalCalories: 80, registeredAt: 'x', items: [{ id: '1', foodName: 'Açaí', quantityGrams: 100, quantityDisplay: null, calories: 80, proteinG: 1, carbsG: 18, fatG: 0.5, source: 'user_history', confidence: 'high' }] })
+
+    const res = await handleMealLog(buildSupabase(), USER_ID, 'igual aquele açaí de ontem', { calorieMode: 'taco', dailyCalorieTarget: 2168 }, null)
+
+    expect(res.completed).toBe(true)
+    expect(mockSetState).not.toHaveBeenCalledWith(USER_ID, 'awaiting_meal_type', expect.anything()) // no ask
+    expect(mockCreateMeal).toHaveBeenCalled()
+    // KEY: registered for TODAY (logFoodToMeal leaves registeredAt undefined when targetDate == today),
+    // NOT backdated to yesterday. If the references guard regressed, targetDate would be yesterday → registeredAt a Date.
+    const createArg = mockCreateMeal.mock.calls[0][1]
+    expect(createArg.registeredAt).toBeUndefined()
+  })
 })
