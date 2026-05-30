@@ -25,13 +25,13 @@ import {
 } from '@/lib/bot/flows/product-confirm'
 import { getLLMProvider } from '@/lib/llm/index'
 import { sendTextMessage } from '@/lib/whatsapp/client'
-import { formatOutOfScope, formatError, formatMealBreakdown } from '@/lib/utils/formatters'
+import { formatOutOfScope, formatError } from '@/lib/utils/formatters'
 import { parseDateFromMessage, formatDateLabel } from '@/lib/utils/relative-date'
 import { downloadAudioMedia, transcribeAudio, AudioTooLargeError } from '@/lib/audio/transcribe'
 import { downloadWhatsAppMedia, MediaTooLargeError } from '@/lib/whatsapp/media'
 import { detectMimeType } from '@/lib/whatsapp/mime'
 import { logLLMUsage } from '@/lib/db/queries/llm-usage'
-import { createMeal, getDailyCalories, getMealWithItems } from '@/lib/db/queries/meals'
+import { getDailyCalories, getMealWithItems } from '@/lib/db/queries/meals'
 import { saveMessage } from '@/lib/db/queries/message-history'
 import { resolveQuote } from '@/lib/bot/quote'
 import type { QuoteContext } from '@/lib/bot/quote'
@@ -91,10 +91,6 @@ function productMacros(product: Product, quantityGrams: number) {
     carbs: Math.round(product.carbsPer100g * factor * 10) / 10,
     fat: Math.round(product.fatPer100g * factor * 10) / 10,
   }
-}
-
-function totalCaloriesFromConfirmedItems(items: EnrichedItem[]): number {
-  return Math.round(items.reduce((sum, item) => sum + item.calories, 0))
 }
 
 function confirmedProductItem(
@@ -198,19 +194,13 @@ async function registerConfirmedProductMeal(
   user: { dailyCalorieTarget: number | null; timezone?: string },
 ): Promise<{ response: string; mealId: string }> {
   const items = await buildConfirmedProductMealItems(supabase, userId, pendingMeal, product, quantityGrams)
-  const totalCalories = totalCaloriesFromConfirmedItems(items)
 
-  const mealId = await createMeal(supabase, {
+  const { date: targetDate } = parseDateFromMessage(pendingMeal.originalMessage)
+  const dateLabel = formatDateLabel(targetDate, user.timezone)
+
+  const logResult = await logFoodToMeal(supabase, {
     userId,
     mealType: pendingMeal.mealType,
-    totalCalories,
-    originalMessage: pendingMeal.originalMessage,
-    llmResponse: {
-      product_id: product.id,
-      source: 'product-confirm',
-      original_food: pendingMeal.food,
-      original_message: pendingMeal.originalMessage,
-    },
     items: items.map((item) => ({
       foodName: item.food,
       quantityGrams: item.quantityGrams,
@@ -224,42 +214,24 @@ async function registerConfirmedProductMeal(
       productId: item.productId,
       confidence: item.source === 'approximate' ? 'low' : 'high',
     })),
+    originalMessage: pendingMeal.originalMessage,
+    llmResponse: {
+      product_id: product.id,
+      source: 'product-confirm',
+      original_food: pendingMeal.food,
+      original_message: pendingMeal.originalMessage,
+    },
+    targetDate,
+    timezone: user.timezone,
   })
 
-  const mealWithItems = await getMealWithItems(supabase, mealId)
-  if (mealWithItems && mealWithItems.items.length > 0) {
-    await setState(userId, 'recent_meal', {
-      mealId,
-      mealType: mealWithItems.mealType,
-      items: mealWithItems.items.map(i => ({
-        id: i.id,
-        foodName: i.foodName,
-        quantityGrams: i.quantityGrams,
-        quantityDisplay: i.quantityDisplay,
-        calories: i.calories,
-        proteinG: i.proteinG,
-        carbsG: i.carbsG,
-        fatG: i.fatG,
-      })),
-    })
-  }
+  await setRecentMealState(userId, logResult.meal)
 
-  const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user.timezone)
+  const dailyConsumed = await getDailyCalories(supabase, userId, targetDate, user.timezone)
   const target = user.dailyCalorieTarget ?? 2000
-  const response = formatMealBreakdown(
-    pendingMeal.mealType,
-    items.map((item) => ({
-      food: item.food,
-      quantityGrams: item.quantityGrams,
-      quantityDisplay: item.quantityDisplay,
-      calories: item.calories,
-    })),
-    totalCalories,
-    dailyConsumed,
-    target,
-  )
+  const response = buildConsolidatedMealResponse(logResult, dailyConsumed, target, dateLabel)
 
-  return { response, mealId }
+  return { response, mealId: logResult.mealId }
 }
 
 export async function handleIncomingMessage(

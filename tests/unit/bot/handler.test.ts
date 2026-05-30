@@ -959,16 +959,20 @@ describe('handleIncomingMessage — context-based routing', () => {
 
     await handleIncomingMessage(FROM, MESSAGE_ID, 'sim')
 
-    expect(mockCreateMeal).toHaveBeenCalledWith(
+    // Routes through the consolidation seam (find-or-create by day+meal_type), not createMeal directly.
+    expect(mockLogFoodToMeal).toHaveBeenCalledWith(
       mockSupabase,
       expect.objectContaining({
-        totalCalories: 228,
+        userId: completedUser.id,
+        mealType: 'lunch',
         items: [
           expect.objectContaining({ foodName: 'Magic Toast', calories: 100, productId: 'product-1' }),
           expect.objectContaining({ foodName: 'Arroz', calories: 128, tacoId: 3 }),
         ],
       }),
     )
+    expect(mockCreateMeal).not.toHaveBeenCalled()
+    // New meal (default mock: wasAppend false) → formatMealBreakdown via buildConsolidatedMealResponse.
     expect(mockFormatMealBreakdown).toHaveBeenCalledWith(
       'lunch',
       [
@@ -978,8 +982,115 @@ describe('handleIncomingMessage — context-based routing', () => {
       228,
       500,
       2000,
+      undefined,
+      expect.any(String),
     )
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal breakdown message')
+  })
+
+  it('consolidates confirmed product into an existing same-day meal via logFoodToMeal', async () => {
+    const product = {
+      id: 'product-1',
+      name: 'Magic Toast',
+      nameNormalized: 'magic toast',
+      brand: 'Marilan',
+      brandNormalized: 'marilan',
+      barcode: '789',
+      servingSizeG: 25,
+      servingDisplay: '1 pacote',
+      caloriesPer100g: 400,
+      proteinPer100g: 8,
+      carbsPer100g: 70,
+      fatPer100g: 10,
+      fiberPer100g: null,
+      sodiumPer100g: null,
+      source: 'open_food_facts' as const,
+      sourceRef: null,
+      status: 'aprovado' as const,
+      createdBy: null,
+      createdAt: '2026-04-26T00:00:00.000Z',
+      updatedAt: '2026-04-26T00:00:00.000Z',
+      promotedAt: null,
+      contributorIds: null,
+    }
+    const mockContext = {
+      contextType: 'awaiting_off_confirm',
+      contextData: {
+        quantityGrams: 25,
+        pendingMeal: {
+          mealType: 'lunch',
+          originalMessage: 'almocei magic toast',
+          food: 'Magic Toast',
+          quantityDisplay: '1 pacote',
+          productItemIndex: 0,
+          mealItems: [{
+            food: 'Magic Toast',
+            quantity_grams: 25,
+            quantity_display: '1 pacote',
+            quantity_source: 'user_reported',
+            portion_type: 'packaged',
+            has_user_quantity: true,
+            calories: null,
+            protein: null,
+            carbs: null,
+            fat: null,
+            confidence: 'high',
+          }],
+        },
+      },
+    }
+    mockGetState.mockResolvedValue(mockContext)
+    mockHandleAwaitingOffConfirm.mockResolvedValue({
+      response: 'Produto salvo',
+      completed: true,
+      product,
+      productId: product.id,
+    })
+    // A lunch meal already exists today → logFoodToMeal appends instead of creating.
+    mockLogFoodToMeal.mockResolvedValue({
+      wasAppend: true,
+      mealId: 'existing-lunch-meal',
+      addedItems: [
+        { foodName: 'Magic Toast', quantityGrams: 25, quantityDisplay: '1 pacote', calories: 100, proteinG: 2, carbsG: 17.5, fatG: 2.5 },
+      ],
+      meal: {
+        id: 'existing-lunch-meal',
+        mealType: 'lunch',
+        totalCalories: 328,
+        registeredAt: '2026-05-30T15:00:00Z',
+        items: [
+          { id: 'i1', foodName: 'Arroz', quantityGrams: 100, quantityDisplay: '100g', calories: 128, proteinG: 2.5, carbsG: 28.1, fatG: 0.2 },
+          { id: 'i2', foodName: 'Frango', quantityGrams: 100, quantityDisplay: '100g', calories: 100, proteinG: 23, carbsG: 0, fatG: 1 },
+          { id: 'i3', foodName: 'Magic Toast', quantityGrams: 25, quantityDisplay: '1 pacote', calories: 100, proteinG: 2, carbsG: 17.5, fatG: 2.5 },
+        ],
+      },
+    })
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, 'sim')
+
+    // Routes through the consolidation seam (NOT createMeal directly).
+    expect(mockLogFoodToMeal).toHaveBeenCalledWith(
+      mockSupabase,
+      expect.objectContaining({
+        userId: completedUser.id,
+        mealType: 'lunch',
+        items: [
+          expect.objectContaining({ foodName: 'Magic Toast', calories: 100, productId: 'product-1' }),
+        ],
+        originalMessage: 'almocei magic toast',
+      }),
+    )
+    expect(mockCreateMeal).not.toHaveBeenCalled()
+    // Append → consolidated "Somei" message from formatMealAddition.
+    expect(mockFormatMealAddition).toHaveBeenCalled()
+    expect(mockFormatMealBreakdown).not.toHaveBeenCalled()
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal addition message')
+    // recent_meal state synced to the consolidated meal.
+    expect(mockSetState).toHaveBeenCalledWith(
+      completedUser.id,
+      'recent_meal',
+      expect.objectContaining({ mealId: 'existing-lunch-meal' }),
+    )
   })
 
   it('asks for product quantity after confirmation when original message had no quantity', async () => {
@@ -1118,10 +1229,12 @@ describe('handleIncomingMessage — context-based routing', () => {
 
     await handleIncomingMessage(FROM, MESSAGE_ID, '30g')
 
-    expect(mockCreateMeal).toHaveBeenCalledWith(
+    // Routes through the consolidation seam (find-or-create by day+meal_type), not createMeal directly.
+    expect(mockLogFoodToMeal).toHaveBeenCalledWith(
       mockSupabase,
       expect.objectContaining({
-        totalCalories: 120,
+        userId: completedUser.id,
+        mealType: 'dinner',
         items: [
           expect.objectContaining({
             foodName: 'Magic Toast',
@@ -1133,6 +1246,7 @@ describe('handleIncomingMessage — context-based routing', () => {
         ],
       }),
     )
+    expect(mockCreateMeal).not.toHaveBeenCalled()
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal breakdown message')
   })
 
