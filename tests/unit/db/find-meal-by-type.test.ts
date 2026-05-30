@@ -38,6 +38,16 @@ describe('findMealByTypeForDay', () => {
     })
   })
 
+  it('returns the earliest meal when multiple of the same type exist (uses order asc + limit 1)', async () => {
+    const { findMealByTypeForDay } = await import('@/lib/db/queries/meals')
+    const chain = buildChain({ data: [{ id: 'early', meal_type: 'snack', total_calories: 50, registered_at: '2026-05-29T09:00:00Z' }], error: null })
+    const supabase = buildClient(chain)
+    const result = await findMealByTypeForDay(supabase as never, 'u', 'snack', new Date('2026-05-29T20:00:00Z'))
+    expect(chain.order).toHaveBeenCalledWith('registered_at', { ascending: true })
+    expect(chain.limit).toHaveBeenCalledWith(1)
+    expect(result?.id).toBe('early')
+  })
+
   it('returns null when no meal of that type exists for the day', async () => {
     const { findMealByTypeForDay } = await import('@/lib/db/queries/meals')
     const chain = buildChain({ data: [], error: null })

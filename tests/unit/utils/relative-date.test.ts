@@ -35,6 +35,12 @@ describe('parseDateFromMessage', () => {
     const { date } = parseDateFromMessage('quarta no almoço', 'America/Sao_Paulo', SAT_NIGHT)
     expect(localDateString(date, 'America/Sao_Paulo')).toBe('2026-05-27')
   })
+
+  it('parses "dia X" to that day of the current month', () => {
+    const { date, wasExplicit } = parseDateFromMessage('dia 12 comi pizza', 'America/Sao_Paulo', NOW)
+    expect(wasExplicit).toBe(true)
+    expect(localDateString(date, 'America/Sao_Paulo')).toBe('2026-05-12')
+  })
 })
 
 describe('formatDateLabel', () => {

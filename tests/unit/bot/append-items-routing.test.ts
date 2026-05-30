@@ -211,7 +211,7 @@ describe('appendItemsToMeal — routing of mismatched meal types', () => {
     const result = await appendItemsToMeal(buildSupabase(), USER_ID, 'b1', 'comi também 1 pão', { timezone: 'America/Sao_Paulo' })
 
     expect(result).not.toBeNull()
-    expect(mockAddMealItems).toHaveBeenCalledWith(buildSupabase(), 'b1', expect.any(Array))
+    expect(mockAddMealItems).toHaveBeenCalledWith(expect.anything(), 'b1', expect.any(Array))
     expect(mockCreateMeal).not.toHaveBeenCalled()
     expect(result!.newTotal).toBe(278)
   })

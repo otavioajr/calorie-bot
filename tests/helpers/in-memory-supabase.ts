@@ -55,8 +55,12 @@ export function createInMemorySupabase() {
       filters.every(([op, col, val]) => {
         const v = row[col] as unknown
         if (op === 'eq') return v === val
-        if (op === 'gte') return String(v) >= String(val)
-        if (op === 'lte') return String(v) <= String(val)
+        if (op === 'gte' || op === 'lte') {
+          const bothNumbers = typeof v === 'number' && typeof val === 'number'
+          const a = bothNumbers ? (v as number) : String(v)
+          const b = bothNumbers ? (val as number) : String(val)
+          return op === 'gte' ? a >= b : a <= b
+        }
         return true
       }),
     )
