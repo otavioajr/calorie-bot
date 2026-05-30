@@ -3,7 +3,8 @@ import { getLLMProvider } from '@/lib/llm/index'
 import type { MealAnalysis, MealItem } from '@/lib/llm/schemas/meal-analysis'
 import { setState, clearState } from '@/lib/bot/state'
 import type { ConversationContext } from '@/lib/bot/state'
-import { addMealItems, createMeal, getDailyCalories, getDailyMacros, recalculateMealTotal, getMealWithItems } from '@/lib/db/queries/meals'
+import { addMealItems, createMeal, getDailyCalories, getDailyMacros, recalculateMealTotal, getMealWithItems, findMealByTypeForDay, getDayBoundsForTimezone } from '@/lib/db/queries/meals'
+import type { MealItemInput, MealWithItems } from '@/lib/db/queries/meals'
 import { formatMealBreakdown, formatMultiMealBreakdown, formatProgress, formatSearchFeedback, formatDefaultNotice } from '@/lib/utils/formatters'
 import { getRecentMessages } from '@/lib/db/queries/message-history'
 import { fuzzyMatchTacoMultiple, calculateMacros, matchTacoByBase, getLearnedDefault, recordTacoUsage } from '@/lib/db/queries/taco'
@@ -16,6 +17,7 @@ import { buildProductQuantityPrompt, handleStartLabelInput, handleStartOffChoice
 import { tryProductLookup } from '@/lib/products/lookup'
 import { shouldUseProductFlow } from '@/lib/products/classify'
 import type { Product, ProductLookupOutcome } from '@/lib/products/types'
+import { localDateString } from '@/lib/utils/relative-date'
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -45,6 +47,96 @@ export interface EnrichedItem {
   usedDefault?: boolean
   defaultFoodBase?: string
   defaultFoodVariant?: string
+}
+
+// ---------------------------------------------------------------------------
+// Map an EnrichedItem to the DB input shape (single source of truth)
+// ---------------------------------------------------------------------------
+
+export function enrichedToMealItemInput(item: EnrichedItem): MealItemInput {
+  return {
+    foodName: item.food,
+    quantityGrams: item.quantityGrams,
+    calories: item.calories,
+    proteinG: item.protein,
+    carbsG: item.carbs,
+    fatG: item.fat,
+    source: item.source,
+    tacoId: item.tacoId,
+    productId: item.productId,
+    confidence: item.source === 'approximate' ? 'low' : 'high',
+    quantityDisplay: item.quantityDisplay ?? undefined,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// logFoodToMeal — single consolidation seam (find-or-create by day+meal_type)
+// ---------------------------------------------------------------------------
+
+export interface LogFoodResult {
+  wasAppend: boolean
+  mealId: string
+  addedItems: MealItemInput[]
+  meal: MealWithItems
+}
+
+export interface LogFoodParams {
+  userId: string
+  mealType: string
+  items: MealItemInput[]
+  originalMessage: string
+  llmResponse?: unknown
+  targetDate?: Date
+  timezone?: string
+  now?: Date
+}
+
+export async function logFoodToMeal(
+  supabase: SupabaseClient,
+  params: LogFoodParams,
+): Promise<LogFoodResult> {
+  const timezone = params.timezone ?? 'America/Sao_Paulo'
+  const now = params.now ?? new Date()
+  const targetDate = params.targetDate ?? now
+
+  const existing = await findMealByTypeForDay(supabase, params.userId, params.mealType, targetDate, timezone)
+
+  if (existing) {
+    await addMealItems(supabase, existing.id, params.items)
+    await recalculateMealTotal(supabase, existing.id)
+    const meal = await getMealWithItems(supabase, existing.id)
+    return {
+      wasAppend: true,
+      mealId: existing.id,
+      addedItems: params.items,
+      meal: meal!,
+    }
+  }
+
+  // New meal. Backdate registered_at to local noon when target day != today.
+  let registeredAt: Date | undefined
+  if (localDateString(targetDate, timezone) !== localDateString(now, timezone)) {
+    const { startOfDay } = getDayBoundsForTimezone(targetDate, timezone)
+    registeredAt = new Date(startOfDay.getTime() + 12 * 60 * 60 * 1000)
+  }
+
+  const totalCalories = Math.round(params.items.reduce((sum, i) => sum + i.calories, 0))
+  const mealId = await createMeal(supabase, {
+    userId: params.userId,
+    mealType: params.mealType,
+    totalCalories,
+    originalMessage: params.originalMessage,
+    llmResponse: params.llmResponse ?? {},
+    items: params.items,
+    registeredAt,
+  })
+  const meal = await getMealWithItems(supabase, mealId)
+  return {
+    wasAppend: false,
+    mealId,
+    addedItems: params.items,
+    meal: meal!,
+  }
 }
 
 type PendingProductOutcome = Extract<ProductLookupOutcome, { kind: 'needs_off_choice' | 'needs_label' | 'needs_quantity' }>
