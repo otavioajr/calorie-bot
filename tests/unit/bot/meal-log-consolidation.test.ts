@@ -203,4 +203,48 @@ describe('handleMealLog — text consolidation', () => {
     expect(mockCreateMeal).not.toHaveBeenCalled()
     expect(result.response).toContain('Somei')
   })
+
+  // Regression: when a history-reference single match builds a SHORTER enrichedMeals
+  // (length 1) than the analyzed `meals` (length 2), saveMeals must NOT persist a
+  // zero-calorie placeholder meal for the missing index.
+  it('does not create a zero-item placeholder meal when enrichedMeals is shorter than meals', async () => {
+    // No same-day meal exists yet → each logged meal would hit createMeal.
+    mockFindMealByTypeForDay.mockResolvedValue(null)
+    // After create, return a valid meal so saveRecentMealState succeeds.
+    mockGetMealWithItems.mockResolvedValue({
+      id: 'meal-id-123', mealType: 'lunch', totalCalories: 200, registeredAt: 'x',
+      items: [
+        { id: 'h1', foodName: 'Marmita de ontem', quantityGrams: 400, quantityDisplay: null, calories: 600, proteinG: 30, carbsG: 60, fatG: 20, source: 'user_history', confidence: 'high' },
+      ],
+    })
+
+    // Two analyzed meals: the FIRST references previous history (single match →
+    // enrichedMeals = [[match]], length 1), the SECOND is a normal meal.
+    mockAnalyzeMeal.mockResolvedValue([
+      {
+        meal_type: 'lunch', confidence: 'high', references_previous: true, reference_query: 'marmita de ontem',
+        items: [{ food: 'marmita', quantity_grams: 400, quantity_display: null, quantity_source: 'estimated', portion_type: 'bulk', has_user_quantity: false, calories: null, protein: null, carbs: null, fat: null, confidence: 'high' }],
+        unknown_items: [], needs_clarification: false,
+      },
+      {
+        meal_type: 'snack', confidence: 'high', references_previous: false, reference_query: null,
+        items: [{ food: 'Banana', quantity_grams: 100, quantity_display: null, quantity_source: 'estimated', portion_type: 'unit', has_user_quantity: true, calories: null, protein: null, carbs: null, fat: null, confidence: 'high' }],
+        unknown_items: [], needs_clarification: false,
+      },
+    ])
+
+    // Single history match for the first meal's reference_query.
+    mockSearchMealHistory.mockResolvedValue([
+      { mealId: 'old-meal-1', foodName: 'Marmita de ontem', quantityGrams: 400, calories: 600, protein: 30, carbs: 60, fat: 20, source: 'user_history', tacoId: null, registeredAt: '2026-05-29T15:00:00Z', originalMessage: 'marmita' },
+    ])
+
+    // buildReceiptResponse (out of scope for this fix) also indexes the shorter
+    // enrichedMeals and can throw downstream; the guard under test lives in
+    // saveMeals, which runs first, so we assert on createMeal regardless.
+    await handleMealLog(buildSupabase(), USER_ID, 'mesma marmita de ontem e uma banana', { calorieMode: 'taco', dailyCalorieTarget: 2168 }, null).catch(() => undefined)
+
+    // Only the single history-match meal should be persisted — NOT a second,
+    // empty (0 kcal, 0 item) placeholder for the missing enrichedMeals[1].
+    expect(mockCreateMeal).toHaveBeenCalledTimes(1)
+  })
 })

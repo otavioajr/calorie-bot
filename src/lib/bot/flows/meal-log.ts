@@ -994,6 +994,11 @@ async function saveMeals(
   for (let i = 0; i < meals.length; i++) {
     const analysis = meals[i]
     const items = (enrichedMeals[i] ?? []).map(enrichedToMealItemInput)
+    // Skip meals with no items: when enrichedMeals is shorter than meals (e.g. the
+    // history-reference single-match branch builds enrichedMeals=[[match]] while passing
+    // the full meals array), the missing entries would otherwise create a zero-calorie,
+    // zero-item placeholder meal.
+    if (items.length === 0) continue
     const result = await logFoodToMeal(supabase, {
       userId,
       mealType: analysis.meal_type,
