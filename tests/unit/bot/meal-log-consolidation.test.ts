@@ -10,7 +10,7 @@ const {
   mockGetLLMProvider,
   mockAnalyzeMeal,
   mockDecomposeMeal,
-  mockCreateMeal,
+  mockFindOrCreateMeal,
   mockGetDailyCalories,
   mockGetDailyMacros,
   mockFormatMealBreakdown,
@@ -32,7 +32,6 @@ const {
   mockShouldUseProductFlow,
   mockHandleStartOffChoice,
   mockHandleStartLabelInput,
-  mockFindMealByTypeForDay,
   mockGetMealWithItems,
 } = vi.hoisted(() => {
   const mockAnalyzeMeal = vi.fn()
@@ -48,7 +47,7 @@ const {
       classifyIntent: vi.fn(),
       chat: vi.fn(),
     })),
-    mockCreateMeal: vi.fn().mockResolvedValue('meal-id-123'),
+    mockFindOrCreateMeal: vi.fn().mockResolvedValue({ mealId: 'meal-id-123', wasAppend: false }),
     mockGetDailyCalories: vi.fn().mockResolvedValue(800),
     mockGetDailyMacros: vi.fn().mockResolvedValue({ calories: 800, proteinG: 40, carbsG: 100, fatG: 20 }),
     mockFormatMealBreakdown: vi.fn().mockReturnValue('Breakdown message\nAlgo errado? Manda "corrigir"'),
@@ -75,7 +74,6 @@ const {
     mockShouldUseProductFlow: vi.fn().mockResolvedValue(false),
     mockHandleStartOffChoice: vi.fn().mockResolvedValue({ response: 'Escolha um produto', completed: false }),
     mockHandleStartLabelInput: vi.fn().mockResolvedValue({ response: 'Envie o rótulo', completed: false }),
-    mockFindMealByTypeForDay: vi.fn().mockResolvedValue(null),
     mockGetMealWithItems: vi.fn().mockResolvedValue(null),
   }
 })
@@ -93,11 +91,10 @@ vi.mock('@/lib/llm/index', () => ({
 }))
 
 vi.mock('@/lib/db/queries/meals', () => ({
-  createMeal: mockCreateMeal,
+  findOrCreateMeal: mockFindOrCreateMeal,
   getDailyCalories: mockGetDailyCalories,
   getDailyMacros: mockGetDailyMacros,
   getMealWithItems: mockGetMealWithItems,
-  findMealByTypeForDay: mockFindMealByTypeForDay,
   addMealItems: vi.fn().mockResolvedValue(undefined),
   recalculateMealTotal: vi.fn().mockResolvedValue(278),
   getDayBoundsForTimezone: vi.fn(() => ({
@@ -182,7 +179,8 @@ describe('handleMealLog — text consolidation', () => {
   })
 
   it('consolidates a text log into the existing same-day breakfast and says "Somei"', async () => {
-    mockFindMealByTypeForDay.mockResolvedValue({ id: 'b1', mealType: 'breakfast', totalCalories: 212, registeredAt: 'x' })
+    // find-or-create resolves to the EXISTING breakfast (wasAppend) → consolidation, not a new meal.
+    mockFindOrCreateMeal.mockResolvedValue({ mealId: 'b1', wasAppend: true })
     mockGetMealWithItems.mockResolvedValue({
       id: 'b1', mealType: 'breakfast', totalCalories: 278, registeredAt: 'x',
       items: [
@@ -200,7 +198,10 @@ describe('handleMealLog — text consolidation', () => {
 
     const result = await handleMealLog(buildSupabase(), USER_ID, 'comi também 1 pão no café da manhã', { calorieMode: 'taco', dailyCalorieTarget: 2168 }, null)
 
-    expect(mockCreateMeal).not.toHaveBeenCalled()
+    // Consolidation now happens atomically inside find_or_create_meal, which resolved
+    // to the existing breakfast (wasAppend) — proven by the "Somei" delta response.
+    expect(mockFindOrCreateMeal).toHaveBeenCalled()
+    await expect(mockFindOrCreateMeal.mock.results[0].value).resolves.toEqual({ mealId: 'b1', wasAppend: true })
     expect(result.response).toContain('Somei')
   })
 
@@ -208,8 +209,8 @@ describe('handleMealLog — text consolidation', () => {
   // (length 1) than the analyzed `meals` (length 2), saveMeals must NOT persist a
   // zero-calorie placeholder meal for the missing index.
   it('does not create a zero-item placeholder meal when enrichedMeals is shorter than meals', async () => {
-    // No same-day meal exists yet → each logged meal would hit createMeal.
-    mockFindMealByTypeForDay.mockResolvedValue(null)
+    // No same-day meal exists yet → each logged meal would hit find_or_create_meal (create path).
+    mockFindOrCreateMeal.mockResolvedValue({ mealId: 'meal-id-123', wasAppend: false })
     // After create, return a valid meal so saveRecentMealState succeeds.
     mockGetMealWithItems.mockResolvedValue({
       id: 'meal-id-123', mealType: 'lunch', totalCalories: 200, registeredAt: 'x',
@@ -240,19 +241,19 @@ describe('handleMealLog — text consolidation', () => {
 
     // buildReceiptResponse (out of scope for this fix) also indexes the shorter
     // enrichedMeals and can throw downstream; the guard under test lives in
-    // saveMeals, which runs first, so we assert on createMeal regardless.
+    // saveMeals, which runs first, so we assert on find_or_create_meal regardless.
     await handleMealLog(buildSupabase(), USER_ID, 'mesma marmita de ontem e uma banana', { calorieMode: 'taco', dailyCalorieTarget: 2168 }, null).catch(() => undefined)
 
-    // Only the single history-match meal should be persisted — NOT a second,
-    // empty (0 kcal, 0 item) placeholder for the missing enrichedMeals[1].
-    expect(mockCreateMeal).toHaveBeenCalledTimes(1)
+    // Only the single history-match meal should be persisted via logFoodToMeal/find_or_create_meal
+    // — NOT a second, empty (0 kcal, 0 item) placeholder for the missing enrichedMeals[1].
+    expect(mockFindOrCreateMeal).toHaveBeenCalledTimes(1)
   })
 
   // Regression: buildReceiptResponse used to index enrichedMeals[idx] for EVERY
   // analyzed meal. When enrichedMeals (length 1, history single-match) is shorter
   // than meals (length 2), enrichedMeals[1] is undefined → `.map` throws.
   it('builds the receipt without throwing when enrichedMeals is shorter than meals', async () => {
-    mockFindMealByTypeForDay.mockResolvedValue(null)
+    mockFindOrCreateMeal.mockResolvedValue({ mealId: 'meal-id-123', wasAppend: false })
     mockGetMealWithItems.mockResolvedValue({
       id: 'meal-id-123', mealType: 'lunch', totalCalories: 600, registeredAt: 'x',
       items: [

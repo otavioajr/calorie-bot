@@ -168,5 +168,35 @@ export function createInMemorySupabase() {
       if (table === 'meal_items') return itemsTable()
       throw new Error(`Unexpected table ${table}`)
     },
+    // Mirror the `find_or_create_meal` Postgres function against the in-memory
+    // meals array: find the earliest same-type meal within the day bounds, else
+    // insert a new one. Returns the supabase-js RPC shape ({ data, error }).
+    rpc(name: string, params: Record<string, unknown>) {
+      if (name !== 'find_or_create_meal') throw new Error(`Unexpected rpc ${name}`)
+      const start = String(params.p_day_start)
+      const end = String(params.p_day_end)
+      const existing = meals
+        .filter(m =>
+          m.user_id === params.p_user_id &&
+          m.meal_type === params.p_meal_type &&
+          m.registered_at >= start &&
+          m.registered_at <= end,
+        )
+        .sort((a, b) => (a.registered_at < b.registered_at ? -1 : 1))[0]
+      if (existing) {
+        return Promise.resolve({ data: [{ meal_id: existing.id, was_append: true }], error: null })
+      }
+      const row: MealRow = {
+        id: id('meal'),
+        user_id: params.p_user_id as string,
+        meal_type: params.p_meal_type as string,
+        total_calories: params.p_total_calories as number,
+        registered_at: (params.p_registered_at as string) ?? new Date().toISOString(),
+        original_message: (params.p_original_message as string) ?? '',
+        llm_response: params.p_llm_response ?? {},
+      }
+      meals.push(row)
+      return Promise.resolve({ data: [{ meal_id: row.id, was_append: false }], error: null })
+    },
   }
 }

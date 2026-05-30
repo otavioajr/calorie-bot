@@ -10,7 +10,7 @@ const {
   mockGetLLMProvider,
   mockAnalyzeMeal,
   mockDecomposeMeal,
-  mockCreateMeal,
+  mockFindOrCreateMeal,
   mockGetDailyCalories,
   mockGetDailyMacros,
   mockFormatMealBreakdown,
@@ -32,7 +32,6 @@ const {
   mockShouldUseProductFlow,
   mockHandleStartOffChoice,
   mockHandleStartLabelInput,
-  mockFindMealByTypeForDay,
   mockGetMealWithItems,
   mockAddMealItems,
   mockRecalculateMealTotal,
@@ -50,7 +49,7 @@ const {
       classifyIntent: vi.fn(),
       chat: vi.fn(),
     })),
-    mockCreateMeal: vi.fn().mockResolvedValue('meal-id-123'),
+    mockFindOrCreateMeal: vi.fn().mockResolvedValue({ mealId: 'meal-id-123', wasAppend: false }),
     mockGetDailyCalories: vi.fn().mockResolvedValue(800),
     mockGetDailyMacros: vi.fn().mockResolvedValue({ calories: 800, proteinG: 40, carbsG: 100, fatG: 20 }),
     mockFormatMealBreakdown: vi.fn().mockReturnValue('Breakdown message\nAlgo errado? Manda "corrigir"'),
@@ -77,7 +76,6 @@ const {
     mockShouldUseProductFlow: vi.fn().mockResolvedValue(false),
     mockHandleStartOffChoice: vi.fn().mockResolvedValue({ response: 'Escolha um produto', completed: false }),
     mockHandleStartLabelInput: vi.fn().mockResolvedValue({ response: 'Envie o rótulo', completed: false }),
-    mockFindMealByTypeForDay: vi.fn().mockResolvedValue(null),
     mockGetMealWithItems: vi.fn().mockResolvedValue(null),
     mockAddMealItems: vi.fn().mockResolvedValue(undefined),
     mockRecalculateMealTotal: vi.fn().mockResolvedValue(278),
@@ -97,11 +95,10 @@ vi.mock('@/lib/llm/index', () => ({
 }))
 
 vi.mock('@/lib/db/queries/meals', () => ({
-  createMeal: mockCreateMeal,
+  findOrCreateMeal: mockFindOrCreateMeal,
   getDailyCalories: mockGetDailyCalories,
   getDailyMacros: mockGetDailyMacros,
   getMealWithItems: mockGetMealWithItems,
-  findMealByTypeForDay: mockFindMealByTypeForDay,
   addMealItems: mockAddMealItems,
   recalculateMealTotal: mockRecalculateMealTotal,
   getDayBoundsForTimezone: vi.fn(() => ({
@@ -174,7 +171,7 @@ describe('appendItemsToMeal — routing of mismatched meal types', () => {
     mockGetRecentMessages.mockResolvedValue([])
     mockTryProductLookup.mockResolvedValue({ kind: 'skip' })
     mockShouldUseProductFlow.mockResolvedValue(false)
-    mockFindMealByTypeForDay.mockResolvedValue(null)
+    mockFindOrCreateMeal.mockResolvedValue({ mealId: 'meal-id-123', wasAppend: false })
     mockRecordTacoUsage.mockResolvedValue(undefined)
   })
 
@@ -186,15 +183,17 @@ describe('appendItemsToMeal — routing of mismatched meal types', () => {
       unknown_items: [], needs_clarification: false,
     }])
     mockMatchTacoByBase.mockResolvedValue([{ id: 7, foodName: 'Frango grelhado', foodBase: 'Frango', foodVariant: 'grelhado', caloriesPer100g: 159, proteinPer100g: 32, carbsPer100g: 0, fatPer100g: 3, isDefault: true }])
-    mockFindMealByTypeForDay.mockResolvedValue(null) // no lunch yet today
-    mockCreateMeal.mockResolvedValue('lunch-1')
+    // no lunch yet today → find_or_create_meal creates it (wasAppend false)
+    mockFindOrCreateMeal.mockResolvedValue({ mealId: 'lunch-1', wasAppend: false })
     mockRecalculateMealTotal.mockResolvedValue(212)
 
     const { appendItemsToMeal } = await import('@/lib/bot/flows/meal-log')
     const result = await appendItemsToMeal(buildSupabase(), USER_ID, 'b1', 'comi também frango no almoço', { timezone: 'America/Sao_Paulo' })
 
     expect(result).not.toBeNull()
-    expect(mockCreateMeal).toHaveBeenCalled() // the lunch meal was created (items not dropped)
+    // the lunch meal was resolved via logFoodToMeal/find_or_create_meal (items not dropped)
+    expect(mockFindOrCreateMeal).toHaveBeenCalled()
+    expect(mockFindOrCreateMeal.mock.calls[0][1].mealType).toBe('lunch')
   })
 
   it('appends same-type items directly to the target meal', async () => {
@@ -212,7 +211,8 @@ describe('appendItemsToMeal — routing of mismatched meal types', () => {
 
     expect(result).not.toBeNull()
     expect(mockAddMealItems).toHaveBeenCalledWith(expect.anything(), 'b1', expect.any(Array))
-    expect(mockCreateMeal).not.toHaveBeenCalled()
+    // same-type items append directly to the target meal — no routing via logFoodToMeal.
+    expect(mockFindOrCreateMeal).not.toHaveBeenCalled()
     expect(result!.newTotal).toBe(278)
   })
 
@@ -231,8 +231,7 @@ describe('appendItemsToMeal — routing of mismatched meal types', () => {
       if (String(base).toLowerCase().includes('pao') || String(base).toLowerCase().includes('pão')) return [{ id: 9, foodName: 'Pão francês', foodBase: 'Pão', foodVariant: 'francês', caloriesPer100g: 132, proteinPer100g: 4, carbsPer100g: 26, fatPer100g: 2, isDefault: true }]
       return [{ id: 7, foodName: 'Frango grelhado', foodBase: 'Frango', foodVariant: 'grelhado', caloriesPer100g: 159, proteinPer100g: 32, carbsPer100g: 0, fatPer100g: 3, isDefault: true }]
     })
-    mockFindMealByTypeForDay.mockResolvedValue(null)
-    mockCreateMeal.mockResolvedValue('lunch-1')
+    mockFindOrCreateMeal.mockResolvedValue({ mealId: 'lunch-1', wasAppend: false })
     mockRecalculateMealTotal.mockResolvedValue(278)
 
     const { appendItemsToMeal } = await import('@/lib/bot/flows/meal-log')
@@ -241,8 +240,9 @@ describe('appendItemsToMeal — routing of mismatched meal types', () => {
     expect(result).not.toBeNull()
     // same-type (Pão) appended to target b1
     expect(mockAddMealItems).toHaveBeenCalledWith(expect.anything(), 'b1', expect.arrayContaining([expect.objectContaining({ foodName: 'Pão' })]))
-    // other-type (Frango) routed to its own lunch meal
-    expect(mockCreateMeal).toHaveBeenCalled()
+    // other-type (Frango) routed to its own lunch meal via logFoodToMeal/find_or_create_meal
+    expect(mockFindOrCreateMeal).toHaveBeenCalled()
+    expect(mockFindOrCreateMeal.mock.calls[0][1].mealType).toBe('lunch')
     // added includes BOTH
     expect(result!.added.map(i => i.food).sort()).toEqual(['Frango', 'Pão'])
   })

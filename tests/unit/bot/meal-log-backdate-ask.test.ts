@@ -11,7 +11,7 @@ const {
   mockGetLLMProvider,
   mockAnalyzeMeal,
   mockDecomposeMeal,
-  mockCreateMeal,
+  mockFindOrCreateMeal,
   mockGetDailyCalories,
   mockGetDailyMacros,
   mockFormatMealBreakdown,
@@ -33,7 +33,6 @@ const {
   mockShouldUseProductFlow,
   mockHandleStartOffChoice,
   mockHandleStartLabelInput,
-  mockFindMealByTypeForDay,
   mockGetMealWithItems,
 } = vi.hoisted(() => {
   const mockAnalyzeMeal = vi.fn()
@@ -49,7 +48,7 @@ const {
       classifyIntent: vi.fn(),
       chat: vi.fn(),
     })),
-    mockCreateMeal: vi.fn().mockResolvedValue('meal-id-123'),
+    mockFindOrCreateMeal: vi.fn().mockResolvedValue({ mealId: 'meal-id-123', wasAppend: false }),
     mockGetDailyCalories: vi.fn().mockResolvedValue(800),
     mockGetDailyMacros: vi.fn().mockResolvedValue({ calories: 800, proteinG: 40, carbsG: 100, fatG: 20 }),
     mockFormatMealBreakdown: vi.fn().mockReturnValue('Breakdown message\nAlgo errado? Manda "corrigir"'),
@@ -76,7 +75,6 @@ const {
     mockShouldUseProductFlow: vi.fn().mockResolvedValue(false),
     mockHandleStartOffChoice: vi.fn().mockResolvedValue({ response: 'Escolha um produto', completed: false }),
     mockHandleStartLabelInput: vi.fn().mockResolvedValue({ response: 'Envie o rótulo', completed: false }),
-    mockFindMealByTypeForDay: vi.fn().mockResolvedValue(null),
     mockGetMealWithItems: vi.fn().mockResolvedValue(null),
   }
 })
@@ -94,11 +92,10 @@ vi.mock('@/lib/llm/index', () => ({
 }))
 
 vi.mock('@/lib/db/queries/meals', () => ({
-  createMeal: mockCreateMeal,
+  findOrCreateMeal: mockFindOrCreateMeal,
   getDailyCalories: mockGetDailyCalories,
   getDailyMacros: mockGetDailyMacros,
   getMealWithItems: mockGetMealWithItems,
-  findMealByTypeForDay: mockFindMealByTypeForDay,
   addMealItems: vi.fn().mockResolvedValue(undefined),
   recalculateMealTotal: vi.fn().mockResolvedValue(278),
   getDayBoundsForTimezone: vi.fn(() => ({
@@ -181,7 +178,7 @@ describe('handleMealLog — backdated log asks for meal type', () => {
     mockTryProductLookup.mockResolvedValue({ kind: 'skip' })
     mockShouldUseProductFlow.mockResolvedValue(false)
     mockGetRecentMessages.mockResolvedValue([])
-    mockFindMealByTypeForDay.mockResolvedValue(null)
+    mockFindOrCreateMeal.mockResolvedValue({ mealId: 'meal-id-123', wasAppend: false })
     mockGetMealWithItems.mockResolvedValue(null)
   })
 
@@ -196,14 +193,13 @@ describe('handleMealLog — backdated log asks for meal type', () => {
     const res = await handleMealLog(buildSupabase(), USER_ID, 'ontem comi 2 ovos', { calorieMode: 'taco', dailyCalorieTarget: 2168 }, null)
 
     expect(mockSetState).toHaveBeenCalledWith(USER_ID, 'awaiting_meal_type', expect.objectContaining({ originalMessage: 'ontem comi 2 ovos' }))
-    expect(mockCreateMeal).not.toHaveBeenCalled()
+    expect(mockFindOrCreateMeal).not.toHaveBeenCalled()
     expect(res.completed).toBe(false)
     expect(res.response.toLowerCase()).toContain('refeição')
   })
 
   it('registers on the chosen meal type for the backdated day', async () => {
-    mockFindMealByTypeForDay.mockResolvedValue(null)
-    mockCreateMeal.mockResolvedValue('m-back')
+    mockFindOrCreateMeal.mockResolvedValue({ mealId: 'm-back', wasAppend: false })
     mockGetMealWithItems.mockResolvedValue({ id: 'm-back', mealType: 'breakfast', totalCalories: 146, registeredAt: 'x', items: [{ id: '1', foodName: 'Ovo', quantityGrams: 100, quantityDisplay: '2 ovos', calories: 146, proteinG: 12, carbsG: 1, fatG: 10, source: 'taco', confidence: 'high' }] })
 
     const ctx = {
@@ -218,10 +214,11 @@ describe('handleMealLog — backdated log asks for meal type', () => {
     const res = await handleMealLog(buildSupabase(), USER_ID, 'café da manhã', { calorieMode: 'taco', dailyCalorieTarget: 2168 }, ctx)
 
     expect(res.completed).toBe(true)
-    expect(mockCreateMeal).toHaveBeenCalled()
-    const createArg = mockCreateMeal.mock.calls[0][1]
-    expect(createArg.mealType).toBe('breakfast')
-    expect(createArg.registeredAt).toBeInstanceOf(Date) // backdated
+    expect(mockFindOrCreateMeal).toHaveBeenCalled()
+    // logFoodToMeal now hands the meal_type + backdated registeredAt to find_or_create_meal.
+    const input = mockFindOrCreateMeal.mock.calls[0][1]
+    expect(input.mealType).toBe('breakfast')
+    expect(input.registeredAt).toBeInstanceOf(Date) // backdated
   })
 
   it('re-asks (without clearing state) when the reply is not a recognizable meal', async () => {
@@ -238,7 +235,7 @@ describe('handleMealLog — backdated log asks for meal type', () => {
     expect(res.completed).toBe(false)
     expect(res.response.toLowerCase()).toContain('não entendi')
     expect(mockClearState).not.toHaveBeenCalled()
-    expect(mockCreateMeal).not.toHaveBeenCalled()
+    expect(mockFindOrCreateMeal).not.toHaveBeenCalled()
   })
 
   // #6 — a backdated log that NEEDS a quantity must STILL ask the meal type first
@@ -259,7 +256,7 @@ describe('handleMealLog — backdated log asks for meal type', () => {
     const firstRes = await handleMealLog(buildSupabase(), USER_ID, 'ontem comi arroz', { calorieMode: 'taco', dailyCalorieTarget: 2168 }, null)
     expect(firstRes.completed).toBe(false)
     expect(mockSetState).toHaveBeenCalledWith(USER_ID, 'awaiting_meal_type', expect.objectContaining({ originalMessage: 'ontem comi arroz' }))
-    expect(mockCreateMeal).not.toHaveBeenCalled()
+    expect(mockFindOrCreateMeal).not.toHaveBeenCalled()
     // The early ask must short-circuit BEFORE the bulk-quantity triage.
     expect(mockSetState).not.toHaveBeenCalledWith(USER_ID, 'awaiting_bulk_quantities', expect.anything())
 
@@ -278,7 +275,7 @@ describe('handleMealLog — backdated log asks for meal type', () => {
     expect(reconstructed.toLowerCase()).toContain('arroz')
     // arroz still has no quantity → re-run lands in the bulk-quantity flow, no meal created yet.
     expect(secondRes.completed).toBe(false)
-    expect(mockCreateMeal).not.toHaveBeenCalled()
+    expect(mockFindOrCreateMeal).not.toHaveBeenCalled()
     expect(mockSetState).toHaveBeenCalledWith(USER_ID, 'awaiting_bulk_quantities', expect.objectContaining({ meal_type: 'lunch' }))
   })
 
@@ -292,7 +289,7 @@ describe('handleMealLog — backdated log asks for meal type', () => {
       unknown_items: [], needs_clarification: false,
     }])
     mockMatchTacoByBase.mockResolvedValue([{ id: 9, foodName: 'Arroz', foodBase: 'Arroz', foodVariant: 'cozido', caloriesPer100g: 130, proteinPer100g: 2.5, carbsPer100g: 28, fatPer100g: 0.2, isDefault: true }])
-    mockCreateMeal.mockResolvedValue('m-arroz')
+    mockFindOrCreateMeal.mockResolvedValue({ mealId: 'm-arroz', wasAppend: false })
     // recent_meal seeding reads the saved meal back via getMealWithItems.
     mockGetMealWithItems.mockResolvedValue({ id: 'm-arroz', mealType: 'lunch', totalCalories: 195, registeredAt: 'x', items: [{ id: '1', foodName: 'arroz', quantityGrams: 150, quantityDisplay: '4 colheres', calories: 195, proteinG: 3.8, carbsG: 42, fatG: 0.3, source: 'taco', confidence: 'high' }] })
 
@@ -305,8 +302,8 @@ describe('handleMealLog — backdated log asks for meal type', () => {
     const res = await handleMealLog(buildSupabase(), USER_ID, 'almoço', { calorieMode: 'taco', dailyCalorieTarget: 2168 }, ctx)
 
     expect(res.completed).toBe(true)
-    expect(mockCreateMeal).toHaveBeenCalled()
-    expect(mockCreateMeal.mock.calls[0][1].mealType).toBe('lunch')
+    expect(mockFindOrCreateMeal).toHaveBeenCalled()
+    expect(mockFindOrCreateMeal.mock.calls[0][1].mealType).toBe('lunch')
     // The text re-run seeds recent_meal via analyzeAndRegister's saveRecentMealState.
     expect(mockSetState).toHaveBeenCalledWith(USER_ID, 'recent_meal', expect.objectContaining({ mealId: 'm-arroz' }))
   })
@@ -322,18 +319,17 @@ describe('handleMealLog — backdated log asks for meal type', () => {
     }])
     // exactly one history match → single-match branch
     mockSearchMealHistory.mockResolvedValue([{ foodName: 'Açaí', quantityGrams: 100, calories: 80, protein: 1, carbs: 18, fat: 0.5, tacoId: null, registeredAt: '2026-05-29T12:00:00Z' }])
-    mockFindMealByTypeForDay.mockResolvedValue(null)
-    mockCreateMeal.mockResolvedValue('m-ref')
+    mockFindOrCreateMeal.mockResolvedValue({ mealId: 'm-ref', wasAppend: false })
     mockGetMealWithItems.mockResolvedValue({ id: 'm-ref', mealType: 'snack', totalCalories: 80, registeredAt: 'x', items: [{ id: '1', foodName: 'Açaí', quantityGrams: 100, quantityDisplay: null, calories: 80, proteinG: 1, carbsG: 18, fatG: 0.5, source: 'user_history', confidence: 'high' }] })
 
     const res = await handleMealLog(buildSupabase(), USER_ID, 'igual aquele açaí de ontem', { calorieMode: 'taco', dailyCalorieTarget: 2168 }, null)
 
     expect(res.completed).toBe(true)
     expect(mockSetState).not.toHaveBeenCalledWith(USER_ID, 'awaiting_meal_type', expect.anything()) // no ask
-    expect(mockCreateMeal).toHaveBeenCalled()
+    expect(mockFindOrCreateMeal).toHaveBeenCalled()
     // KEY: registered for TODAY (logFoodToMeal leaves registeredAt undefined when targetDate == today),
     // NOT backdated to yesterday. If the references guard regressed, targetDate would be yesterday → registeredAt a Date.
-    const createArg = mockCreateMeal.mock.calls[0][1]
-    expect(createArg.registeredAt).toBeUndefined()
+    const input = mockFindOrCreateMeal.mock.calls[0][1]
+    expect(input.registeredAt).toBeUndefined()
   })
 })

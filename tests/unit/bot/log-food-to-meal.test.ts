@@ -1,19 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const {
-  mockFindMealByTypeForDay, mockCreateMeal, mockAddMealItems,
+  mockFindOrCreateMeal, mockAddMealItems,
   mockRecalculateMealTotal, mockGetMealWithItems,
 } = vi.hoisted(() => ({
-  mockFindMealByTypeForDay: vi.fn(),
-  mockCreateMeal: vi.fn(),
+  mockFindOrCreateMeal: vi.fn(),
   mockAddMealItems: vi.fn().mockResolvedValue(undefined),
   mockRecalculateMealTotal: vi.fn(),
   mockGetMealWithItems: vi.fn(),
 }))
 
 vi.mock('@/lib/db/queries/meals', () => ({
-  findMealByTypeForDay: mockFindMealByTypeForDay,
-  createMeal: mockCreateMeal,
+  findOrCreateMeal: mockFindOrCreateMeal,
   addMealItems: mockAddMealItems,
   recalculateMealTotal: mockRecalculateMealTotal,
   getMealWithItems: mockGetMealWithItems,
@@ -36,7 +34,8 @@ beforeEach(() => {
 
 describe('logFoodToMeal', () => {
   it('appends to an existing meal of the same type/day and returns the consolidated meal', async () => {
-    mockFindMealByTypeForDay.mockResolvedValue({ id: 'meal-1', mealType: 'breakfast', totalCalories: 212, registeredAt: 'x' })
+    // find-or-create resolved to an EXISTING meal → wasAppend true (consolidation).
+    mockFindOrCreateMeal.mockResolvedValue({ mealId: 'meal-1', wasAppend: true })
     mockRecalculateMealTotal.mockResolvedValue(292)
     mockGetMealWithItems.mockResolvedValue({
       id: 'meal-1', mealType: 'breakfast', totalCalories: 292, registeredAt: 'x',
@@ -52,7 +51,9 @@ describe('logFoodToMeal', () => {
       originalMessage: 'comi também 67g de açaí', targetDate: new Date('2026-05-29T12:00:00Z'),
     })
 
-    expect(mockCreateMeal).not.toHaveBeenCalled()
+    // The append/create branch is now fully inside find_or_create_meal; logFoodToMeal
+    // always adds items + recalcs on whatever mealId it returns.
+    expect(mockFindOrCreateMeal).toHaveBeenCalledTimes(1)
     expect(mockAddMealItems).toHaveBeenCalledWith(supabase, 'meal-1', [ITEM])
     expect(mockRecalculateMealTotal).toHaveBeenCalledWith(supabase, 'meal-1')
     expect(result.wasAppend).toBe(true)
@@ -63,8 +64,9 @@ describe('logFoodToMeal', () => {
   })
 
   it('creates a new meal when none exists for the day/type', async () => {
-    mockFindMealByTypeForDay.mockResolvedValue(null)
-    mockCreateMeal.mockResolvedValue('new-meal')
+    // find-or-create returned a freshly-created meal → wasAppend false.
+    mockFindOrCreateMeal.mockResolvedValue({ mealId: 'new-meal', wasAppend: false })
+    mockRecalculateMealTotal.mockResolvedValue(80)
     mockGetMealWithItems.mockResolvedValue({
       id: 'new-meal', mealType: 'breakfast', totalCalories: 80, registeredAt: 'x',
       items: [{ id: 'c', foodName: 'Açaí', quantityGrams: 67, quantityDisplay: null, calories: 80, proteinG: 1, carbsG: 18, fatG: 0.5, source: 'manual', confidence: 'high' }],
@@ -75,16 +77,18 @@ describe('logFoodToMeal', () => {
       targetDate: new Date(),
     })
 
-    expect(mockCreateMeal).toHaveBeenCalledTimes(1)
-    const createArg = mockCreateMeal.mock.calls[0][1]
-    expect(createArg.registeredAt).toBeUndefined()
+    expect(mockFindOrCreateMeal).toHaveBeenCalledTimes(1)
+    // Today's log → no backdate, registeredAt left undefined for the RPC.
+    const input = mockFindOrCreateMeal.mock.calls[0][1]
+    expect(input.registeredAt).toBeUndefined()
+    expect(mockAddMealItems).toHaveBeenCalledWith(supabase, 'new-meal', [ITEM])
     expect(result.wasAppend).toBe(false)
     expect(result.mealId).toBe('new-meal')
   })
 
   it('backdates registered_at to local noon when the target day is not today', async () => {
-    mockFindMealByTypeForDay.mockResolvedValue(null)
-    mockCreateMeal.mockResolvedValue('back-meal')
+    mockFindOrCreateMeal.mockResolvedValue({ mealId: 'back-meal', wasAppend: false })
+    mockRecalculateMealTotal.mockResolvedValue(80)
     mockGetMealWithItems.mockResolvedValue({ id: 'back-meal', mealType: 'dinner', totalCalories: 80, registeredAt: 'x', items: [] })
 
     await logFoodToMeal(supabase, {
@@ -92,8 +96,9 @@ describe('logFoodToMeal', () => {
       targetDate: new Date('2026-05-28T12:00:00Z'),
     })
 
-    const createArg = mockCreateMeal.mock.calls[0][1]
-    expect(createArg.registeredAt).toBeInstanceOf(Date)
-    expect((createArg.registeredAt as Date).toISOString()).toBe('2026-05-28T15:00:00.000Z')
+    // Backdate is now computed in logFoodToMeal and passed to find_or_create_meal as registeredAt.
+    const input = mockFindOrCreateMeal.mock.calls[0][1]
+    expect(input.registeredAt).toBeInstanceOf(Date)
+    expect((input.registeredAt as Date).toISOString()).toBe('2026-05-28T15:00:00.000Z')
   })
 })

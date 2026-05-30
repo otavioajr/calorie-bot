@@ -12,7 +12,7 @@ const {
   mockGetLLMProvider,
   mockAnalyzeMeal,
   mockDecomposeMeal,
-  mockCreateMeal,
+  mockFindOrCreateMeal,
   mockGetDailyCalories,
   mockGetDailyMacros,
   mockFormatMealBreakdown,
@@ -47,7 +47,7 @@ const {
       classifyIntent: vi.fn(),
       chat: vi.fn(),
     })),
-    mockCreateMeal: vi.fn().mockResolvedValue('meal-id-123'),
+    mockFindOrCreateMeal: vi.fn().mockResolvedValue({ mealId: 'meal-id-123', wasAppend: false }),
     mockGetDailyCalories: vi.fn().mockResolvedValue(800),
     mockGetDailyMacros: vi.fn().mockResolvedValue({ calories: 800, proteinG: 40, carbsG: 100, fatG: 20 }),
     mockFormatMealBreakdown: vi.fn().mockReturnValue('Breakdown message\nAlgo errado? Manda "corrigir"'),
@@ -92,11 +92,10 @@ vi.mock('@/lib/llm/index', () => ({
 }))
 
 vi.mock('@/lib/db/queries/meals', () => ({
-  createMeal: mockCreateMeal,
+  findOrCreateMeal: mockFindOrCreateMeal,
   getDailyCalories: mockGetDailyCalories,
   getDailyMacros: mockGetDailyMacros,
   getMealWithItems: vi.fn().mockResolvedValue({ id: 'meal-id-123', mealType: 'lunch', totalCalories: 0, registeredAt: 'x', items: [] }),
-  findMealByTypeForDay: vi.fn().mockResolvedValue(null),
   addMealItems: vi.fn().mockResolvedValue(undefined),
   recalculateMealTotal: vi.fn().mockResolvedValue(undefined),
   getDayBoundsForTimezone: vi.fn(() => ({ startOfDay: new Date(0), endOfDay: new Date(0) })),
@@ -281,7 +280,7 @@ describe('handleMealLog', () => {
       classifyIntent: vi.fn(),
       chat: vi.fn(),
     })
-    mockCreateMeal.mockResolvedValue('meal-id-123')
+    mockFindOrCreateMeal.mockResolvedValue({ mealId: 'meal-id-123', wasAppend: false })
     mockGetDailyCalories.mockResolvedValue(800)
     mockFormatMealBreakdown.mockReturnValue('Breakdown message\nAlgo errado? Manda "corrigir"')
     mockFormatProgress.mockReturnValue('📊 Hoje: 800 / 2000 kcal (restam 1200)')
@@ -320,7 +319,7 @@ describe('handleMealLog', () => {
         [],
         expect.any(String),
       )
-      expect(mockCreateMeal).toHaveBeenCalled()
+      expect(mockFindOrCreateMeal).toHaveBeenCalled()
       expect(result.completed).toBe(true)
     })
 
@@ -560,7 +559,7 @@ describe('handleMealLog', () => {
         context,
       )
 
-      expect(mockCreateMeal).toHaveBeenCalled()
+      expect(mockFindOrCreateMeal).toHaveBeenCalled()
       expect(result.completed).toBe(true)
     })
 
