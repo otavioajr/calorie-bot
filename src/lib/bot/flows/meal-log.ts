@@ -105,15 +105,19 @@ export async function logFoodToMeal(
     await addMealItems(supabase, existing.id, params.items)
     await recalculateMealTotal(supabase, existing.id)
     const meal = await getMealWithItems(supabase, existing.id)
+    if (!meal) throw new Error(`Meal ${existing.id} not found after append`)
     return {
       wasAppend: true,
       mealId: existing.id,
       addedItems: params.items,
-      meal: meal!,
+      meal,
     }
   }
 
   // New meal. Backdate registered_at to local noon when target day != today.
+  // Backdate registered_at to ~local noon of the target day (12h after local midnight).
+  // The 12h offset can drift ±1h on DST-transition days, but never out of the correct local day.
+  // (Default America/Sao_Paulo has no DST.)
   let registeredAt: Date | undefined
   if (localDateString(targetDate, timezone) !== localDateString(now, timezone)) {
     const { startOfDay } = getDayBoundsForTimezone(targetDate, timezone)
@@ -131,11 +135,12 @@ export async function logFoodToMeal(
     registeredAt,
   })
   const meal = await getMealWithItems(supabase, mealId)
+  if (!meal) throw new Error(`Meal ${mealId} not found after create`)
   return {
     wasAppend: false,
     mealId,
     addedItems: params.items,
-    meal: meal!,
+    meal,
   }
 }
 
