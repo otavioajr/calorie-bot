@@ -3,7 +3,7 @@ import { getLLMProvider } from '@/lib/llm/index'
 import type { MealAnalysis, MealItem } from '@/lib/llm/schemas/meal-analysis'
 import { setState, clearState } from '@/lib/bot/state'
 import type { ConversationContext } from '@/lib/bot/state'
-import { addMealItems, createMeal, getDailyCalories, getDailyMacros, recalculateMealTotal, getMealWithItems, findMealByTypeForDay, getDayBoundsForTimezone } from '@/lib/db/queries/meals'
+import { addMealItems, getDailyCalories, getDailyMacros, recalculateMealTotal, getMealWithItems, findOrCreateMeal, getDayBoundsForTimezone } from '@/lib/db/queries/meals'
 import type { MealItemInput, MealWithItems } from '@/lib/db/queries/meals'
 import { formatMealBreakdown, formatMultiMealBreakdown, formatProgress, formatSearchFeedback, formatDefaultNotice } from '@/lib/utils/formatters'
 import { getRecentMessages } from '@/lib/db/queries/message-history'
@@ -101,25 +101,9 @@ export async function logFoodToMeal(
   const now = params.now ?? new Date()
   const targetDate = params.targetDate ?? now
 
-  const existing = await findMealByTypeForDay(supabase, params.userId, params.mealType, targetDate, timezone)
-
-  if (existing) {
-    await addMealItems(supabase, existing.id, params.items)
-    await recalculateMealTotal(supabase, existing.id)
-    const meal = await getMealWithItems(supabase, existing.id)
-    if (!meal) throw new Error(`Meal ${existing.id} not found after append`)
-    return {
-      wasAppend: true,
-      mealId: existing.id,
-      addedItems: params.items,
-      meal,
-    }
-  }
-
-  // New meal. Backdate registered_at to local noon when target day != today.
-  // Backdate registered_at to ~local noon of the target day (12h after local midnight).
-  // The 12h offset can drift ±1h on DST-transition days, but never out of the correct local day.
-  // (Default America/Sao_Paulo has no DST.)
+  // Backdate registered_at to ~local noon of the target day (12h after local midnight)
+  // when the target day != today. The 12h offset can drift ±1h on DST-transition days,
+  // but never out of the correct local day. (Default America/Sao_Paulo has no DST.)
   let registeredAt: Date | undefined
   if (localDateString(targetDate, timezone) !== localDateString(now, timezone)) {
     const { startOfDay } = getDayBoundsForTimezone(targetDate, timezone)
@@ -127,19 +111,28 @@ export async function logFoodToMeal(
   }
 
   const totalCalories = Math.round(params.items.reduce((sum, i) => sum + i.calories, 0))
-  const mealId = await createMeal(supabase, {
+
+  // Atomic find-or-create (advisory lock keyed on user/day/meal_type) prevents
+  // concurrent logs from each inserting a duplicate meal row. Both the append and
+  // create paths then run the SAME consolidation steps below.
+  const { mealId, wasAppend } = await findOrCreateMeal(supabase, {
     userId: params.userId,
     mealType: params.mealType,
+    date: targetDate,
+    timezone,
     totalCalories,
     originalMessage: params.originalMessage,
     llmResponse: params.llmResponse ?? {},
-    items: params.items,
     registeredAt,
   })
+
+  await addMealItems(supabase, mealId, params.items)
+  await recalculateMealTotal(supabase, mealId)
   const meal = await getMealWithItems(supabase, mealId)
-  if (!meal) throw new Error(`Meal ${mealId} not found after create`)
+  if (!meal) throw new Error(`Meal ${mealId} not found after log`)
+
   return {
-    wasAppend: false,
+    wasAppend,
     mealId,
     addedItems: params.items,
     meal,

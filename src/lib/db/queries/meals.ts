@@ -700,3 +700,54 @@ export async function findMealByTypeForDay(
     registeredAt: row.registered_at as string,
   }
 }
+
+// ---------------------------------------------------------------------------
+// findOrCreateMeal (atomic find-or-create via RPC)
+// ---------------------------------------------------------------------------
+
+export interface FindOrCreateMealInput {
+  userId: string
+  mealType: string
+  date: Date
+  timezone?: string
+  totalCalories: number
+  originalMessage: string
+  llmResponse?: unknown
+  registeredAt?: Date
+}
+
+/**
+ * Atomically find-or-create the (earliest) meal of the given type for the user
+ * on the given local day. Backed by the `find_or_create_meal` Postgres function,
+ * which takes a transaction-scoped advisory lock keyed on (user, day, meal_type)
+ * so concurrent same-key logs cannot each insert a duplicate meal row.
+ *
+ * Returns the meal id and whether it already existed (append) or was created.
+ */
+export async function findOrCreateMeal(
+  supabase: SupabaseClient,
+  input: FindOrCreateMealInput,
+): Promise<{ mealId: string; wasAppend: boolean }> {
+  const timezone = input.timezone ?? 'America/Sao_Paulo'
+  const { startOfDay, endOfDay } = getDayBoundsForTimezone(input.date, timezone)
+
+  const { data, error } = await supabase.rpc('find_or_create_meal', {
+    p_user_id: input.userId,
+    p_meal_type: input.mealType,
+    p_day_start: startOfDay.toISOString(),
+    p_day_end: endOfDay.toISOString(),
+    p_total_calories: input.totalCalories,
+    p_original_message: input.originalMessage,
+    p_llm_response: (input.llmResponse ?? {}) as Record<string, unknown>,
+    p_registered_at: input.registeredAt ? input.registeredAt.toISOString() : null,
+  })
+
+  if (error) throw new Error(`Failed to find or create meal: ${error.message}`)
+
+  const row = (Array.isArray(data) ? data[0] : data) as
+    | { meal_id: string; was_append: boolean }
+    | undefined
+  if (!row) throw new Error('find_or_create_meal returned no row')
+
+  return { mealId: row.meal_id, wasAppend: row.was_append }
+}
