@@ -26,7 +26,7 @@ import {
 import { getLLMProvider } from '@/lib/llm/index'
 import { sendTextMessage } from '@/lib/whatsapp/client'
 import { formatOutOfScope, formatError } from '@/lib/utils/formatters'
-import { parseDateFromMessage, formatDateLabel } from '@/lib/utils/relative-date'
+import { parseDateFromMessage, formatDateLabel, localDateString } from '@/lib/utils/relative-date'
 import { downloadAudioMedia, transcribeAudio, AudioTooLargeError } from '@/lib/audio/transcribe'
 import { downloadWhatsAppMedia, MediaTooLargeError } from '@/lib/whatsapp/media'
 import { detectMimeType } from '@/lib/whatsapp/mime'
@@ -38,7 +38,7 @@ import type { QuoteContext } from '@/lib/bot/quote'
 import { saveBotMessage } from '@/lib/db/queries/bot-messages'
 import { extractLabelGramsFromCaption, extractLabelPortionsFromCaption } from '@/lib/bot/label-portions'
 import { scaleNutritionLabelItem } from '@/lib/bot/nutrition-label'
-import { getUserLocalTime, resolveMealTypeFromContext } from '@/lib/utils/meal-time'
+import { getUserLocalTime, resolveMealTypeFromContext, detectExplicitMealType } from '@/lib/utils/meal-time'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ImageAnalysis } from '@/lib/llm/schemas/image-analysis'
 import type { MealAnalysis, MealItem } from '@/lib/llm/schemas/meal-analysis'
@@ -909,6 +909,30 @@ export async function handleIncomingImage(
     const { date: targetDate } = parseDateFromMessage(originalMessage, user.timezone)
     const dateLabel = formatDateLabel(targetDate, user.timezone)
 
+    // Backdated photo without an explicit meal type → ask which meal before logging.
+    // Time-of-day classification reflects NOW, not the backdated day, so it would misfile.
+    const backdated = localDateString(targetDate, user.timezone) !== localDateString(new Date(), user.timezone)
+    if (backdated && !detectExplicitMealType(originalMessage)) {
+      await setState(user.id, 'awaiting_meal_type', {
+        items: mealAnalysis.items.map((item) => ({
+          foodName: item.food,
+          quantityGrams: item.quantity_grams ?? 0,
+          calories: item.calories ?? 0,
+          proteinG: item.protein ?? 0,
+          carbsG: item.carbs ?? 0,
+          fatG: item.fat ?? 0,
+          source: 'manual' as const,
+        })) as unknown as Record<string, unknown>,
+        targetDateISO: targetDate.toISOString(),
+        originalMessage,
+      })
+      const askMsg = 'Essa foto é de outro dia. Em qual refeição? (café da manhã, almoço, lanche, jantar ou ceia)'
+      const askSentId = await sendTextMessage(from, askMsg)
+      saveHistory(supabase, user.id, caption || '[imagem de alimento]', askMsg)
+      await saveBotMessages(supabase, user.id, messageId, askSentId, null, null)
+      return
+    }
+
     const logResult = await logFoodToMeal(supabase, {
       userId: user.id,
       mealType: mealAnalysis.meal_type,
@@ -973,6 +997,28 @@ async function handleLabelPortions(
   const originalMessage = (context.contextData.originalMessage as string) || '[imagem]'
   const { date: targetDate } = parseDateFromMessage(originalMessage, user.timezone)
   const dateLabel = formatDateLabel(targetDate, user.timezone)
+
+  // Backdated label photo without an explicit meal type → ask which meal before logging.
+  const backdated = localDateString(targetDate, user.timezone) !== localDateString(new Date(), user.timezone)
+  if (backdated && !detectExplicitMealType(originalMessage)) {
+    await setState(userId, 'awaiting_meal_type', {
+      items: multipliedItems.map((item) => ({
+        foodName: item.food,
+        quantityGrams: item.quantity_grams ?? 0,
+        calories: item.calories ?? 0,
+        proteinG: item.protein ?? 0,
+        carbsG: item.carbs ?? 0,
+        fatG: item.fat ?? 0,
+        source: 'manual' as const,
+      })) as unknown as Record<string, unknown>,
+      targetDateISO: targetDate.toISOString(),
+      originalMessage,
+    })
+    const askMsg = 'Essa foto é de outro dia. Em qual refeição? (café da manhã, almoço, lanche, jantar ou ceia)'
+    const askSentId = await sendTextMessage(from, askMsg)
+    await saveBotMessages(supabase, userId, incomingMessageId, askSentId, null, null)
+    return
+  }
 
   const logResult = await logFoodToMeal(supabase, {
     userId,

@@ -1563,6 +1563,72 @@ describe('handleIncomingImage', () => {
     expect(sent).toContain('Total: 292 kcal')
   })
 
+  it('asks which meal for a backdated food photo without an explicit meal type', async () => {
+    mockAnalyzeImage.mockResolvedValue({
+      image_type: 'food',
+      meal_type: 'snack',
+      confidence: 'high',
+      items: [{ food: 'Arroz', quantity_grams: 150, calories: 195, protein: 4, carbs: 42, fat: 0.5 }],
+      unknown_items: [],
+      needs_clarification: false,
+    })
+
+    await handleIncomingImage(FROM, MESSAGE_ID, IMAGE_ID, 'ontem comi isso')
+
+    // Does NOT log yet — it asks the meal type first.
+    expect(mockLogFoodToMeal).not.toHaveBeenCalled()
+    expect(mockSetState).toHaveBeenCalledWith(
+      completedUser.id,
+      'awaiting_meal_type',
+      expect.objectContaining({
+        items: expect.arrayContaining([
+          expect.objectContaining({ foodName: 'Arroz', quantityGrams: 150 }),
+        ]),
+        targetDateISO: expect.any(String),
+        originalMessage: 'ontem comi isso',
+      }),
+    )
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('Essa foto é de outro dia'))
+  })
+
+  it('asks which meal for a backdated nutrition-label photo without an explicit meal type', async () => {
+    mockAnalyzeImage.mockResolvedValue({
+      image_type: 'nutrition_label',
+      meal_type: 'snack',
+      confidence: 'high',
+      items: [{ food: 'Granola', quantity_grams: 40, nutrition_basis_grams: 40, calories: 180, protein: 4, carbs: 28, fat: 6 }],
+      unknown_items: [],
+      needs_clarification: false,
+    })
+
+    // Caption supplies portions (so it routes through handleLabelPortions) AND a backdate, but no meal type.
+    await handleIncomingImage(FROM, MESSAGE_ID, IMAGE_ID, 'ontem comi 2 porções')
+
+    expect(mockLogFoodToMeal).not.toHaveBeenCalled()
+    expect(mockSetState).toHaveBeenCalledWith(
+      completedUser.id,
+      'awaiting_meal_type',
+      expect.objectContaining({
+        items: expect.any(Array),
+        targetDateISO: expect.any(String),
+        originalMessage: 'ontem comi 2 porções',
+      }),
+    )
+    expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('Essa foto é de outro dia'))
+  })
+
+  it('logs a non-backdated food photo immediately (no meal-type ask)', async () => {
+    // Default caption has no date word → not backdated → logs right away.
+    await handleIncomingImage(FROM, MESSAGE_ID, IMAGE_ID, 'meu almoço')
+
+    expect(mockLogFoodToMeal).toHaveBeenCalledTimes(1)
+    expect(mockSetState).not.toHaveBeenCalledWith(
+      expect.anything(),
+      'awaiting_meal_type',
+      expect.anything(),
+    )
+  })
+
   it('sends clarification message when LLM returns needs_clarification', async () => {
     mockAnalyzeImage.mockResolvedValue({
       image_type: 'food',
