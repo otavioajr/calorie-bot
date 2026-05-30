@@ -25,12 +25,35 @@ export interface DateParseResult {
   wasExplicit: boolean
 }
 
+const WEEKDAY_INDEX: Record<string, number> = {
+  Sun: 0,
+  Mon: 1,
+  Tue: 2,
+  Wed: 3,
+  Thu: 4,
+  Fri: 5,
+  Sat: 6,
+}
+
+/** Day-of-week (0=Sunday..6=Saturday) of an instant in the user's timezone. */
+function localWeekdayIndex(date: Date, timezone: string): number {
+  const short = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'short' }).format(date)
+  return WEEKDAY_INDEX[short] ?? date.getUTCDay()
+}
+
 /**
  * Parses a relative date reference ("ontem", "anteontem", "hoje", weekday, "dia X")
  * out of a message. Returns an instant offset from `now` and whether the reference
  * was explicit. When nothing is found, returns `now` with wasExplicit=false.
+ *
+ * Weekday references ("segunda", "sábado", …) are resolved against the user's
+ * LOCAL weekday (in `timezone`), so they don't shift by a day near UTC midnight.
  */
-export function parseDateFromMessage(message: string, now?: Date): DateParseResult {
+export function parseDateFromMessage(
+  message: string,
+  timezone: string = 'America/Sao_Paulo',
+  now?: Date,
+): DateParseResult {
   const normalized = normalize(message)
   const today = now ?? new Date()
 
@@ -52,7 +75,7 @@ export function parseDateFromMessage(message: string, now?: Date): DateParseResu
 
   for (const [name, dayIndex] of Object.entries(WEEKDAY_MAP)) {
     if (normalized.includes(name)) {
-      const currentDay = today.getUTCDay()
+      const currentDay = localWeekdayIndex(today, timezone)
       let diff = currentDay - dayIndex
       if (diff < 0) diff += 7
       const d = new Date(today)

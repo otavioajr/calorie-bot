@@ -195,7 +195,7 @@ async function registerConfirmedProductMeal(
 ): Promise<{ response: string; mealId: string }> {
   const items = await buildConfirmedProductMealItems(supabase, userId, pendingMeal, product, quantityGrams)
 
-  const { date: targetDate } = parseDateFromMessage(pendingMeal.originalMessage)
+  const { date: targetDate } = parseDateFromMessage(pendingMeal.originalMessage, user.timezone)
   const dateLabel = formatDateLabel(targetDate, user.timezone)
 
   const logResult = await logFoodToMeal(supabase, {
@@ -906,7 +906,7 @@ export async function handleIncomingImage(
     }
 
     const originalMessage = caption || '[imagem]'
-    const { date: targetDate } = parseDateFromMessage(originalMessage)
+    const { date: targetDate } = parseDateFromMessage(originalMessage, user.timezone)
     const dateLabel = formatDateLabel(targetDate, user.timezone)
 
     const logResult = await logFoodToMeal(supabase, {
@@ -971,7 +971,7 @@ async function handleLabelPortions(
   }
 
   const originalMessage = (context.contextData.originalMessage as string) || '[imagem]'
-  const { date: targetDate } = parseDateFromMessage(originalMessage)
+  const { date: targetDate } = parseDateFromMessage(originalMessage, user.timezone)
   const dateLabel = formatDateLabel(targetDate, user.timezone)
 
   const logResult = await logFoodToMeal(supabase, {

@@ -135,7 +135,7 @@ export async function handleMealDetail(
 
   // 1. Rules-based parsing
   let mealType = parseMealType(message)
-  const { date, wasExplicit } = parseDateFromMessage(message)
+  const { date, wasExplicit } = parseDateFromMessage(message, timezone)
   let targetDate = date
 
   // 2. LLM fallback if date wasn't explicit and message has temporal hints

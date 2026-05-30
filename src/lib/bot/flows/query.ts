@@ -31,7 +31,7 @@ async function registerQueryItems(
   originalMessage: string,
   user: { timezone?: string; dailyCalorieTarget?: number | null } | undefined,
 ): Promise<string> {
-  const { date: targetDate } = parseDateFromMessage(originalMessage)
+  const { date: targetDate } = parseDateFromMessage(originalMessage, user?.timezone)
   const dateLabel = formatDateLabel(targetDate, user?.timezone)
 
   const logResult = await logFoodToMeal(supabase, {

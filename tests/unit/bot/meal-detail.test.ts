@@ -94,61 +94,61 @@ describe('parseDateFromMessage', () => {
   const baseDate = new Date('2026-04-01T12:00:00Z') // a Wednesday
 
   it('returns today when no date indicator found, wasExplicit=false', () => {
-    const result = parseDateFromMessage('o que comi no café?', baseDate)
+    const result = parseDateFromMessage('o que comi no café?', 'America/Sao_Paulo', baseDate)
     expect(result.date.toISOString().substring(0, 10)).toBe('2026-04-01')
     expect(result.wasExplicit).toBe(false)
   })
 
   it('parses "hoje", wasExplicit=true', () => {
-    const result = parseDateFromMessage('o que comi no café hoje?', baseDate)
+    const result = parseDateFromMessage('o que comi no café hoje?', 'America/Sao_Paulo', baseDate)
     expect(result.date.toISOString().substring(0, 10)).toBe('2026-04-01')
     expect(result.wasExplicit).toBe(true)
   })
 
   it('parses "ontem", wasExplicit=true', () => {
-    const result = parseDateFromMessage('o que comi no almoço ontem?', baseDate)
+    const result = parseDateFromMessage('o que comi no almoço ontem?', 'America/Sao_Paulo', baseDate)
     expect(result.date.toISOString().substring(0, 10)).toBe('2026-03-31')
     expect(result.wasExplicit).toBe(true)
   })
 
   it('parses "anteontem", wasExplicit=true', () => {
-    const result = parseDateFromMessage('o que comi no jantar anteontem?', baseDate)
+    const result = parseDateFromMessage('o que comi no jantar anteontem?', 'America/Sao_Paulo', baseDate)
     expect(result.date.toISOString().substring(0, 10)).toBe('2026-03-30')
     expect(result.wasExplicit).toBe(true)
   })
 
   it('parses "segunda" (last Monday from Wednesday), wasExplicit=true', () => {
-    const result = parseDateFromMessage('o que comi no almoço segunda?', baseDate)
+    const result = parseDateFromMessage('o que comi no almoço segunda?', 'America/Sao_Paulo', baseDate)
     expect(result.date.toISOString().substring(0, 10)).toBe('2026-03-30')
     expect(result.wasExplicit).toBe(true)
   })
 
   it('parses "domingo" (last Sunday from Wednesday), wasExplicit=true', () => {
-    const result = parseDateFromMessage('o que comi no almoço domingo?', baseDate)
+    const result = parseDateFromMessage('o que comi no almoço domingo?', 'America/Sao_Paulo', baseDate)
     expect(result.date.toISOString().substring(0, 10)).toBe('2026-03-29')
     expect(result.wasExplicit).toBe(true)
   })
 
   it('parses "quarta" on a Wednesday returns today, wasExplicit=true', () => {
-    const result = parseDateFromMessage('o que comi no almoço quarta?', baseDate)
+    const result = parseDateFromMessage('o que comi no almoço quarta?', 'America/Sao_Paulo', baseDate)
     expect(result.date.toISOString().substring(0, 10)).toBe('2026-04-01')
     expect(result.wasExplicit).toBe(true)
   })
 
   it('parses "dia 25" as March 25, wasExplicit=true', () => {
-    const result = parseDateFromMessage('o que comi no almoço dia 25?', baseDate)
+    const result = parseDateFromMessage('o que comi no almoço dia 25?', 'America/Sao_Paulo', baseDate)
     expect(result.date.toISOString().substring(0, 10)).toBe('2026-03-25')
     expect(result.wasExplicit).toBe(true)
   })
 
   it('parses "dia 5" as March 5 (future day this month goes to prev month), wasExplicit=true', () => {
-    const result = parseDateFromMessage('o que comi dia 5?', baseDate)
+    const result = parseDateFromMessage('o que comi dia 5?', 'America/Sao_Paulo', baseDate)
     expect(result.date.toISOString().substring(0, 10)).toBe('2026-03-05')
     expect(result.wasExplicit).toBe(true)
   })
 
   it('parses "dia 1" as today (April 1), wasExplicit=true', () => {
-    const result = parseDateFromMessage('o que comi dia 1?', baseDate)
+    const result = parseDateFromMessage('o que comi dia 1?', 'America/Sao_Paulo', baseDate)
     expect(result.date.toISOString().substring(0, 10)).toBe('2026-04-01')
     expect(result.wasExplicit).toBe(true)
   })

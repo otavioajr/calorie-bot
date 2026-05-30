@@ -912,7 +912,7 @@ async function handleHistorySelection(
   const matches = context.contextData.matches as HistoryMatch[]
   const meals = context.contextData.meals as MealAnalysis[]
   const originalMessage = context.contextData.originalMessage as string
-  const { date: targetDate } = parseDateFromMessage(originalMessage)
+  const { date: targetDate } = parseDateFromMessage(originalMessage, user.timezone)
 
   const choice = parseInt(message.trim(), 10)
   if (isNaN(choice) || choice < 1 || choice > matches.length) {
@@ -1083,7 +1083,7 @@ async function handleBulkQuantitiesResponse(
   const mealType = context.contextData.meal_type as string
   const originalMessage = context.contextData.original_message as string
   const flow = (context.contextData.flow as string) ?? 'meal_log'
-  const { date: targetDate } = parseDateFromMessage(originalMessage)
+  const { date: targetDate } = parseDateFromMessage(originalMessage, user.timezone)
 
   const llm = getLLMProvider()
   const history = await getRecentMessages(supabase, userId)
@@ -1298,7 +1298,7 @@ async function analyzeAndRegister(
   const llm = getLLMProvider()
   const history = await getRecentMessages(supabase, userId)
   const currentTime = getUserLocalTime(user.timezone)
-  const { date: targetDate } = parseDateFromMessage(originalMessage)
+  const { date: targetDate } = parseDateFromMessage(originalMessage, user.timezone)
   const dateLabel = formatDateLabel(targetDate, user.timezone)
 
   const meals: MealAnalysis[] = await llm.analyzeMeal(messageToAnalyze, history, currentTime)
