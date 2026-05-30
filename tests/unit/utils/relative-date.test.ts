@@ -32,5 +32,6 @@ describe('formatDateLabel', () => {
   it('labels older dates with day/month', () => {
     const label = formatDateLabel(new Date('2026-05-24T15:00:00Z'), 'America/Sao_Paulo', NOW)
     expect(label).toMatch(/24\/05/)
+    expect(label).not.toMatch(/[.,]/)
   })
 })

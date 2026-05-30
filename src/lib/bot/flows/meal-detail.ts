@@ -6,7 +6,6 @@ import { parseDateFromMessage } from '@/lib/utils/relative-date'
 
 // Re-export so existing consumers/tests can keep importing from this module.
 export { parseDateFromMessage }
-export type { DateParseResult } from '@/lib/utils/relative-date'
 
 // ---------------------------------------------------------------------------
 // normalize (same as router.ts)

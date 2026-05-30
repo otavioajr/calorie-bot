@@ -101,5 +101,5 @@ export function formatDateLabel(date: Date, timezone: string = 'America/Sao_Paul
     month: '2-digit',
   }).format(date)
   // "qua., 24/05" -> "qua 24/05"
-  return formatted.replace(/\.,?/g, '').replace(/\s+/g, ' ').trim()
+  return formatted.replace(/[.,]/g, '').replace(/\s+/g, ' ').trim()
 }
