@@ -18,7 +18,7 @@ import { tryProductLookup } from '@/lib/products/lookup'
 import { shouldUseProductFlow } from '@/lib/products/classify'
 import type { Product, ProductLookupOutcome } from '@/lib/products/types'
 import { localDateString, parseDateFromMessage, formatDateLabel } from '@/lib/utils/relative-date'
-import { buildConsolidatedMealResponse } from '@/lib/bot/meal-response'
+import { buildConsolidatedMealResponse, setRecentMealState } from '@/lib/bot/meal-response'
 import { parseMealType } from '@/lib/bot/flows/meal-detail'
 
 // ---------------------------------------------------------------------------
@@ -947,12 +947,30 @@ async function handleHistorySelection(
 // Awaiting meal type handler — registers a backdated log on the chosen meal type
 // ---------------------------------------------------------------------------
 
+// Explicit meal phrase per type, prepended when reconstructing a text reply so that the
+// re-run sees an explicit meal type (detectExplicitMealType is truthy → no infinite re-ask).
+const MEAL_PHRASE: Record<string, string> = {
+  breakfast: 'no café da manhã',
+  lunch: 'no almoço',
+  snack: 'no lanche',
+  dinner: 'no jantar',
+  supper: 'na ceia',
+}
+
 async function handleAwaitingMealType(
   supabase: SupabaseClient,
   userId: string,
   message: string,
   context: ConversationContext,
-  user: { dailyCalorieTarget: number | null; dailyProteinG?: number | null; dailyFatG?: number | null; dailyCarbsG?: number | null; timezone?: string },
+  user: {
+    calorieMode: string
+    dailyCalorieTarget: number | null
+    dailyProteinG?: number | null
+    dailyFatG?: number | null
+    dailyCarbsG?: number | null
+    phone?: string
+    timezone?: string
+  },
 ): Promise<MealLogResult> {
   // Use the lenient parser for the REPLY: bare "café" should resolve to breakfast here,
   // unlike the strict ask-decision guard which intentionally treats bare "café" as no type.
@@ -964,24 +982,34 @@ async function handleAwaitingMealType(
     }
   }
 
-  const items = (context.contextData.items as MealItemInput[]) ?? []
-  const targetDate = new Date(context.contextData.targetDateISO as string)
   const originalMessage = (context.contextData.originalMessage as string) ?? ''
+  const storedItems = context.contextData.items as MealItemInput[] | undefined
 
-  const result = await logFoodToMeal(supabase, {
-    userId, mealType, items, originalMessage, targetDate, timezone: user.timezone,
-  })
-  await clearState(userId)
+  // Image/direct mode: log the stored, already-resolved items under the chosen type.
+  if (storedItems && storedItems.length > 0) {
+    const targetDate = new Date(context.contextData.targetDateISO as string)
+    const result = await logFoodToMeal(supabase, {
+      userId, mealType, items: storedItems, originalMessage, targetDate, timezone: user.timezone,
+    })
+    await clearState(userId)
+    await setRecentMealState(userId, result.meal)
 
-  const dailyMacros = await getDailyMacros(supabase, userId, targetDate, user.timezone)
-  const { target, macros } = buildMacrosBlock(user, dailyMacros)
-  const dateLabel = formatDateLabel(targetDate, user.timezone)
+    const dailyMacros = await getDailyMacros(supabase, userId, targetDate, user.timezone)
+    const { target, macros } = buildMacrosBlock(user, dailyMacros)
+    const dateLabel = formatDateLabel(targetDate, user.timezone)
 
-  return {
-    response: buildConsolidatedMealResponse(result, dailyMacros.calories, target, dateLabel, macros),
-    completed: true,
-    mealId: result.mealId,
+    return {
+      response: buildConsolidatedMealResponse(result, dailyMacros.calories, target, dateLabel, macros),
+      completed: true,
+      mealId: result.mealId,
+    }
   }
+
+  // Text mode: make the meal type explicit and re-run the full pipeline. This handles
+  // quantities/products normally with the correct type and seeds recent_meal naturally.
+  await clearState(userId)
+  const reconstructed = `${MEAL_PHRASE[mealType] ?? ''} ${originalMessage}`.trim()
+  return analyzeAndRegister(supabase, userId, reconstructed, reconstructed, user)
 }
 
 // ---------------------------------------------------------------------------
@@ -1298,10 +1326,14 @@ async function analyzeAndRegister(
   const llm = getLLMProvider()
   const history = await getRecentMessages(supabase, userId)
   const currentTime = getUserLocalTime(user.timezone)
-  const { date: targetDate } = parseDateFromMessage(originalMessage, user.timezone)
-  const dateLabel = formatDateLabel(targetDate, user.timezone)
 
   const meals: MealAnalysis[] = await llm.analyzeMeal(messageToAnalyze, history, currentTime)
+
+  const referencesPrevious = meals.some((m) => m.references_previous)
+  const { date: parsedDate } = parseDateFromMessage(originalMessage, user.timezone)
+  // References ("igual açaí de ontem") name a past meal to copy, not a backdate of THIS log.
+  const targetDate = referencesPrevious ? new Date() : parsedDate
+  const dateLabel = formatDateLabel(targetDate, user.timezone)
 
   // Check clarification/unknown across all meals
   for (const result of meals) {
@@ -1319,6 +1351,22 @@ async function analyzeAndRegister(
         response: `Não consegui identificar: ${itemList}. Pode me dizer as calorias ou quantas gramas?`,
         completed: false,
       }
+    }
+  }
+
+  // Backdated log without an explicit meal type → ask which meal BEFORE enrichment/triage.
+  // We can't fall back to time-of-day classification because that reflects NOW, not the
+  // backdated day (e.g. yesterday's eggs logged at 3pm would be misfiled as "snack"). This
+  // also covers logs that still need quantities (the bulk flow runs only after the reply).
+  // Excluded: references_previous (the "de ontem" is part of the reference query, not a
+  // backdate of THIS log) and multi-meal messages (length > 1).
+  const dateWasBackdated = localDateString(targetDate, user.timezone) !== localDateString(new Date(), user.timezone)
+  const explicitMealType = detectExplicitMealType(originalMessage)
+  if (meals.length === 1 && dateWasBackdated && !explicitMealType && !referencesPrevious) {
+    await setState(userId, 'awaiting_meal_type', { originalMessage })
+    return {
+      response: 'Esse registro é de outro dia. Em qual refeição? (café da manhã, almoço, lanche, jantar ou ceia)',
+      completed: false,
     }
   }
 
@@ -1447,23 +1495,6 @@ async function analyzeAndRegister(
       throw error
     }
     enrichedMeals.push(enriched)
-  }
-
-  // Backdated log without an explicit meal type → ask which meal. We can't fall back to
-  // time-of-day classification here because that reflects NOW, not the backdated day
-  // (e.g. yesterday's eggs logged at 3pm would be misfiled as "snack"). Single-meal case only.
-  const dateWasBackdated = localDateString(targetDate, user.timezone) !== localDateString(new Date(), user.timezone)
-  const explicitMealType = detectExplicitMealType(originalMessage)
-  if (dateWasBackdated && !explicitMealType && enrichedMeals.length === 1) {
-    await setState(userId, 'awaiting_meal_type', {
-      items: enrichedMeals[0].map(enrichedToMealItemInput) as unknown as Record<string, unknown>,
-      targetDateISO: targetDate.toISOString(),
-      originalMessage,
-    })
-    return {
-      response: 'Esse registro é de outro dia. Em qual refeição? (café da manhã, almoço, lanche, jantar ou ceia)',
-      completed: false,
-    }
   }
 
   // Register immediately

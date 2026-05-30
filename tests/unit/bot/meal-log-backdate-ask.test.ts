@@ -240,4 +240,74 @@ describe('handleMealLog — backdated log asks for meal type', () => {
     expect(mockClearState).not.toHaveBeenCalled()
     expect(mockCreateMeal).not.toHaveBeenCalled()
   })
+
+  // #6 — a backdated log that NEEDS a quantity must STILL ask the meal type first
+  // (the early ask fires before the bulk-quantity triage). On reply, the text re-run
+  // reconstructs an explicit-meal message, so the 2nd analyzeMeal call sees "almoço".
+  it('asks meal type for a backdated bulk food then re-runs with an explicit meal phrase', async () => {
+    // "arroz" with no quantity → would normally go to the bulk-quantity flow.
+    // The real LLM would re-classify the reconstructed "no almoço ..." message as lunch;
+    // we simulate that with the mock returning lunch on every analyzeMeal call.
+    const bulkArroz = [{
+      meal_type: 'lunch', confidence: 'high', references_previous: false, reference_query: null,
+      items: [{ food: 'arroz', quantity_grams: null, quantity_display: null, quantity_source: 'estimated', portion_type: 'bulk', has_user_quantity: false, calories: null, protein: null, carbs: null, fat: null, confidence: 'high' }],
+      unknown_items: [], needs_clarification: false,
+    }]
+    mockAnalyzeMeal.mockResolvedValue(bulkArroz)
+
+    // First turn: backdated "ontem comi arroz" → early meal-type ask (no meal created, no bulk flow yet).
+    const firstRes = await handleMealLog(buildSupabase(), USER_ID, 'ontem comi arroz', { calorieMode: 'taco', dailyCalorieTarget: 2168 }, null)
+    expect(firstRes.completed).toBe(false)
+    expect(mockSetState).toHaveBeenCalledWith(USER_ID, 'awaiting_meal_type', expect.objectContaining({ originalMessage: 'ontem comi arroz' }))
+    expect(mockCreateMeal).not.toHaveBeenCalled()
+    // The early ask must short-circuit BEFORE the bulk-quantity triage.
+    expect(mockSetState).not.toHaveBeenCalledWith(USER_ID, 'awaiting_bulk_quantities', expect.anything())
+
+    // Second turn: user replies "almoço". Text mode → re-run with explicit phrase.
+    const ctx = {
+      id: 'c', userId: USER_ID, contextType: 'awaiting_meal_type',
+      contextData: { originalMessage: 'ontem comi arroz' },
+      expiresAt: new Date(Date.now() + 600000).toISOString(), createdAt: new Date().toISOString(),
+    } as unknown as ConversationContext
+
+    const secondRes = await handleMealLog(buildSupabase(), USER_ID, 'almoço', { calorieMode: 'taco', dailyCalorieTarget: 2168 }, ctx)
+
+    // The reconstructed message handed to the 2nd analyzeMeal must carry an explicit meal phrase.
+    const reconstructed = mockAnalyzeMeal.mock.calls[mockAnalyzeMeal.mock.calls.length - 1][0] as string
+    expect(reconstructed.toLowerCase()).toContain('almoço')
+    expect(reconstructed.toLowerCase()).toContain('arroz')
+    // arroz still has no quantity → re-run lands in the bulk-quantity flow, no meal created yet.
+    expect(secondRes.completed).toBe(false)
+    expect(mockCreateMeal).not.toHaveBeenCalled()
+    expect(mockSetState).toHaveBeenCalledWith(USER_ID, 'awaiting_bulk_quantities', expect.objectContaining({ meal_type: 'lunch' }))
+  })
+
+  // #2 (text) — after a successful chosen-type text re-run, recent_meal IS seeded.
+  it('seeds recent_meal after a text re-run registers under the chosen meal type', async () => {
+    // arroz already has a quantity → the re-run registers directly (no bulk flow).
+    // Mock returns lunch to simulate the LLM re-classifying the reconstructed "no almoço ..." message.
+    mockAnalyzeMeal.mockResolvedValue([{
+      meal_type: 'lunch', confidence: 'high', references_previous: false, reference_query: null,
+      items: [{ food: 'arroz', quantity_grams: 150, quantity_display: '4 colheres', quantity_source: 'user', portion_type: 'bulk', has_user_quantity: true, calories: null, protein: null, carbs: null, fat: null, confidence: 'high' }],
+      unknown_items: [], needs_clarification: false,
+    }])
+    mockMatchTacoByBase.mockResolvedValue([{ id: 9, foodName: 'Arroz', foodBase: 'Arroz', foodVariant: 'cozido', caloriesPer100g: 130, proteinPer100g: 2.5, carbsPer100g: 28, fatPer100g: 0.2, isDefault: true }])
+    mockCreateMeal.mockResolvedValue('m-arroz')
+    // recent_meal seeding reads the saved meal back via getMealWithItems.
+    mockGetMealWithItems.mockResolvedValue({ id: 'm-arroz', mealType: 'lunch', totalCalories: 195, registeredAt: 'x', items: [{ id: '1', foodName: 'arroz', quantityGrams: 150, quantityDisplay: '4 colheres', calories: 195, proteinG: 3.8, carbsG: 42, fatG: 0.3, source: 'taco', confidence: 'high' }] })
+
+    const ctx = {
+      id: 'c', userId: USER_ID, contextType: 'awaiting_meal_type',
+      contextData: { originalMessage: 'ontem comi 150g de arroz' },
+      expiresAt: new Date(Date.now() + 600000).toISOString(), createdAt: new Date().toISOString(),
+    } as unknown as ConversationContext
+
+    const res = await handleMealLog(buildSupabase(), USER_ID, 'almoço', { calorieMode: 'taco', dailyCalorieTarget: 2168 }, ctx)
+
+    expect(res.completed).toBe(true)
+    expect(mockCreateMeal).toHaveBeenCalled()
+    expect(mockCreateMeal.mock.calls[0][1].mealType).toBe('lunch')
+    // The text re-run seeds recent_meal via analyzeAndRegister's saveRecentMealState.
+    expect(mockSetState).toHaveBeenCalledWith(USER_ID, 'recent_meal', expect.objectContaining({ mealId: 'm-arroz' }))
+  })
 })
