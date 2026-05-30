@@ -1525,7 +1525,13 @@ describe('handleIncomingImage', () => {
 
     await handleIncomingImage(FROM, MESSAGE_ID, IMAGE_ID, 'café da manhã 1 dose')
 
-    expect(mockSetState).not.toHaveBeenCalled()
+    // Registers immediately (no "awaiting_label_portions" prompt). The consolidated
+    // meal is tracked via recent_meal state for contextual corrections.
+    expect(mockSetState).not.toHaveBeenCalledWith(
+      expect.anything(),
+      'awaiting_label_portions',
+      expect.anything(),
+    )
     expect(mockFormatMealBreakdown).toHaveBeenCalledWith(
       'breakfast',
       expect.arrayContaining([
@@ -1538,6 +1544,8 @@ describe('handleIncomingImage', () => {
       19,
       expect.any(Number),
       expect.any(Number),
+      undefined,
+      expect.any(String),
     )
     expect(mockSendTextMessage).not.toHaveBeenCalledWith(
       FROM,
@@ -1587,7 +1595,50 @@ describe('handleIncomingImage', () => {
       54,
       expect.any(Number),
       expect.any(Number),
+      undefined,
+      expect.any(String),
     )
+  })
+
+  it('consolidates a nutrition-label photo into the same-day breakfast and replies with "Somei"', async () => {
+    mockAnalyzeImage.mockResolvedValue({
+      image_type: 'nutrition_label',
+      meal_type: 'breakfast',
+      confidence: 'high',
+      needs_clarification: false,
+      unknown_items: [],
+      items: [{ food: 'Açaí', quantity_grams: 60, calories: 72, protein: 1, carbs: 16, fat: 0.4 }],
+    })
+    mockLogFoodToMeal.mockResolvedValue({
+      wasAppend: true,
+      mealId: 'm1',
+      addedItems: [{ foodName: 'Açaí', quantityGrams: 67, quantityDisplay: null, calories: 80, proteinG: 1, carbsG: 18, fatG: 0.4, source: 'manual' }],
+      meal: {
+        id: 'm1',
+        mealType: 'breakfast',
+        totalCalories: 292,
+        registeredAt: '2026-04-23T18:00:00Z',
+        items: [
+          { id: 'i1', foodName: 'Ovo', quantityGrams: 100, quantityDisplay: null, calories: 143, proteinG: 13, carbsG: 1, fatG: 10, source: 'taco', confidence: 'high' },
+          { id: 'i2', foodName: 'Queijo', quantityGrams: 30, quantityDisplay: null, calories: 69, proteinG: 6, carbsG: 1, fatG: 5, source: 'taco', confidence: 'high' },
+          { id: 'i3', foodName: 'Açaí', quantityGrams: 67, quantityDisplay: null, calories: 80, proteinG: 1, carbsG: 18, fatG: 0.4, source: 'manual', confidence: 'high' },
+        ],
+      },
+    })
+    // Use the real formatter so we assert the actual "Somei" rendering.
+    mockFormatMealAddition.mockImplementation((...args: unknown[]) =>
+      realFormatMealAddition(...(args as Parameters<typeof realFormatMealAddition>)),
+    )
+
+    await handleIncomingImage(FROM, MESSAGE_ID, IMAGE_ID, 'Comi também no café da manhã 67g desse açaí')
+
+    expect(mockLogFoodToMeal).toHaveBeenCalledTimes(1)
+    expect(mockLogFoodToMeal).toHaveBeenCalledWith(
+      mockSupabase,
+      expect.objectContaining({ mealType: 'breakfast' }),
+    )
+    const sent = mockSendTextMessage.mock.calls.map(c => c[1]).join('\n')
+    expect(sent).toContain('Somei')
   })
 
   it('handles MediaTooLargeError gracefully', async () => {
@@ -1677,6 +1728,8 @@ describe('handleIncomingImage', () => {
       expect.any(Number),
       expect.any(Number),
       expect.any(Number),
+      undefined,
+      expect.any(String),
     )
   })
 
@@ -1764,6 +1817,8 @@ describe('handleIncomingMessage — awaiting_label_portions context', () => {
       expect.any(Number),
       expect.any(Number),
       expect.any(Number),
+      undefined,
+      expect.any(String),
     )
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal breakdown message')
   })
@@ -1804,6 +1859,8 @@ describe('handleIncomingMessage — awaiting_label_portions context', () => {
       39,
       expect.any(Number),
       expect.any(Number),
+      undefined,
+      expect.any(String),
     )
   })
 
@@ -1847,6 +1904,8 @@ describe('handleIncomingMessage — awaiting_label_portions context', () => {
       19,
       expect.any(Number),
       expect.any(Number),
+      undefined,
+      expect.any(String),
     )
   })
 
@@ -1864,6 +1923,8 @@ describe('handleIncomingMessage — awaiting_label_portions context', () => {
       expect.any(Number),
       expect.any(Number),
       expect.any(Number),
+      undefined,
+      expect.any(String),
     )
   })
 
@@ -1878,6 +1939,8 @@ describe('handleIncomingMessage — awaiting_label_portions context', () => {
       expect.any(Number),
       expect.any(Number),
       expect.any(Number),
+      undefined,
+      expect.any(String),
     )
   })
 
