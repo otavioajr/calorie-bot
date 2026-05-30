@@ -95,12 +95,16 @@ vi.mock('@/lib/db/queries/meals', () => ({
   createMeal: mockCreateMeal,
   getDailyCalories: mockGetDailyCalories,
   getDailyMacros: mockGetDailyMacros,
-  getMealWithItems: vi.fn().mockResolvedValue(null),
+  getMealWithItems: vi.fn().mockResolvedValue({ id: 'meal-id-123', mealType: 'lunch', totalCalories: 0, registeredAt: 'x', items: [] }),
+  findMealByTypeForDay: vi.fn().mockResolvedValue(null),
+  addMealItems: vi.fn().mockResolvedValue(undefined),
   recalculateMealTotal: vi.fn().mockResolvedValue(undefined),
+  getDayBoundsForTimezone: vi.fn(() => ({ startOfDay: new Date(0), endOfDay: new Date(0) })),
 }))
 
 vi.mock('@/lib/utils/formatters', () => ({
   formatMealBreakdown: mockFormatMealBreakdown,
+  formatMealAddition: vi.fn().mockReturnValue('addition'),
   formatMultiMealBreakdown: mockFormatMultiMealBreakdown,
   formatProgress: mockFormatProgress,
   formatDecompositionFeedback: mockFormatDecompositionFeedback,

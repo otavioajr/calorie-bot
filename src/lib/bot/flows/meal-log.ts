@@ -17,7 +17,8 @@ import { buildProductQuantityPrompt, handleStartLabelInput, handleStartOffChoice
 import { tryProductLookup } from '@/lib/products/lookup'
 import { shouldUseProductFlow } from '@/lib/products/classify'
 import type { Product, ProductLookupOutcome } from '@/lib/products/types'
-import { localDateString } from '@/lib/utils/relative-date'
+import { localDateString, parseDateFromMessage, formatDateLabel } from '@/lib/utils/relative-date'
+import { buildConsolidatedMealResponse } from '@/lib/bot/meal-response'
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -276,6 +277,7 @@ function buildReceiptResponse(
     consumed: { proteinG: number; fatG: number; carbsG: number }
     target: { proteinG: number; fatG: number; carbsG: number }
   },
+  dateLabel: string = 'Hoje',
 ): string {
   // Collect all items that used a default
   const defaults = enrichedMeals
@@ -297,6 +299,7 @@ function buildReceiptResponse(
       dailyConsumedSoFar,
       dailyTarget,
       macros,
+      dateLabel,
     )
 
     return defaultNotice ? breakdown.replace('Algo errado?', `${defaultNotice}\nAlgo errado?`) : breakdown
@@ -858,6 +861,7 @@ async function handleHistorySelection(
   const matches = context.contextData.matches as HistoryMatch[]
   const meals = context.contextData.meals as MealAnalysis[]
   const originalMessage = context.contextData.originalMessage as string
+  const { date: targetDate } = parseDateFromMessage(originalMessage)
 
   const choice = parseInt(message.trim(), 10)
   if (isNaN(choice) || choice < 1 || choice > matches.length) {
@@ -877,10 +881,11 @@ async function handleHistorySelection(
   }]]
 
   // Register directly
-  const mealIds = await saveMeals(supabase, userId, meals, enrichedMeals, originalMessage)
-  await saveRecentMealState(supabase, userId, mealIds[mealIds.length - 1])
+  const results = await saveMeals(supabase, userId, meals, enrichedMeals, originalMessage, targetDate, user.timezone)
+  const lastId = results[results.length - 1].mealId
+  await saveRecentMealState(supabase, userId, lastId)
 
-  const dailyMacros = await getDailyMacros(supabase, userId, undefined, user.timezone)
+  const dailyMacros = await getDailyMacros(supabase, userId, targetDate, user.timezone)
   const target = user.dailyCalorieTarget ?? 2000
   const macros = (user.dailyProteinG && user.dailyFatG && user.dailyCarbsG)
     ? {
@@ -888,9 +893,9 @@ async function handleHistorySelection(
         target: { proteinG: user.dailyProteinG, fatG: user.dailyFatG, carbsG: user.dailyCarbsG },
       }
     : undefined
-  const response = buildReceiptResponse(meals, enrichedMeals, dailyMacros.calories, target, macros)
+  const response = buildReceiptResponse(meals, enrichedMeals, dailyMacros.calories, target, macros, formatDateLabel(targetDate, user.timezone))
 
-  return { response, completed: true, mealId: mealIds[mealIds.length - 1] }
+  return { response, completed: true, mealId: lastId }
 }
 
 // ---------------------------------------------------------------------------
@@ -903,33 +908,23 @@ async function saveMeals(
   meals: MealAnalysis[],
   enrichedMeals: EnrichedItem[][],
   originalMessage: string,
-): Promise<string[]> {
-  const mealIds: string[] = []
+  targetDate?: Date,
+  timezone?: string,
+): Promise<LogFoodResult[]> {
+  const results: LogFoodResult[] = []
   for (let i = 0; i < meals.length; i++) {
     const analysis = meals[i]
-    const items = enrichedMeals[i] ?? []
-
-    const mealId = await createMeal(supabase, {
+    const items = (enrichedMeals[i] ?? []).map(enrichedToMealItemInput)
+    const result = await logFoodToMeal(supabase, {
       userId,
       mealType: analysis.meal_type,
-      totalCalories: totalCaloriesFromEnriched(items),
+      items,
       originalMessage,
       llmResponse: analysis as unknown as Record<string, unknown>,
-      items: items.map((item) => ({
-        foodName: item.food,
-        quantityGrams: item.quantityGrams,
-        calories: item.calories,
-        proteinG: item.protein,
-        carbsG: item.carbs,
-        fatG: item.fat,
-        source: item.source,
-        tacoId: item.tacoId,
-        productId: item.productId,
-        confidence: item.source === 'approximate' ? 'low' : 'high',
-        quantityDisplay: item.quantityDisplay ?? undefined,
-      })),
+      targetDate,
+      timezone,
     })
-    mealIds.push(mealId)
+    results.push(result)
   }
 
   // Record TACO usage for default learning
@@ -942,7 +937,7 @@ async function saveMeals(
     }
   }
 
-  return mealIds
+  return results
 }
 
 // ---------------------------------------------------------------------------
@@ -997,6 +992,7 @@ async function handleBulkQuantitiesResponse(
   const mealType = context.contextData.meal_type as string
   const originalMessage = context.contextData.original_message as string
   const flow = (context.contextData.flow as string) ?? 'meal_log'
+  const { date: targetDate } = parseDateFromMessage(originalMessage)
 
   const llm = getLLMProvider()
   const history = await getRecentMessages(supabase, userId)
@@ -1143,8 +1139,8 @@ async function handleBulkQuantitiesResponse(
     if (error) throw new Error(`Failed to add items to meal: ${error.message}`)
     await recalculateMealTotal(supabase, resolvedMealId)
   } else {
-    const newMealIds = await saveMeals(supabase, userId, [mealAnalysis], [enriched], originalMessage)
-    savedMealId = newMealIds[newMealIds.length - 1] ?? null
+    const newResults = await saveMeals(supabase, userId, [mealAnalysis], [enriched], originalMessage, targetDate, user.timezone)
+    savedMealId = newResults[newResults.length - 1]?.mealId ?? null
     await saveRecentMealState(supabase, userId, savedMealId ?? '')
   }
 
@@ -1155,7 +1151,7 @@ async function handleBulkQuantitiesResponse(
     }
   }
 
-  const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user.timezone)
+  const dailyConsumed = await getDailyCalories(supabase, userId, targetDate, user.timezone)
   const target = user.dailyCalorieTarget ?? 2000
 
   if (resolvedMealId) {
@@ -1211,6 +1207,8 @@ async function analyzeAndRegister(
   const llm = getLLMProvider()
   const history = await getRecentMessages(supabase, userId)
   const currentTime = getUserLocalTime(user.timezone)
+  const { date: targetDate } = parseDateFromMessage(originalMessage)
+  const dateLabel = formatDateLabel(targetDate, user.timezone)
 
   const meals: MealAnalysis[] = await llm.analyzeMeal(messageToAnalyze, history, currentTime)
 
@@ -1254,9 +1252,10 @@ async function analyzeAndRegister(
           source: 'user_history',
           tacoId: match.tacoId ?? undefined,
         }]]
-        const mealIds = await saveMeals(supabase, userId, meals, enrichedMeals, originalMessage)
-        await saveRecentMealState(supabase, userId, mealIds[mealIds.length - 1])
-        const dailyMacros = await getDailyMacros(supabase, userId, undefined, user.timezone)
+        const results = await saveMeals(supabase, userId, meals, enrichedMeals, originalMessage, targetDate, user.timezone)
+        const lastId = results[results.length - 1].mealId
+        await saveRecentMealState(supabase, userId, lastId)
+        const dailyMacros = await getDailyMacros(supabase, userId, targetDate, user.timezone)
         const target = user.dailyCalorieTarget ?? 2000
         const macros = (user.dailyProteinG && user.dailyFatG && user.dailyCarbsG)
           ? {
@@ -1264,8 +1263,8 @@ async function analyzeAndRegister(
               target: { proteinG: user.dailyProteinG, fatG: user.dailyFatG, carbsG: user.dailyCarbsG },
             }
           : undefined
-        const response = buildReceiptResponse(meals, enrichedMeals, dailyMacros.calories, target, macros)
-        return { response, completed: true, mealId: mealIds[mealIds.length - 1] }
+        const response = buildReceiptResponse(meals, enrichedMeals, dailyMacros.calories, target, macros, dateLabel)
+        return { response, completed: true, mealId: lastId }
       }
       // Multiple matches — present options
       const options = matches.map((m, i) => {
@@ -1323,8 +1322,8 @@ async function analyzeAndRegister(
           throw error
         }
         const partialAnalysis: MealAnalysis = { ...meal, items: resolvedItems }
-        const savedIds = await saveMeals(supabase, userId, [partialAnalysis], [enriched], originalMessage)
-        resolvedMealId = savedIds[savedIds.length - 1] ?? null
+        const savedResults = await saveMeals(supabase, userId, [partialAnalysis], [enriched], originalMessage, targetDate, user.timezone)
+        resolvedMealId = savedResults[savedResults.length - 1]?.mealId ?? null
         if (resolvedMealId) await saveRecentMealState(supabase, userId, resolvedMealId)
       }
 
@@ -1366,10 +1365,11 @@ async function analyzeAndRegister(
   }
 
   // Register immediately
-  const mealIds = await saveMeals(supabase, userId, meals, enrichedMeals, originalMessage)
-  await saveRecentMealState(supabase, userId, mealIds[mealIds.length - 1])
+  const results = await saveMeals(supabase, userId, meals, enrichedMeals, originalMessage, targetDate, user.timezone)
+  const lastResult = results[results.length - 1]
+  await saveRecentMealState(supabase, userId, lastResult.mealId)
 
-  const dailyMacros = await getDailyMacros(supabase, userId, undefined, user.timezone)
+  const dailyMacros = await getDailyMacros(supabase, userId, targetDate, user.timezone)
   const target = user.dailyCalorieTarget ?? 2000
   const macros = (user.dailyProteinG && user.dailyFatG && user.dailyCarbsG)
     ? {
@@ -1378,7 +1378,13 @@ async function analyzeAndRegister(
       }
     : undefined
 
-  const response = buildReceiptResponse(meals, enrichedMeals, dailyMacros.calories, target, macros)
+  // Single meal that was appended → "Somei …" delta + full consolidated meal
+  if (results.length === 1 && lastResult.wasAppend) {
+    const response = buildConsolidatedMealResponse(lastResult, dailyMacros.calories, target, dateLabel, macros)
+    return { response, completed: true, mealId: lastResult.mealId }
+  }
 
-  return { response, completed: true, mealId: mealIds[mealIds.length - 1] }
+  const response = buildReceiptResponse(meals, enrichedMeals, dailyMacros.calories, target, macros, dateLabel)
+
+  return { response, completed: true, mealId: lastResult.mealId }
 }
