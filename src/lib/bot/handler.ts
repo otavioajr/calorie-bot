@@ -421,6 +421,15 @@ export async function handleIncomingMessage(
             mealResult.mealId ?? null)
           return
         }
+        case 'awaiting_meal_type': {
+          const mealResult = await handleMealLog(supabase, user.id, text, userSettings, context)
+          const mtSentId = await sendTextMessage(from, mealResult.response)
+          saveHistory(supabase, user.id, text, mealResult.response)
+          await saveBotMessages(supabase, user.id, messageId, mtSentId,
+            mealResult.completed && mealResult.mealId ? 'meal' : null,
+            mealResult.mealId ?? null)
+          return
+        }
         case 'awaiting_correction': {
           const editResponse = await handleEdit(supabase, user.id, text, context, {
             timezone: user.timezone,

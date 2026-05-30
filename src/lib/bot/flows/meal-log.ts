@@ -12,7 +12,7 @@ import type { TacoFood } from '@/lib/db/queries/taco'
 import { sendTextMessage } from '@/lib/whatsapp/client'
 import { searchMealHistory, HistoryMatch } from '@/lib/db/queries/meal-history-search'
 import { normalizeFoodNameForTaco, applySynonyms, tokenMatchScore } from '@/lib/utils/food-normalize'
-import { getUserLocalTime } from '@/lib/utils/meal-time'
+import { getUserLocalTime, detectExplicitMealType } from '@/lib/utils/meal-time'
 import { buildProductQuantityPrompt, handleStartLabelInput, handleStartOffChoice } from '@/lib/bot/flows/product-confirm'
 import { tryProductLookup } from '@/lib/products/lookup'
 import { shouldUseProductFlow } from '@/lib/products/classify'
@@ -703,6 +703,11 @@ export async function handleMealLog(
     return handleHistorySelection(supabase, userId, trimmed, context, user)
   }
 
+  // Branch: backdated log without an explicit meal type — user is answering "which meal?"
+  if (context?.contextType === 'awaiting_meal_type') {
+    return handleAwaitingMealType(supabase, userId, trimmed, context, user)
+  }
+
   if (context?.contextType === 'awaiting_clarification') {
     const originalMessage = context.contextData.originalMessage as string
     const combined = `${originalMessage}\n${trimmed}`
@@ -896,6 +901,51 @@ async function handleHistorySelection(
   const response = buildReceiptResponse(meals, enrichedMeals, dailyMacros.calories, target, macros, formatDateLabel(targetDate, user.timezone))
 
   return { response, completed: true, mealId: lastId }
+}
+
+// ---------------------------------------------------------------------------
+// Awaiting meal type handler — registers a backdated log on the chosen meal type
+// ---------------------------------------------------------------------------
+
+async function handleAwaitingMealType(
+  supabase: SupabaseClient,
+  userId: string,
+  message: string,
+  context: ConversationContext,
+  user: { dailyCalorieTarget: number | null; dailyProteinG?: number | null; dailyFatG?: number | null; dailyCarbsG?: number | null; timezone?: string },
+): Promise<MealLogResult> {
+  const mealType = detectExplicitMealType(message)
+  if (!mealType) {
+    return {
+      response: 'Não entendi a refeição. Responde com: café da manhã, almoço, lanche, jantar ou ceia.',
+      completed: false,
+    }
+  }
+
+  const items = (context.contextData.items as MealItemInput[]) ?? []
+  const targetDate = new Date(context.contextData.targetDateISO as string)
+  const originalMessage = (context.contextData.originalMessage as string) ?? ''
+
+  const result = await logFoodToMeal(supabase, {
+    userId, mealType, items, originalMessage, targetDate, timezone: user.timezone,
+  })
+  await clearState(userId)
+
+  const dailyMacros = await getDailyMacros(supabase, userId, targetDate, user.timezone)
+  const target = user.dailyCalorieTarget ?? 2000
+  const macros = (user.dailyProteinG && user.dailyFatG && user.dailyCarbsG)
+    ? {
+        consumed: { proteinG: dailyMacros.proteinG, fatG: dailyMacros.fatG, carbsG: dailyMacros.carbsG },
+        target: { proteinG: user.dailyProteinG, fatG: user.dailyFatG, carbsG: user.dailyCarbsG },
+      }
+    : undefined
+  const dateLabel = formatDateLabel(targetDate, user.timezone)
+
+  return {
+    response: buildConsolidatedMealResponse(result, dailyMacros.calories, target, dateLabel, macros),
+    completed: true,
+    mealId: result.mealId,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1362,6 +1412,21 @@ async function analyzeAndRegister(
       throw error
     }
     enrichedMeals.push(enriched)
+  }
+
+  // Backdated log without an explicit meal type → ask which meal (single-meal case only)
+  const dateWasBackdated = localDateString(targetDate, user.timezone) !== localDateString(new Date(), user.timezone)
+  const explicitMealType = detectExplicitMealType(originalMessage)
+  if (dateWasBackdated && !explicitMealType && enrichedMeals.length === 1) {
+    await setState(userId, 'awaiting_meal_type', {
+      items: enrichedMeals[0].map(enrichedToMealItemInput) as unknown as Record<string, unknown>,
+      targetDateISO: targetDate.toISOString(),
+      originalMessage,
+    })
+    return {
+      response: 'Esse registro é de outro dia. Em qual refeição? (café da manhã, almoço, lanche, jantar ou ceia)',
+      completed: false,
+    }
   }
 
   // Register immediately

@@ -12,6 +12,7 @@ export const CONTEXT_TTLS: Record<ContextType, number> = {
   awaiting_reset_confirmation: 5,
   awaiting_history_selection: 5,
   awaiting_bulk_quantities: 10,
+  awaiting_meal_type: 10,
   awaiting_correction_item: 10,
   awaiting_correction_value: 10,
   awaiting_off_choice: 10,
@@ -35,6 +36,7 @@ export type ContextType =
   | 'awaiting_reset_confirmation'
   | 'awaiting_history_selection'
   | 'awaiting_bulk_quantities'
+  | 'awaiting_meal_type'
   | 'awaiting_correction_item'
   | 'awaiting_correction_value'
   | 'awaiting_off_choice'
