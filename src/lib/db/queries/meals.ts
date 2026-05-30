@@ -135,7 +135,7 @@ export async function addMealItems(
  * E.g. for America/Sao_Paulo (UTC-3) on March 31:
  *   start = March 31 03:00 UTC, end = April 1 02:59:59.999 UTC
  */
-function getDayBoundsForTimezone(
+export function getDayBoundsForTimezone(
   date: Date,
   timezone: string,
 ): { startOfDay: Date; endOfDay: Date } {
@@ -650,4 +650,53 @@ export async function getMealDetailByType(
       totalCalories: row.total_calories as number,
     }
   })
+}
+
+// ---------------------------------------------------------------------------
+// findMealByTypeForDay
+// ---------------------------------------------------------------------------
+
+export interface ExistingMeal {
+  id: string
+  mealType: string
+  totalCalories: number
+  registeredAt: string
+}
+
+/**
+ * Returns the earliest meal of the given type for the user on the given day
+ * (in the user's timezone), or null. Used to consolidate same-day/same-type logs.
+ */
+export async function findMealByTypeForDay(
+  supabase: SupabaseClient,
+  userId: string,
+  mealType: string,
+  date: Date,
+  timezone: string = 'America/Sao_Paulo',
+): Promise<ExistingMeal | null> {
+  const { startOfDay, endOfDay } = getDayBoundsForTimezone(date, timezone)
+
+  const { data, error } = await supabase
+    .from('meals')
+    .select('id, meal_type, total_calories, registered_at')
+    .eq('user_id', userId)
+    .eq('meal_type', mealType)
+    .gte('registered_at', startOfDay.toISOString())
+    .lte('registered_at', endOfDay.toISOString())
+    .order('registered_at', { ascending: true })
+    .limit(1)
+
+  if (error) {
+    throw new Error(`Failed to find meal by type: ${error.message}`)
+  }
+
+  if (!data || (data as unknown[]).length === 0) return null
+
+  const row = (data as Array<Record<string, unknown>>)[0]
+  return {
+    id: row.id as string,
+    mealType: row.meal_type as string,
+    totalCalories: row.total_calories as number,
+    registeredAt: row.registered_at as string,
+  }
 }
