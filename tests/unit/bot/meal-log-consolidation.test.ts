@@ -247,4 +247,39 @@ describe('handleMealLog — text consolidation', () => {
     // empty (0 kcal, 0 item) placeholder for the missing enrichedMeals[1].
     expect(mockCreateMeal).toHaveBeenCalledTimes(1)
   })
+
+  // Regression: buildReceiptResponse used to index enrichedMeals[idx] for EVERY
+  // analyzed meal. When enrichedMeals (length 1, history single-match) is shorter
+  // than meals (length 2), enrichedMeals[1] is undefined → `.map` throws.
+  it('builds the receipt without throwing when enrichedMeals is shorter than meals', async () => {
+    mockFindMealByTypeForDay.mockResolvedValue(null)
+    mockGetMealWithItems.mockResolvedValue({
+      id: 'meal-id-123', mealType: 'lunch', totalCalories: 600, registeredAt: 'x',
+      items: [
+        { id: 'h1', foodName: 'Marmita de ontem', quantityGrams: 400, quantityDisplay: null, calories: 600, proteinG: 30, carbsG: 60, fatG: 20, source: 'user_history', confidence: 'high' },
+      ],
+    })
+
+    mockAnalyzeMeal.mockResolvedValue([
+      {
+        meal_type: 'lunch', confidence: 'high', references_previous: true, reference_query: 'marmita de ontem',
+        items: [{ food: 'marmita', quantity_grams: 400, quantity_display: null, quantity_source: 'estimated', portion_type: 'bulk', has_user_quantity: false, calories: null, protein: null, carbs: null, fat: null, confidence: 'high' }],
+        unknown_items: [], needs_clarification: false,
+      },
+      {
+        meal_type: 'snack', confidence: 'high', references_previous: false, reference_query: null,
+        items: [{ food: 'Banana', quantity_grams: 100, quantity_display: null, quantity_source: 'estimated', portion_type: 'unit', has_user_quantity: true, calories: null, protein: null, carbs: null, fat: null, confidence: 'high' }],
+        unknown_items: [], needs_clarification: false,
+      },
+    ])
+
+    mockSearchMealHistory.mockResolvedValue([
+      { mealId: 'old-meal-1', foodName: 'Marmita de ontem', quantityGrams: 400, calories: 600, protein: 30, carbs: 60, fat: 20, source: 'user_history', tacoId: null, registeredAt: '2026-05-29T15:00:00Z', originalMessage: 'marmita' },
+    ])
+
+    const result = await handleMealLog(buildSupabase(), USER_ID, 'mesma marmita de ontem e uma banana', { calorieMode: 'taco', dailyCalorieTarget: 2168 }, null)
+
+    expect(typeof result.response).toBe('string')
+    expect(result.response.length).toBeGreaterThan(0)
+  })
 })

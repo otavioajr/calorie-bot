@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatMealAddition, formatProgress, formatMealBreakdown } from '@/lib/utils/formatters'
+import { formatMealAddition, formatProgress, formatMealBreakdown, formatMultiMealBreakdown } from '@/lib/utils/formatters'
 
 const ADDED = [{ food: 'Açaí', quantityGrams: 67, quantityDisplay: null, calories: 80 }]
 const FULL = [
@@ -39,5 +39,23 @@ describe('formatMealBreakdown dateLabel', () => {
   it('passes a custom date label through to the progress line', () => {
     const msg = formatMealBreakdown('breakfast', ADDED, 80, 80, 2000, undefined, 'Ontem')
     expect(msg).toContain('📊 Ontem: 80 / 2000 kcal')
+  })
+})
+
+describe('formatMultiMealBreakdown dateLabel', () => {
+  const MEALS = [
+    { mealType: 'breakfast', items: ADDED, total: 80 },
+    { mealType: 'lunch', items: FULL, total: 292 },
+  ]
+
+  it('defaults to "Hoje" when no date label is given', () => {
+    const msg = formatMultiMealBreakdown(MEALS, 372, 2000)
+    expect(msg).toContain('📊 Hoje: 372 / 2000 kcal')
+  })
+
+  it('passes a custom date label through to the progress line', () => {
+    const msg = formatMultiMealBreakdown(MEALS, 372, 2000, undefined, 'Ontem')
+    expect(msg).toContain('📊 Ontem:')
+    expect(msg).toContain('📊 Ontem: 372 / 2000 kcal')
   })
 })

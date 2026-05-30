@@ -323,13 +323,20 @@ function buildReceiptResponse(
     return defaultNotice ? breakdown.replace('Algo errado?', `${defaultNotice}\nAlgo errado?`) : breakdown
   }
 
-  const mealSections = meals.map((analysis, idx) => ({
-    mealType: analysis.meal_type,
-    items: enrichedMeals[idx].map(i => ({ food: i.food, quantityGrams: i.quantityGrams, calories: i.calories })),
-    total: totalCaloriesFromEnriched(enrichedMeals[idx]),
-  }))
+  // Only build sections for meals that actually have enriched items. When
+  // enrichedMeals is shorter than meals (e.g. the history-reference single-match
+  // branch builds enrichedMeals=[[match]] while meals has length 2),
+  // enrichedMeals[idx] is undefined and `.map` would throw. Mirror the saveMeals guard.
+  const mealSections = meals
+    .map((analysis, idx) => ({ analysis, items: enrichedMeals[idx] }))
+    .filter((m) => m.items && m.items.length > 0)
+    .map(({ analysis, items }) => ({
+      mealType: analysis.meal_type,
+      items: items.map(i => ({ food: i.food, quantityGrams: i.quantityGrams, calories: i.calories })),
+      total: totalCaloriesFromEnriched(items),
+    }))
 
-  const multiBreakdown = formatMultiMealBreakdown(mealSections, dailyConsumedSoFar, dailyTarget, macros)
+  const multiBreakdown = formatMultiMealBreakdown(mealSections, dailyConsumedSoFar, dailyTarget, macros, dateLabel)
 
   return defaultNotice ? multiBreakdown.replace('Algo errado?', `${defaultNotice}\nAlgo errado?`) : multiBreakdown
 }

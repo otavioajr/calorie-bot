@@ -145,6 +145,7 @@ export function formatMultiMealBreakdown(
     consumed: { proteinG: number; fatG: number; carbsG: number }
     target: { proteinG: number; fatG: number; carbsG: number }
   },
+  dateLabel: string = 'Hoje',
 ): string {
   const sections = meals.map((meal) => {
     const itemLines = meal.items
@@ -160,7 +161,7 @@ export function formatMultiMealBreakdown(
   })
 
   const grandTotal = meals.reduce((sum, meal) => sum + meal.total, 0)
-  const progressLine = formatProgress(dailyConsumed, dailyTarget, macros)
+  const progressLine = formatProgress(dailyConsumed, dailyTarget, macros, dateLabel)
 
   return [
     ...sections,
