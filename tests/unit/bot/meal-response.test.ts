@@ -86,6 +86,62 @@ describe('buildConsolidatedMealResponse', () => {
     expect(response).toContain('Total: 195 kcal')
     expect(response).not.toContain('Somei')
   })
+
+  it('includes the macro line when macros are passed', () => {
+    const logResult: LogFoodResult = {
+      wasAppend: false,
+      mealId: 'm4',
+      addedItems: [
+        { foodName: 'Ovo', quantityGrams: 100, calories: 143, proteinG: 13, carbsG: 1, fatG: 10, source: 'taco' },
+      ],
+      meal: {
+        id: 'm4',
+        mealType: 'breakfast',
+        totalCalories: 143,
+        registeredAt: '2026-04-23T18:00:00Z',
+        items: [item({ id: 'i1', foodName: 'Ovo', quantityGrams: 100, calories: 143 })],
+      },
+    }
+
+    const macros = {
+      consumed: { proteinG: 18, fatG: 12, carbsG: 30 },
+      target: { proteinG: 144, fatG: 60, carbsG: 200 },
+    }
+
+    const response = buildConsolidatedMealResponse(logResult, 500, 2000, 'Hoje', macros)
+
+    expect(response).toContain('P: 18/144g')
+  })
+
+  it('includes the macro line when macros are passed and items were appended', () => {
+    const logResult: LogFoodResult = {
+      wasAppend: true,
+      mealId: 'm5',
+      addedItems: [
+        { foodName: 'Açaí', quantityGrams: 67, calories: 80, proteinG: 1, carbsG: 18, fatG: 0.4, source: 'manual' },
+      ],
+      meal: {
+        id: 'm5',
+        mealType: 'breakfast',
+        totalCalories: 223,
+        registeredAt: '2026-04-23T18:00:00Z',
+        items: [
+          item({ id: 'i1', foodName: 'Ovo', quantityGrams: 100, calories: 143 }),
+          item({ id: 'i2', foodName: 'Açaí', quantityGrams: 67, calories: 80, proteinG: 1, carbsG: 18, fatG: 0.4, source: 'manual' }),
+        ],
+      },
+    }
+
+    const macros = {
+      consumed: { proteinG: 18, fatG: 12, carbsG: 30 },
+      target: { proteinG: 144, fatG: 60, carbsG: 200 },
+    }
+
+    const response = buildConsolidatedMealResponse(logResult, 500, 2000, 'Hoje', macros)
+
+    expect(response).toContain('Somei')
+    expect(response).toContain('P: 18/144g')
+  })
 })
 
 describe('setRecentMealState', () => {

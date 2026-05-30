@@ -24,6 +24,10 @@ export function buildConsolidatedMealResponse(
   dailyConsumed: number,
   target: number,
   dateLabel: string,
+  macros?: {
+    consumed: { proteinG: number; fatG: number; carbsG: number }
+    target: { proteinG: number; fatG: number; carbsG: number }
+  },
 ): string {
   const fullItems = logResult.meal.items.map(i => ({
     food: i.foodName, quantityGrams: i.quantityGrams, quantityDisplay: i.quantityDisplay, calories: i.calories,
@@ -32,6 +36,6 @@ export function buildConsolidatedMealResponse(
     food: i.foodName, quantityGrams: i.quantityGrams, quantityDisplay: i.quantityDisplay ?? null, calories: i.calories,
   }))
   return logResult.wasAppend
-    ? formatMealAddition(logResult.meal.mealType, addedForMsg, fullItems, logResult.meal.totalCalories, dailyConsumed, target, dateLabel)
-    : formatMealBreakdown(logResult.meal.mealType, fullItems, logResult.meal.totalCalories, dailyConsumed, target, undefined, dateLabel)
+    ? formatMealAddition(logResult.meal.mealType, addedForMsg, fullItems, logResult.meal.totalCalories, dailyConsumed, target, dateLabel, macros)
+    : formatMealBreakdown(logResult.meal.mealType, fullItems, logResult.meal.totalCalories, dailyConsumed, target, macros, dateLabel)
 }
