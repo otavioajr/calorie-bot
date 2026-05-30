@@ -3,7 +3,7 @@ import { findUserByPhone, createUser, getUserWithSettings } from '@/lib/db/queri
 import { getState, setState, clearState, type ConversationContext } from '@/lib/bot/state'
 import { classifyByRules, isCancelCommand } from '@/lib/bot/router'
 import { handleOnboarding } from '@/lib/bot/flows/onboarding'
-import { enrichItemsWithTaco, handleMealLog, type EnrichedItem } from '@/lib/bot/flows/meal-log'
+import { enrichItemsWithTaco, handleMealLog, logFoodToMeal, type EnrichedItem } from '@/lib/bot/flows/meal-log'
 import { handleSummary } from '@/lib/bot/flows/summary'
 import { handleQuery, handleQueryConfirmation, registerFromQuotedQuery } from '@/lib/bot/flows/query'
 import { handleEdit } from '@/lib/bot/flows/edit'
@@ -24,7 +24,8 @@ import {
 } from '@/lib/bot/flows/product-confirm'
 import { getLLMProvider } from '@/lib/llm/index'
 import { sendTextMessage } from '@/lib/whatsapp/client'
-import { formatOutOfScope, formatError, formatMealBreakdown } from '@/lib/utils/formatters'
+import { formatOutOfScope, formatError, formatMealBreakdown, formatMealAddition } from '@/lib/utils/formatters'
+import { parseDateFromMessage, formatDateLabel } from '@/lib/utils/relative-date'
 import { downloadAudioMedia, transcribeAudio, AudioTooLargeError } from '@/lib/audio/transcribe'
 import { downloadWhatsAppMedia, MediaTooLargeError } from '@/lib/whatsapp/media'
 import { detectMimeType } from '@/lib/whatsapp/mime'
@@ -922,16 +923,13 @@ export async function handleIncomingImage(
       return
     }
 
-    const imageTotal = Math.round(mealAnalysis.items.reduce((sum, item) => sum + (item.calories ?? 0), 0))
     const originalMessage = caption || '[imagem]'
+    const { date: targetDate } = parseDateFromMessage(originalMessage)
+    const dateLabel = formatDateLabel(targetDate, user.timezone)
 
-    // Save meal to database BEFORE showing confirmation
-    const mealId = await createMeal(supabase, {
+    const logResult = await logFoodToMeal(supabase, {
       userId: user.id,
       mealType: mealAnalysis.meal_type,
-      totalCalories: imageTotal,
-      originalMessage,
-      llmResponse: mealAnalysis as unknown as Record<string, unknown>,
       items: mealAnalysis.items.map((item) => ({
         foodName: item.food,
         quantityGrams: item.quantity_grams ?? 0,
@@ -941,45 +939,49 @@ export async function handleIncomingImage(
         fatG: item.fat ?? 0,
         source: 'manual' as const,
       })),
+      originalMessage,
+      llmResponse: mealAnalysis as unknown as Record<string, unknown>,
+      targetDate,
+      timezone: user.timezone,
     })
 
-    // Save recent_meal state for contextual corrections
-    const mealWithItems = await getMealWithItems(supabase, mealId)
-    if (mealWithItems && mealWithItems.items.length > 0) {
+    // Keep recent_meal state pointing at the consolidated meal (for corrections)
+    if (logResult.meal.items.length > 0) {
       await setState(user.id, 'recent_meal', {
-        mealId,
-        mealType: mealWithItems.mealType,
-        items: mealWithItems.items.map(i => ({
-          id: i.id,
-          foodName: i.foodName,
-          quantityGrams: i.quantityGrams,
-          quantityDisplay: i.quantityDisplay,
-          calories: i.calories,
-          proteinG: i.proteinG,
-          carbsG: i.carbsG,
-          fatG: i.fatG,
+        mealId: logResult.mealId,
+        mealType: logResult.meal.mealType,
+        items: logResult.meal.items.map(i => ({
+          id: i.id, foodName: i.foodName, quantityGrams: i.quantityGrams, quantityDisplay: i.quantityDisplay,
+          calories: i.calories, proteinG: i.proteinG, carbsG: i.carbsG, fatG: i.fatG,
         })),
       })
     }
 
-    const dailyConsumed = await getDailyCalories(supabase, user.id, undefined, user.timezone)
+    const dailyConsumed = await getDailyCalories(supabase, user.id, targetDate, user.timezone)
     const target = user.dailyCalorieTarget ?? 2000
 
-    const response = formatMealBreakdown(
-      mealAnalysis.meal_type,
-      mealAnalysis.items.map((item) => ({
-        food: item.food,
-        quantityGrams: item.quantity_grams ?? 0,
-        calories: item.calories ?? 0,
-      })),
-      imageTotal,
-      dailyConsumed,
-      target,
-    )
+    const fullItems = logResult.meal.items.map(i => ({
+      food: i.foodName, quantityGrams: i.quantityGrams, quantityDisplay: i.quantityDisplay, calories: i.calories,
+    }))
+    const addedForMsg = logResult.addedItems.map(i => ({
+      food: i.foodName, quantityGrams: i.quantityGrams, quantityDisplay: i.quantityDisplay ?? null, calories: i.calories,
+    }))
+
+    const response = logResult.wasAppend
+      ? formatMealAddition(logResult.meal.mealType, addedForMsg, fullItems, logResult.meal.totalCalories, dailyConsumed, target, dateLabel)
+      : formatMealBreakdown(
+          logResult.meal.mealType,
+          fullItems,
+          logResult.meal.totalCalories,
+          dailyConsumed,
+          target,
+          undefined,
+          dateLabel,
+        )
 
     const imgSentId = await sendTextMessage(from, response)
     saveHistory(supabase, user.id, caption || '[imagem de alimento]', response)
-    await saveBotMessages(supabase, user.id, messageId, imgSentId, 'meal', mealId)
+    await saveBotMessages(supabase, user.id, messageId, imgSentId, 'meal', logResult.mealId)
   } catch (err) {
     console.error('[handler] Image error:', err)
     await sendTextMessage(from, formatError()).catch((sendErr) => {
