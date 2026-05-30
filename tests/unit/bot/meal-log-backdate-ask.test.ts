@@ -223,4 +223,21 @@ describe('handleMealLog — backdated log asks for meal type', () => {
     expect(createArg.mealType).toBe('breakfast')
     expect(createArg.registeredAt).toBeInstanceOf(Date) // backdated
   })
+
+  it('re-asks (without clearing state) when the reply is not a recognizable meal', async () => {
+    const ctx = {
+      id: 'c', userId: USER_ID, contextType: 'awaiting_meal_type',
+      contextData: {
+        items: [{ foodName: 'Ovo', quantityGrams: 100, quantityDisplay: '2 ovos', calories: 146, proteinG: 12, carbsG: 1, fatG: 10, source: 'taco', confidence: 'high' }],
+        targetDateISO: '2026-05-28T12:00:00.000Z',
+        originalMessage: 'ontem comi 2 ovos',
+      },
+      expiresAt: new Date(Date.now() + 600000).toISOString(), createdAt: new Date().toISOString(),
+    } as unknown as ConversationContext
+    const res = await handleMealLog(buildSupabase(), USER_ID, 'sei lá', { calorieMode: 'taco', dailyCalorieTarget: 2168 }, ctx)
+    expect(res.completed).toBe(false)
+    expect(res.response.toLowerCase()).toContain('não entendi')
+    expect(mockClearState).not.toHaveBeenCalled()
+    expect(mockCreateMeal).not.toHaveBeenCalled()
+  })
 })

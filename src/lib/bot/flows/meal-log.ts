@@ -19,6 +19,7 @@ import { shouldUseProductFlow } from '@/lib/products/classify'
 import type { Product, ProductLookupOutcome } from '@/lib/products/types'
 import { localDateString, parseDateFromMessage, formatDateLabel } from '@/lib/utils/relative-date'
 import { buildConsolidatedMealResponse } from '@/lib/bot/meal-response'
+import { parseMealType } from '@/lib/bot/flows/meal-detail'
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -168,6 +169,23 @@ class ProductInteractionRequired extends Error {
 
 function totalCaloriesFromEnriched(items: EnrichedItem[]): number {
   return Math.round(items.reduce((sum, item) => sum + item.calories, 0))
+}
+
+function buildMacrosBlock(
+  user: { dailyCalorieTarget: number | null; dailyProteinG?: number | null; dailyFatG?: number | null; dailyCarbsG?: number | null },
+  dailyMacros: { proteinG: number; fatG: number; carbsG: number },
+): {
+  target: number
+  macros: { consumed: { proteinG: number; fatG: number; carbsG: number }; target: { proteinG: number; fatG: number; carbsG: number } } | undefined
+} {
+  const target = user.dailyCalorieTarget ?? 2000
+  const macros = (user.dailyProteinG && user.dailyFatG && user.dailyCarbsG)
+    ? {
+        consumed: { proteinG: dailyMacros.proteinG, fatG: dailyMacros.fatG, carbsG: dailyMacros.carbsG },
+        target: { proteinG: user.dailyProteinG, fatG: user.dailyFatG, carbsG: user.dailyCarbsG },
+      }
+    : undefined
+  return { target, macros }
 }
 
 function safeParseJSON(raw: string): unknown {
@@ -891,13 +909,7 @@ async function handleHistorySelection(
   await saveRecentMealState(supabase, userId, lastId)
 
   const dailyMacros = await getDailyMacros(supabase, userId, targetDate, user.timezone)
-  const target = user.dailyCalorieTarget ?? 2000
-  const macros = (user.dailyProteinG && user.dailyFatG && user.dailyCarbsG)
-    ? {
-        consumed: { proteinG: dailyMacros.proteinG, fatG: dailyMacros.fatG, carbsG: dailyMacros.carbsG },
-        target: { proteinG: user.dailyProteinG, fatG: user.dailyFatG, carbsG: user.dailyCarbsG },
-      }
-    : undefined
+  const { target, macros } = buildMacrosBlock(user, dailyMacros)
   const response = buildReceiptResponse(meals, enrichedMeals, dailyMacros.calories, target, macros, formatDateLabel(targetDate, user.timezone))
 
   return { response, completed: true, mealId: lastId }
@@ -914,7 +926,9 @@ async function handleAwaitingMealType(
   context: ConversationContext,
   user: { dailyCalorieTarget: number | null; dailyProteinG?: number | null; dailyFatG?: number | null; dailyCarbsG?: number | null; timezone?: string },
 ): Promise<MealLogResult> {
-  const mealType = detectExplicitMealType(message)
+  // Use the lenient parser for the REPLY: bare "café" should resolve to breakfast here,
+  // unlike the strict ask-decision guard which intentionally treats bare "café" as no type.
+  const mealType = parseMealType(message)
   if (!mealType) {
     return {
       response: 'Não entendi a refeição. Responde com: café da manhã, almoço, lanche, jantar ou ceia.',
@@ -932,13 +946,7 @@ async function handleAwaitingMealType(
   await clearState(userId)
 
   const dailyMacros = await getDailyMacros(supabase, userId, targetDate, user.timezone)
-  const target = user.dailyCalorieTarget ?? 2000
-  const macros = (user.dailyProteinG && user.dailyFatG && user.dailyCarbsG)
-    ? {
-        consumed: { proteinG: dailyMacros.proteinG, fatG: dailyMacros.fatG, carbsG: dailyMacros.carbsG },
-        target: { proteinG: user.dailyProteinG, fatG: user.dailyFatG, carbsG: user.dailyCarbsG },
-      }
-    : undefined
+  const { target, macros } = buildMacrosBlock(user, dailyMacros)
   const dateLabel = formatDateLabel(targetDate, user.timezone)
 
   return {
@@ -1306,13 +1314,7 @@ async function analyzeAndRegister(
         const lastId = results[results.length - 1].mealId
         await saveRecentMealState(supabase, userId, lastId)
         const dailyMacros = await getDailyMacros(supabase, userId, targetDate, user.timezone)
-        const target = user.dailyCalorieTarget ?? 2000
-        const macros = (user.dailyProteinG && user.dailyFatG && user.dailyCarbsG)
-          ? {
-              consumed: { proteinG: dailyMacros.proteinG, fatG: dailyMacros.fatG, carbsG: dailyMacros.carbsG },
-              target: { proteinG: user.dailyProteinG, fatG: user.dailyFatG, carbsG: user.dailyCarbsG },
-            }
-          : undefined
+        const { target, macros } = buildMacrosBlock(user, dailyMacros)
         const response = buildReceiptResponse(meals, enrichedMeals, dailyMacros.calories, target, macros, dateLabel)
         return { response, completed: true, mealId: lastId }
       }
@@ -1414,7 +1416,9 @@ async function analyzeAndRegister(
     enrichedMeals.push(enriched)
   }
 
-  // Backdated log without an explicit meal type → ask which meal (single-meal case only)
+  // Backdated log without an explicit meal type → ask which meal. We can't fall back to
+  // time-of-day classification here because that reflects NOW, not the backdated day
+  // (e.g. yesterday's eggs logged at 3pm would be misfiled as "snack"). Single-meal case only.
   const dateWasBackdated = localDateString(targetDate, user.timezone) !== localDateString(new Date(), user.timezone)
   const explicitMealType = detectExplicitMealType(originalMessage)
   if (dateWasBackdated && !explicitMealType && enrichedMeals.length === 1) {
@@ -1435,13 +1439,7 @@ async function analyzeAndRegister(
   await saveRecentMealState(supabase, userId, lastResult.mealId)
 
   const dailyMacros = await getDailyMacros(supabase, userId, targetDate, user.timezone)
-  const target = user.dailyCalorieTarget ?? 2000
-  const macros = (user.dailyProteinG && user.dailyFatG && user.dailyCarbsG)
-    ? {
-        consumed: { proteinG: dailyMacros.proteinG, fatG: dailyMacros.fatG, carbsG: dailyMacros.carbsG },
-        target: { proteinG: user.dailyProteinG, fatG: user.dailyFatG, carbsG: user.dailyCarbsG },
-      }
-    : undefined
+  const { target, macros } = buildMacrosBlock(user, dailyMacros)
 
   // Single meal that was appended → "Somei …" delta + full consolidated meal
   if (results.length === 1 && lastResult.wasAppend) {
