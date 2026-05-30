@@ -766,11 +766,8 @@ export async function appendItemsToMeal(
     }
   }
 
-  // Defensive guard: if the analyzed meal_type does not match the target meal,
-  // bail out so misclassified add_item messages don't get filed under the wrong meal.
   const targetMeal = await getMealWithItems(supabase, mealId)
   if (!targetMeal) return null
-  if (meals.some((meal) => meal.meal_type !== targetMeal.mealType)) return null
 
   const resolvedItems = items.filter((item) => {
     const hasQuantity = item.quantity_grams !== null && item.quantity_grams !== undefined && item.quantity_grams > 0
@@ -784,29 +781,46 @@ export async function appendItemsToMeal(
   try {
     enriched = await enrichItemsWithTaco(supabase, resolvedItems, llm, userId)
   } catch (err) {
-    if (err instanceof ProductInteractionRequired) {
-      // Product flow not supported in this corrective path; bail out.
-      return null
-    }
+    if (err instanceof ProductInteractionRequired) return null
     throw err
   }
 
   const validEnriched = enriched.filter((e): e is EnrichedItem => e !== null && e !== undefined)
   if (validEnriched.length === 0) return null
 
-  await addMealItems(supabase, mealId, validEnriched.map((item) => ({
-    foodName: item.food,
-    quantityGrams: item.quantityGrams,
-    calories: item.calories,
-    proteinG: item.protein,
-    carbsG: item.carbs,
-    fatG: item.fat,
-    source: item.source,
-    tacoId: item.tacoId,
-    productId: item.productId,
-    confidence: item.source === 'approximate' ? 'low' : 'high',
-    quantityDisplay: item.quantityDisplay ?? undefined,
-  })))
+  // Map each enriched item to the meal_type its source message implies. Items whose
+  // analyzed meal_type matches the target go to the target meal; the rest are routed
+  // (find-or-create) to a meal of their own type for today — nothing is silently dropped.
+  const targetType = targetMeal.mealType
+  const itemTypeByFood = new Map<string, string>()
+  for (const m of meals) {
+    for (const it of m.items) itemTypeByFood.set(it.food.toLowerCase(), m.meal_type)
+  }
+
+  const sameTypeInputs: MealItemInput[] = []
+  const otherByType = new Map<string, MealItemInput[]>()
+  for (const item of validEnriched) {
+    const input = enrichedToMealItemInput(item)
+    const itemType = itemTypeByFood.get(item.food.toLowerCase()) ?? targetType
+    if (itemType === targetType) {
+      sameTypeInputs.push(input)
+    } else {
+      const bucket = otherByType.get(itemType) ?? []
+      bucket.push(input)
+      otherByType.set(itemType, bucket)
+    }
+  }
+
+  // Same-type items → append directly to the target meal
+  if (sameTypeInputs.length > 0) {
+    await addMealItems(supabase, mealId, sameTypeInputs)
+  }
+  // Other-type items → their own meal (today), via the consolidation seam
+  for (const [type, inputs] of otherByType) {
+    await logFoodToMeal(supabase, {
+      userId, mealType: type, items: inputs, originalMessage: message, timezone: user?.timezone,
+    })
+  }
 
   for (const item of validEnriched) {
     if (item.tacoId && item.source === 'taco') {
