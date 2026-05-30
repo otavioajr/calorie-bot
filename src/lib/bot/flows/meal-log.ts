@@ -792,6 +792,8 @@ export async function appendItemsToMeal(
   // analyzed meal_type matches the target go to the target meal; the rest are routed
   // (find-or-create) to a meal of their own type for today — nothing is silently dropped.
   const targetType = targetMeal.mealType
+  // add_item synthetic messages are typically single-food, so a food-name→type map is enough
+  // (a same-name collision under two meal_types would last-write-win, not a concern here).
   const itemTypeByFood = new Map<string, string>()
   for (const m of meals) {
     for (const it of m.items) itemTypeByFood.set(it.food.toLowerCase(), m.meal_type)
@@ -829,6 +831,11 @@ export async function appendItemsToMeal(
     }
   }
 
+  // NOTE: `added` lists every enriched item (incl. any routed to a different meal_type
+  // above), but `newTotal` is only the TARGET meal's recalculated total. When items were
+  // routed elsewhere (rare: only when the gatekeeper and this re-analysis disagree on
+  // meal_type), edit.ts's "Novo total da refeição" won't include those routed items.
+  // Acceptable for this rare corrective path; a richer return (routedElsewhere) is a follow-up.
   const newTotal = await recalculateMealTotal(supabase, mealId)
   return { added: validEnriched, newTotal }
 }
