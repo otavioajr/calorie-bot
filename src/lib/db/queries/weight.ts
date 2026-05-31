@@ -1,4 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js'
+import { decToNum } from '../utils'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -59,7 +60,7 @@ export async function getLastWeight(
 
   const row = data as Record<string, unknown>
   return {
-    weightKg: row.weight_kg as number,
+    weightKg: decToNum(row.weight_kg) ?? 0,
     loggedAt: row.logged_at as string,
   }
 }

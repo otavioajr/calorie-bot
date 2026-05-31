@@ -1,4 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js'
+import { decToNum } from '../utils'
 
 export interface HistoryMatch {
   mealId: string
@@ -42,11 +43,11 @@ export async function searchMealHistory(
       return {
         mealId: meal.id as string,
         foodName: row.food_name as string,
-        quantityGrams: row.quantity_grams as number,
+        quantityGrams: decToNum(row.quantity_grams) ?? 0,
         calories: row.calories as number,
-        protein: row.protein_g as number,
-        carbs: row.carbs_g as number,
-        fat: row.fat_g as number,
+        protein: decToNum(row.protein_g) ?? 0,
+        carbs: decToNum(row.carbs_g) ?? 0,
+        fat: decToNum(row.fat_g) ?? 0,
         source: row.source as string,
         tacoId: row.taco_id as number | null,
         registeredAt: meal.registered_at as string,
@@ -75,11 +76,11 @@ export async function searchMealHistory(
     return {
       mealId: meal.id as string,
       foodName: (firstItem.food_name as string) ?? 'Refeição',
-      quantityGrams: (firstItem.quantity_grams as number) ?? 0,
+      quantityGrams: decToNum(firstItem.quantity_grams) ?? 0,
       calories: (firstItem.calories as number) ?? 0,
-      protein: (firstItem.protein_g as number) ?? 0,
-      carbs: (firstItem.carbs_g as number) ?? 0,
-      fat: (firstItem.fat_g as number) ?? 0,
+      protein: decToNum(firstItem.protein_g) ?? 0,
+      carbs: decToNum(firstItem.carbs_g) ?? 0,
+      fat: decToNum(firstItem.fat_g) ?? 0,
       source: (firstItem.source as string) ?? 'approximate',
       tacoId: (firstItem.taco_id as number | null) ?? null,
       registeredAt: meal.registered_at as string,
