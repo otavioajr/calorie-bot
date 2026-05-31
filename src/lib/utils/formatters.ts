@@ -52,6 +52,7 @@ export function formatMealBreakdown(
     consumed: { proteinG: number; fatG: number; carbsG: number }
     target: { proteinG: number; fatG: number; carbsG: number }
   },
+  dateLabel: string = 'Hoje',
 ): string {
   const itemLines = items
     .map((item) => {
@@ -62,7 +63,7 @@ export function formatMealBreakdown(
     })
     .join('\n')
 
-  const progressLine = formatProgress(dailyConsumed, dailyTarget, macros)
+  const progressLine = formatProgress(dailyConsumed, dailyTarget, macros, dateLabel)
 
   const lowConfItems = items.filter(i => i.confidence === 'low')
   const lowConfNotice = lowConfItems.length > 0
@@ -84,6 +85,52 @@ export function formatMealBreakdown(
 }
 
 // ---------------------------------------------------------------------------
+// formatMealAddition — confirmation when items were appended to an existing meal
+// ---------------------------------------------------------------------------
+export function formatMealAddition(
+  mealType: string,
+  addedItems: MealItem[],
+  fullItems: MealItem[],
+  mealTotal: number,
+  dailyConsumed: number,
+  dailyTarget: number,
+  dateLabel: string = 'Hoje',
+  macros?: {
+    consumed: { proteinG: number; fatG: number; carbsG: number }
+    target: { proteinG: number; fatG: number; carbsG: number }
+  },
+): string {
+  const renderItem = (item: MealItem): string => {
+    const display = item.quantityDisplay || `${item.quantityGrams}g`
+    const calStr = item.confidence === 'low' ? `~${item.calories}` : `${item.calories}`
+    const indicator = item.confidence === 'low' ? ' ⚠️' : ''
+    return `• ${item.food} (${display}) — ${calStr} kcal${indicator}`
+  }
+
+  const addedSummary = addedItems
+    .map((i) => {
+      const display = i.quantityDisplay || `${i.quantityGrams}g`
+      return `${i.food} (${display}) — ${i.calories} kcal`
+    })
+    .join(', ')
+
+  const fullLines = fullItems.map(renderItem).join('\n')
+  const progressLine = formatProgress(dailyConsumed, dailyTarget, macros, dateLabel)
+
+  return [
+    `🍽️ Somei ${addedSummary} ao ${translateMealType(mealType).toLowerCase()}.`,
+    '',
+    `${translateMealType(mealType)} agora:`,
+    fullLines,
+    `Total: ${mealTotal} kcal`,
+    '',
+    progressLine,
+    '',
+    'Algo errado? Manda "corrigir"',
+  ].filter(Boolean).join('\n')
+}
+
+// ---------------------------------------------------------------------------
 // formatMultiMealBreakdown
 // ---------------------------------------------------------------------------
 export function formatMultiMealBreakdown(
@@ -98,6 +145,7 @@ export function formatMultiMealBreakdown(
     consumed: { proteinG: number; fatG: number; carbsG: number }
     target: { proteinG: number; fatG: number; carbsG: number }
   },
+  dateLabel: string = 'Hoje',
 ): string {
   const sections = meals.map((meal) => {
     const itemLines = meal.items
@@ -113,7 +161,7 @@ export function formatMultiMealBreakdown(
   })
 
   const grandTotal = meals.reduce((sum, meal) => sum + meal.total, 0)
-  const progressLine = formatProgress(dailyConsumed, dailyTarget, macros)
+  const progressLine = formatProgress(dailyConsumed, dailyTarget, macros, dateLabel)
 
   return [
     ...sections,
@@ -238,15 +286,16 @@ export function formatProgress(
     consumed: { proteinG: number; fatG: number; carbsG: number }
     target: { proteinG: number; fatG: number; carbsG: number }
   },
+  label: string = 'Hoje',
 ): string {
   const remaining = target - consumed
 
   let calorieLine: string
   if (remaining < 0) {
     const over = Math.abs(remaining)
-    calorieLine = `📊 Hoje: ${consumed} / ${target} kcal (excedeu ${over} ⚠️)`
+    calorieLine = `📊 ${label}: ${consumed} / ${target} kcal (excedeu ${over} ⚠️)`
   } else {
-    calorieLine = `📊 Hoje: ${consumed} / ${target} kcal (restam ${remaining})`
+    calorieLine = `📊 ${label}: ${consumed} / ${target} kcal (restam ${remaining})`
   }
 
   if (!macros) {

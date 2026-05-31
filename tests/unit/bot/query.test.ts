@@ -9,9 +9,15 @@ const {
   mockAnalyzeMeal,
   mockGetLLMProvider,
   mockEnrichItemsWithTaco,
+  mockLogFoodToMeal,
+  mockCreateMeal,
+  mockGetDailyCalories,
 } = vi.hoisted(() => {
   const mockAnalyzeMeal = vi.fn()
   const mockEnrichItemsWithTaco = vi.fn()
+  const mockLogFoodToMeal = vi.fn()
+  const mockCreateMeal = vi.fn()
+  const mockGetDailyCalories = vi.fn()
   return {
     mockAnalyzeMeal,
     mockGetLLMProvider: vi.fn(() => ({
@@ -21,6 +27,9 @@ const {
       chat: vi.fn(),
     })),
     mockEnrichItemsWithTaco,
+    mockLogFoodToMeal,
+    mockCreateMeal,
+    mockGetDailyCalories,
   }
 })
 
@@ -35,9 +44,16 @@ vi.mock('@/lib/bot/state', () => ({
 
 vi.mock('@/lib/bot/flows/meal-log', () => ({
   enrichItemsWithTaco: mockEnrichItemsWithTaco,
+  logFoodToMeal: mockLogFoodToMeal,
 }))
 
-import { handleQuery } from '@/lib/bot/flows/query'
+vi.mock('@/lib/db/queries/meals', () => ({
+  createMeal: mockCreateMeal,
+  getDailyCalories: mockGetDailyCalories,
+}))
+
+import { handleQuery, handleQueryConfirmation } from '@/lib/bot/flows/query'
+import type { ConversationContext } from '@/lib/bot/state'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -231,5 +247,132 @@ describe('handleQuery', () => {
       const result = await handleQuery(supabase, USER_ID, 'quantas calorias tem uma coxinha?')
       expect(result).toBeTruthy()
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// handleQueryConfirmation — registers via logFoodToMeal (consolidates)
+// ---------------------------------------------------------------------------
+
+describe('handleQueryConfirmation', () => {
+  let supabase: SupabaseClient
+
+  const confirmationContext: ConversationContext = {
+    contextType: 'awaiting_confirmation',
+    contextData: {
+      flow: 'query',
+      mealType: 'snack',
+      originalMessage: 'quantas calorias tem uma coxinha?',
+      items: [
+        {
+          food: 'coxinha',
+          quantityGrams: 130,
+          quantityDisplay: '1 unidade',
+          calories: 290,
+          protein: 13,
+          carbs: 22,
+          fat: 17,
+          source: 'taco',
+          tacoId: 42,
+        },
+      ],
+    },
+  } as unknown as ConversationContext
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    supabase = buildSupabase()
+    mockGetDailyCalories.mockResolvedValue(580)
+  })
+
+  it('consolidates into the existing same-day meal via logFoodToMeal (wasAppend) instead of creating a new meal', async () => {
+    // Existing snack already has a banana; registering the coxinha appends to it.
+    mockLogFoodToMeal.mockResolvedValue({
+      wasAppend: true,
+      mealId: 'meal-existing-1',
+      addedItems: [
+        { foodName: 'coxinha', quantityGrams: 130, calories: 290, proteinG: 13, carbsG: 22, fatG: 17, source: 'taco', quantityDisplay: '1 unidade' },
+      ],
+      meal: {
+        id: 'meal-existing-1',
+        mealType: 'snack',
+        totalCalories: 380,
+        registeredAt: '2026-05-30T15:00:00.000Z',
+        items: [
+          { id: 'i1', foodName: 'banana', quantityGrams: 120, quantityDisplay: '1 unidade', calories: 90, proteinG: 1, carbsG: 23, fatG: 0, source: 'taco', confidence: 'high' },
+          { id: 'i2', foodName: 'coxinha', quantityGrams: 130, quantityDisplay: '1 unidade', calories: 290, proteinG: 13, carbsG: 22, fatG: 17, source: 'taco', confidence: 'high' },
+        ],
+      },
+    })
+
+    const result = await handleQueryConfirmation(
+      supabase,
+      USER_ID,
+      'registrar',
+      confirmationContext,
+      { timezone: 'America/Sao_Paulo', dailyCalorieTarget: 2000 },
+    )
+
+    // Routes through the consolidation seam, not a direct createMeal
+    expect(mockLogFoodToMeal).toHaveBeenCalledTimes(1)
+    expect(mockCreateMeal).not.toHaveBeenCalled()
+
+    // logFoodToMeal received the query item mapped to MealItemInput shape + the meal type
+    const [, params] = mockLogFoodToMeal.mock.calls[0]
+    expect(params.userId).toBe(USER_ID)
+    expect(params.mealType).toBe('snack')
+    expect(params.items).toEqual([
+      expect.objectContaining({
+        foodName: 'coxinha',
+        quantityGrams: 130,
+        calories: 290,
+        proteinG: 13,
+        carbsG: 22,
+        fatG: 17,
+        source: 'taco',
+        tacoId: 42,
+        quantityDisplay: '1 unidade',
+      }),
+    ])
+
+    // Consolidated "Somei …" response with full meal + the registered food/calories
+    expect(result).toContain('Somei')
+    expect(result).toContain('coxinha')
+    expect(result).toContain('290')
+    expect(result).toContain('banana')
+    expect(result).toContain('380')
+  })
+
+  it('creates a new meal (wasAppend false) when there is no same-day meal of that type', async () => {
+    mockLogFoodToMeal.mockResolvedValue({
+      wasAppend: false,
+      mealId: 'meal-new-1',
+      addedItems: [
+        { foodName: 'coxinha', quantityGrams: 130, calories: 290, proteinG: 13, carbsG: 22, fatG: 17, source: 'taco', quantityDisplay: '1 unidade' },
+      ],
+      meal: {
+        id: 'meal-new-1',
+        mealType: 'snack',
+        totalCalories: 290,
+        registeredAt: '2026-05-30T15:00:00.000Z',
+        items: [
+          { id: 'i1', foodName: 'coxinha', quantityGrams: 130, quantityDisplay: '1 unidade', calories: 290, proteinG: 13, carbsG: 22, fatG: 17, source: 'taco', confidence: 'high' },
+        ],
+      },
+    })
+
+    const result = await handleQueryConfirmation(
+      supabase,
+      USER_ID,
+      'registrar',
+      confirmationContext,
+      { timezone: 'America/Sao_Paulo', dailyCalorieTarget: 2000 },
+    )
+
+    expect(mockLogFoodToMeal).toHaveBeenCalledTimes(1)
+    expect(mockCreateMeal).not.toHaveBeenCalled()
+    expect(result).toContain('registrado')
+    expect(result).toContain('coxinha')
+    expect(result).toContain('290')
   })
 })

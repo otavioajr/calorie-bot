@@ -135,7 +135,7 @@ export async function addMealItems(
  * E.g. for America/Sao_Paulo (UTC-3) on March 31:
  *   start = March 31 03:00 UTC, end = April 1 02:59:59.999 UTC
  */
-function getDayBoundsForTimezone(
+export function getDayBoundsForTimezone(
   date: Date,
   timezone: string,
 ): { startOfDay: Date; endOfDay: Date } {
@@ -650,4 +650,104 @@ export async function getMealDetailByType(
       totalCalories: row.total_calories as number,
     }
   })
+}
+
+// ---------------------------------------------------------------------------
+// findMealByTypeForDay
+// ---------------------------------------------------------------------------
+
+export interface ExistingMeal {
+  id: string
+  mealType: string
+  totalCalories: number
+  registeredAt: string
+}
+
+/**
+ * Returns the earliest meal of the given type for the user on the given day
+ * (in the user's timezone), or null. Used to consolidate same-day/same-type logs.
+ */
+export async function findMealByTypeForDay(
+  supabase: SupabaseClient,
+  userId: string,
+  mealType: string,
+  date: Date,
+  timezone: string = 'America/Sao_Paulo',
+): Promise<ExistingMeal | null> {
+  const { startOfDay, endOfDay } = getDayBoundsForTimezone(date, timezone)
+
+  const { data, error } = await supabase
+    .from('meals')
+    .select('id, meal_type, total_calories, registered_at')
+    .eq('user_id', userId)
+    .eq('meal_type', mealType)
+    .gte('registered_at', startOfDay.toISOString())
+    .lte('registered_at', endOfDay.toISOString())
+    .order('registered_at', { ascending: true })
+    .limit(1)
+
+  if (error) {
+    throw new Error(`Failed to find meal by type: ${error.message}`)
+  }
+
+  if (!data || (data as unknown[]).length === 0) return null
+
+  const row = (data as Array<Record<string, unknown>>)[0]
+  return {
+    id: row.id as string,
+    mealType: row.meal_type as string,
+    totalCalories: row.total_calories as number,
+    registeredAt: row.registered_at as string,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// findOrCreateMeal (atomic find-or-create via RPC)
+// ---------------------------------------------------------------------------
+
+export interface FindOrCreateMealInput {
+  userId: string
+  mealType: string
+  date: Date
+  timezone?: string
+  totalCalories: number
+  originalMessage: string
+  llmResponse?: unknown
+  registeredAt?: Date
+}
+
+/**
+ * Atomically find-or-create the (earliest) meal of the given type for the user
+ * on the given local day. Backed by the `find_or_create_meal` Postgres function,
+ * which takes a transaction-scoped advisory lock keyed on (user, day, meal_type)
+ * so concurrent same-key logs cannot each insert a duplicate meal row.
+ *
+ * Returns the meal id and whether it already existed (append) or was created.
+ */
+export async function findOrCreateMeal(
+  supabase: SupabaseClient,
+  input: FindOrCreateMealInput,
+): Promise<{ mealId: string; wasAppend: boolean }> {
+  const timezone = input.timezone ?? 'America/Sao_Paulo'
+  const { startOfDay, endOfDay } = getDayBoundsForTimezone(input.date, timezone)
+
+  const { data, error } = await supabase.rpc('find_or_create_meal', {
+    p_user_id: input.userId,
+    p_meal_type: input.mealType,
+    p_day_start: startOfDay.toISOString(),
+    p_day_end: endOfDay.toISOString(),
+    p_total_calories: input.totalCalories,
+    p_original_message: input.originalMessage,
+    p_llm_response: (input.llmResponse ?? {}) as Record<string, unknown>,
+    p_registered_at: input.registeredAt ? input.registeredAt.toISOString() : null,
+  })
+
+  if (error) throw new Error(`Failed to find or create meal: ${error.message}`)
+
+  const row = (Array.isArray(data) ? data[0] : data) as
+    | { meal_id: string; was_append: boolean }
+    | undefined
+  if (!row) throw new Error('find_or_create_meal returned no row')
+
+  return { mealId: row.meal_id, wasAppend: row.was_append }
 }

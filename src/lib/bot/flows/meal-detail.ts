@@ -2,6 +2,10 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getMealDetailByType } from '@/lib/db/queries/meals'
 import { formatMealDetail } from '@/lib/utils/formatters'
 import { getLLMProvider } from '@/lib/llm/index'
+import { parseDateFromMessage } from '@/lib/utils/relative-date'
+
+// Re-export so existing consumers/tests can keep importing from this module.
+export { parseDateFromMessage }
 
 // ---------------------------------------------------------------------------
 // normalize (same as router.ts)
@@ -38,77 +42,6 @@ export function parseMealType(message: string): string | null {
   }
 
   return null
-}
-
-// ---------------------------------------------------------------------------
-// parseDateFromMessage
-// ---------------------------------------------------------------------------
-
-const WEEKDAY_MAP: Record<string, number> = {
-  domingo: 0,
-  segunda: 1,
-  terca: 2,
-  quarta: 3,
-  quinta: 4,
-  sexta: 5,
-  sabado: 6,
-}
-
-export interface DateParseResult {
-  date: Date
-  wasExplicit: boolean
-}
-
-export function parseDateFromMessage(message: string, now?: Date): DateParseResult {
-  const normalized = normalize(message)
-  const today = now ?? new Date()
-
-  // "anteontem" must be checked before "ontem"
-  if (normalized.includes('anteontem')) {
-    const d = new Date(today)
-    d.setUTCDate(d.getUTCDate() - 2)
-    return { date: d, wasExplicit: true }
-  }
-
-  if (normalized.includes('ontem')) {
-    const d = new Date(today)
-    d.setUTCDate(d.getUTCDate() - 1)
-    return { date: d, wasExplicit: true }
-  }
-
-  if (normalized.includes('hoje')) {
-    return { date: today, wasExplicit: true }
-  }
-
-  // Day of week
-  for (const [name, dayIndex] of Object.entries(WEEKDAY_MAP)) {
-    if (normalized.includes(name)) {
-      const currentDay = today.getUTCDay()
-      let diff = currentDay - dayIndex
-      if (diff < 0) diff += 7
-      // If diff is 0, it means today (same weekday)
-      const d = new Date(today)
-      d.setUTCDate(d.getUTCDate() - diff)
-      return { date: d, wasExplicit: true }
-    }
-  }
-
-  // "dia X" or "dia XX"
-  const dayMatch = normalized.match(/dia\s+(\d{1,2})/)
-  if (dayMatch) {
-    const dayNum = parseInt(dayMatch[1], 10)
-    const todayDayOfMonth = today.getUTCDate()
-    const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), dayNum, 12, 0, 0))
-    // If the day hasn't arrived yet this month, go to previous month
-    if (d.getUTCDate() !== dayNum || dayNum > todayDayOfMonth) {
-      d.setUTCMonth(d.getUTCMonth() - 1)
-      d.setUTCDate(dayNum)
-    }
-    return { date: d, wasExplicit: true }
-  }
-
-  // Default: today (not explicit)
-  return { date: today, wasExplicit: false }
 }
 
 // ---------------------------------------------------------------------------
@@ -202,7 +135,7 @@ export async function handleMealDetail(
 
   // 1. Rules-based parsing
   let mealType = parseMealType(message)
-  const { date, wasExplicit } = parseDateFromMessage(message)
+  const { date, wasExplicit } = parseDateFromMessage(message, timezone)
   let targetDate = date
 
   // 2. LLM fallback if date wasn't explicit and message has temporal hints

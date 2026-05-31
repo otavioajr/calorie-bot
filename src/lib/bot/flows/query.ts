@@ -3,9 +3,63 @@ import { getLLMProvider } from '@/lib/llm/index'
 import type { MealAnalysis, MealItem } from '@/lib/llm/schemas/meal-analysis'
 import { setState, clearState } from '@/lib/bot/state'
 import type { ConversationContext } from '@/lib/bot/state'
-import { enrichItemsWithTaco } from '@/lib/bot/flows/meal-log'
-import { createMeal, getDailyCalories } from '@/lib/db/queries/meals'
-import { formatProgress } from '@/lib/utils/formatters'
+import { enrichItemsWithTaco, logFoodToMeal } from '@/lib/bot/flows/meal-log'
+import { getDailyCalories } from '@/lib/db/queries/meals'
+import { buildConsolidatedMealResponse } from '@/lib/bot/meal-response'
+import { parseDateFromMessage, formatDateLabel } from '@/lib/utils/relative-date'
+
+// ---------------------------------------------------------------------------
+// registerQueryItems — single seam: route query items through logFoodToMeal so
+// registering a query result consolidates by day + meal_type (no duplicate row).
+// ---------------------------------------------------------------------------
+
+async function registerQueryItems(
+  supabase: SupabaseClient,
+  userId: string,
+  items: Array<{
+    food: string
+    quantityGrams: number
+    quantityDisplay?: string | null
+    calories: number
+    protein: number
+    carbs: number
+    fat: number
+    source: string
+    tacoId?: number
+  }>,
+  mealType: string,
+  originalMessage: string,
+  user: { timezone?: string; dailyCalorieTarget?: number | null } | undefined,
+): Promise<string> {
+  const { date: targetDate } = parseDateFromMessage(originalMessage, user?.timezone)
+  const dateLabel = formatDateLabel(targetDate, user?.timezone)
+
+  const logResult = await logFoodToMeal(supabase, {
+    userId,
+    mealType,
+    items: items.map(i => ({
+      foodName: i.food,
+      quantityGrams: i.quantityGrams,
+      calories: i.calories,
+      proteinG: i.protein,
+      carbsG: i.carbs,
+      fatG: i.fat,
+      source: i.source,
+      tacoId: i.tacoId,
+      confidence: i.source === 'approximate' ? 'low' : 'high',
+      quantityDisplay: i.quantityDisplay ?? undefined,
+    })),
+    originalMessage,
+    targetDate,
+    timezone: user?.timezone,
+  })
+
+  await clearState(userId)
+
+  const dailyConsumed = await getDailyCalories(supabase, userId, targetDate, user?.timezone)
+  const target = user?.dailyCalorieTarget ?? 2000
+  return buildConsolidatedMealResponse(logResult, dailyConsumed, target, dateLabel)
+}
 
 export async function registerFromQuotedQuery(
   supabase: SupabaseClient,
@@ -32,33 +86,8 @@ export async function registerFromQuotedQuery(
 
   const mealType = (metadata.mealType as string) || 'snack'
   const originalMessage = (metadata.originalMessage as string) || '[query registrada]'
-  const totalCalories = Math.round(items.reduce((sum, i) => sum + i.calories, 0))
 
-  await createMeal(supabase, {
-    userId,
-    mealType,
-    totalCalories,
-    originalMessage,
-    llmResponse: {},
-    items: items.map(i => ({
-      foodName: i.food,
-      quantityGrams: i.quantityGrams,
-      calories: i.calories,
-      proteinG: i.protein,
-      carbsG: i.carbs,
-      fatG: i.fat,
-      source: i.source,
-      tacoId: i.tacoId,
-      confidence: i.source === 'approximate' ? 'low' : 'high',
-      quantityDisplay: i.quantityDisplay ?? undefined,
-    })),
-  })
-
-  await clearState(userId)
-  const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user?.timezone)
-  const target = user?.dailyCalorieTarget ?? 2000
-
-  return `✅ Refeição registrada! (${totalCalories} kcal)\n${formatProgress(dailyConsumed, target)}`
+  return registerQueryItems(supabase, userId, items, mealType, originalMessage, user)
 }
 
 // ---------------------------------------------------------------------------
@@ -357,32 +386,5 @@ export async function handleQueryConfirmation(
   const mealType = context.contextData.mealType as string
   const originalMessage = context.contextData.originalMessage as string
 
-  const totalCalories = Math.round(items.reduce((sum, i) => sum + i.calories, 0))
-
-  await createMeal(supabase, {
-    userId,
-    mealType,
-    totalCalories,
-    originalMessage,
-    llmResponse: {},
-    items: items.map(i => ({
-      foodName: i.food,
-      quantityGrams: i.quantityGrams,
-      calories: i.calories,
-      proteinG: i.protein,
-      carbsG: i.carbs,
-      fatG: i.fat,
-      source: i.source,
-      tacoId: i.tacoId,
-      confidence: i.source === 'approximate' ? 'low' : 'high',
-      quantityDisplay: i.quantityDisplay ?? undefined,
-    })),
-  })
-
-  await clearState(userId)
-
-  const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user?.timezone)
-  const target = user?.dailyCalorieTarget ?? 2000
-
-  return `✅ Refeição registrada! (${totalCalories} kcal)\n${formatProgress(dailyConsumed, target)}`
+  return registerQueryItems(supabase, userId, items, mealType, originalMessage, user)
 }

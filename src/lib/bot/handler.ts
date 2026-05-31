@@ -3,7 +3,8 @@ import { findUserByPhone, createUser, getUserWithSettings } from '@/lib/db/queri
 import { getState, setState, clearState, type ConversationContext } from '@/lib/bot/state'
 import { classifyByRules, isCancelCommand } from '@/lib/bot/router'
 import { handleOnboarding } from '@/lib/bot/flows/onboarding'
-import { enrichItemsWithTaco, handleMealLog, type EnrichedItem } from '@/lib/bot/flows/meal-log'
+import { enrichItemsWithTaco, handleMealLog, logFoodToMeal, type EnrichedItem } from '@/lib/bot/flows/meal-log'
+import { setRecentMealState, buildConsolidatedMealResponse } from '@/lib/bot/meal-response'
 import { handleSummary } from '@/lib/bot/flows/summary'
 import { handleQuery, handleQueryConfirmation, registerFromQuotedQuery } from '@/lib/bot/flows/query'
 import { handleEdit } from '@/lib/bot/flows/edit'
@@ -24,19 +25,20 @@ import {
 } from '@/lib/bot/flows/product-confirm'
 import { getLLMProvider } from '@/lib/llm/index'
 import { sendTextMessage } from '@/lib/whatsapp/client'
-import { formatOutOfScope, formatError, formatMealBreakdown } from '@/lib/utils/formatters'
+import { formatOutOfScope, formatError } from '@/lib/utils/formatters'
+import { parseDateFromMessage, formatDateLabel, localDateString } from '@/lib/utils/relative-date'
 import { downloadAudioMedia, transcribeAudio, AudioTooLargeError } from '@/lib/audio/transcribe'
 import { downloadWhatsAppMedia, MediaTooLargeError } from '@/lib/whatsapp/media'
 import { detectMimeType } from '@/lib/whatsapp/mime'
 import { logLLMUsage } from '@/lib/db/queries/llm-usage'
-import { createMeal, getDailyCalories, getMealWithItems } from '@/lib/db/queries/meals'
+import { getDailyCalories, getMealWithItems } from '@/lib/db/queries/meals'
 import { saveMessage } from '@/lib/db/queries/message-history'
 import { resolveQuote } from '@/lib/bot/quote'
 import type { QuoteContext } from '@/lib/bot/quote'
 import { saveBotMessage } from '@/lib/db/queries/bot-messages'
 import { extractLabelGramsFromCaption, extractLabelPortionsFromCaption } from '@/lib/bot/label-portions'
 import { scaleNutritionLabelItem } from '@/lib/bot/nutrition-label'
-import { getUserLocalTime, resolveMealTypeFromContext } from '@/lib/utils/meal-time'
+import { getUserLocalTime, resolveMealTypeFromContext, detectExplicitMealType } from '@/lib/utils/meal-time'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ImageAnalysis } from '@/lib/llm/schemas/image-analysis'
 import type { MealAnalysis, MealItem } from '@/lib/llm/schemas/meal-analysis'
@@ -89,10 +91,6 @@ function productMacros(product: Product, quantityGrams: number) {
     carbs: Math.round(product.carbsPer100g * factor * 10) / 10,
     fat: Math.round(product.fatPer100g * factor * 10) / 10,
   }
-}
-
-function totalCaloriesFromConfirmedItems(items: EnrichedItem[]): number {
-  return Math.round(items.reduce((sum, item) => sum + item.calories, 0))
 }
 
 function confirmedProductItem(
@@ -196,19 +194,13 @@ async function registerConfirmedProductMeal(
   user: { dailyCalorieTarget: number | null; timezone?: string },
 ): Promise<{ response: string; mealId: string }> {
   const items = await buildConfirmedProductMealItems(supabase, userId, pendingMeal, product, quantityGrams)
-  const totalCalories = totalCaloriesFromConfirmedItems(items)
 
-  const mealId = await createMeal(supabase, {
+  const { date: targetDate } = parseDateFromMessage(pendingMeal.originalMessage, user.timezone)
+  const dateLabel = formatDateLabel(targetDate, user.timezone)
+
+  const logResult = await logFoodToMeal(supabase, {
     userId,
     mealType: pendingMeal.mealType,
-    totalCalories,
-    originalMessage: pendingMeal.originalMessage,
-    llmResponse: {
-      product_id: product.id,
-      source: 'product-confirm',
-      original_food: pendingMeal.food,
-      original_message: pendingMeal.originalMessage,
-    },
     items: items.map((item) => ({
       foodName: item.food,
       quantityGrams: item.quantityGrams,
@@ -222,42 +214,24 @@ async function registerConfirmedProductMeal(
       productId: item.productId,
       confidence: item.source === 'approximate' ? 'low' : 'high',
     })),
+    originalMessage: pendingMeal.originalMessage,
+    llmResponse: {
+      product_id: product.id,
+      source: 'product-confirm',
+      original_food: pendingMeal.food,
+      original_message: pendingMeal.originalMessage,
+    },
+    targetDate,
+    timezone: user.timezone,
   })
 
-  const mealWithItems = await getMealWithItems(supabase, mealId)
-  if (mealWithItems && mealWithItems.items.length > 0) {
-    await setState(userId, 'recent_meal', {
-      mealId,
-      mealType: mealWithItems.mealType,
-      items: mealWithItems.items.map(i => ({
-        id: i.id,
-        foodName: i.foodName,
-        quantityGrams: i.quantityGrams,
-        quantityDisplay: i.quantityDisplay,
-        calories: i.calories,
-        proteinG: i.proteinG,
-        carbsG: i.carbsG,
-        fatG: i.fatG,
-      })),
-    })
-  }
+  await setRecentMealState(userId, logResult.meal)
 
-  const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user.timezone)
+  const dailyConsumed = await getDailyCalories(supabase, userId, targetDate, user.timezone)
   const target = user.dailyCalorieTarget ?? 2000
-  const response = formatMealBreakdown(
-    pendingMeal.mealType,
-    items.map((item) => ({
-      food: item.food,
-      quantityGrams: item.quantityGrams,
-      quantityDisplay: item.quantityDisplay,
-      calories: item.calories,
-    })),
-    totalCalories,
-    dailyConsumed,
-    target,
-  )
+  const response = buildConsolidatedMealResponse(logResult, dailyConsumed, target, dateLabel)
 
-  return { response, mealId }
+  return { response, mealId: logResult.mealId }
 }
 
 export async function handleIncomingMessage(
@@ -415,6 +389,15 @@ export async function handleIncomingMessage(
           const bulkSentId = await sendTextMessage(from, mealResult.response)
           saveHistory(supabase, user.id, text, mealResult.response)
           await saveBotMessages(supabase, user.id, messageId, bulkSentId,
+            mealResult.completed && mealResult.mealId ? 'meal' : null,
+            mealResult.mealId ?? null)
+          return
+        }
+        case 'awaiting_meal_type': {
+          const mealResult = await handleMealLog(supabase, user.id, text, userSettings, context)
+          const mtSentId = await sendTextMessage(from, mealResult.response)
+          saveHistory(supabase, user.id, text, mealResult.response)
+          await saveBotMessages(supabase, user.id, messageId, mtSentId,
             mealResult.completed && mealResult.mealId ? 'meal' : null,
             mealResult.mealId ?? null)
           return
@@ -922,16 +905,37 @@ export async function handleIncomingImage(
       return
     }
 
-    const imageTotal = Math.round(mealAnalysis.items.reduce((sum, item) => sum + (item.calories ?? 0), 0))
     const originalMessage = caption || '[imagem]'
+    const { date: targetDate } = parseDateFromMessage(originalMessage, user.timezone)
+    const dateLabel = formatDateLabel(targetDate, user.timezone)
 
-    // Save meal to database BEFORE showing confirmation
-    const mealId = await createMeal(supabase, {
+    // Backdated photo without an explicit meal type → ask which meal before logging.
+    // Time-of-day classification reflects NOW, not the backdated day, so it would misfile.
+    const backdated = localDateString(targetDate, user.timezone) !== localDateString(new Date(), user.timezone)
+    if (backdated && !detectExplicitMealType(originalMessage)) {
+      await setState(user.id, 'awaiting_meal_type', {
+        items: mealAnalysis.items.map((item) => ({
+          foodName: item.food,
+          quantityGrams: item.quantity_grams ?? 0,
+          calories: item.calories ?? 0,
+          proteinG: item.protein ?? 0,
+          carbsG: item.carbs ?? 0,
+          fatG: item.fat ?? 0,
+          source: 'manual' as const,
+        })) as unknown as Record<string, unknown>,
+        targetDateISO: targetDate.toISOString(),
+        originalMessage,
+      })
+      const askMsg = 'Essa foto é de outro dia. Em qual refeição? (café da manhã, almoço, lanche, jantar ou ceia)'
+      const askSentId = await sendTextMessage(from, askMsg)
+      saveHistory(supabase, user.id, caption || '[imagem de alimento]', askMsg)
+      await saveBotMessages(supabase, user.id, messageId, askSentId, null, null)
+      return
+    }
+
+    const logResult = await logFoodToMeal(supabase, {
       userId: user.id,
       mealType: mealAnalysis.meal_type,
-      totalCalories: imageTotal,
-      originalMessage,
-      llmResponse: mealAnalysis as unknown as Record<string, unknown>,
       items: mealAnalysis.items.map((item) => ({
         foodName: item.food,
         quantityGrams: item.quantity_grams ?? 0,
@@ -941,45 +945,22 @@ export async function handleIncomingImage(
         fatG: item.fat ?? 0,
         source: 'manual' as const,
       })),
+      originalMessage,
+      llmResponse: mealAnalysis as unknown as Record<string, unknown>,
+      targetDate,
+      timezone: user.timezone,
     })
 
-    // Save recent_meal state for contextual corrections
-    const mealWithItems = await getMealWithItems(supabase, mealId)
-    if (mealWithItems && mealWithItems.items.length > 0) {
-      await setState(user.id, 'recent_meal', {
-        mealId,
-        mealType: mealWithItems.mealType,
-        items: mealWithItems.items.map(i => ({
-          id: i.id,
-          foodName: i.foodName,
-          quantityGrams: i.quantityGrams,
-          quantityDisplay: i.quantityDisplay,
-          calories: i.calories,
-          proteinG: i.proteinG,
-          carbsG: i.carbsG,
-          fatG: i.fatG,
-        })),
-      })
-    }
+    // Keep recent_meal state pointing at the consolidated meal (for corrections)
+    await setRecentMealState(user.id, logResult.meal)
 
-    const dailyConsumed = await getDailyCalories(supabase, user.id, undefined, user.timezone)
+    const dailyConsumed = await getDailyCalories(supabase, user.id, targetDate, user.timezone)
     const target = user.dailyCalorieTarget ?? 2000
-
-    const response = formatMealBreakdown(
-      mealAnalysis.meal_type,
-      mealAnalysis.items.map((item) => ({
-        food: item.food,
-        quantityGrams: item.quantity_grams ?? 0,
-        calories: item.calories ?? 0,
-      })),
-      imageTotal,
-      dailyConsumed,
-      target,
-    )
+    const response = buildConsolidatedMealResponse(logResult, dailyConsumed, target, dateLabel)
 
     const imgSentId = await sendTextMessage(from, response)
     saveHistory(supabase, user.id, caption || '[imagem de alimento]', response)
-    await saveBotMessages(supabase, user.id, messageId, imgSentId, 'meal', mealId)
+    await saveBotMessages(supabase, user.id, messageId, imgSentId, 'meal', logResult.mealId)
   } catch (err) {
     console.error('[handler] Image error:', err)
     await sendTextMessage(from, formatError()).catch((sendErr) => {
@@ -1013,16 +994,35 @@ async function handleLabelPortions(
     items: multipliedItems,
   }
 
-  const total = multipliedItems.reduce((sum, item) => sum + (item.calories ?? 0), 0)
   const originalMessage = (context.contextData.originalMessage as string) || '[imagem]'
+  const { date: targetDate } = parseDateFromMessage(originalMessage, user.timezone)
+  const dateLabel = formatDateLabel(targetDate, user.timezone)
 
-  // Save meal to database BEFORE showing confirmation
-  const labelMealId = await createMeal(supabase, {
+  // Backdated label photo without an explicit meal type → ask which meal before logging.
+  const backdated = localDateString(targetDate, user.timezone) !== localDateString(new Date(), user.timezone)
+  if (backdated && !detectExplicitMealType(originalMessage)) {
+    await setState(userId, 'awaiting_meal_type', {
+      items: multipliedItems.map((item) => ({
+        foodName: item.food,
+        quantityGrams: item.quantity_grams ?? 0,
+        calories: item.calories ?? 0,
+        proteinG: item.protein ?? 0,
+        carbsG: item.carbs ?? 0,
+        fatG: item.fat ?? 0,
+        source: 'manual' as const,
+      })) as unknown as Record<string, unknown>,
+      targetDateISO: targetDate.toISOString(),
+      originalMessage,
+    })
+    const askMsg = 'Essa foto é de outro dia. Em qual refeição? (café da manhã, almoço, lanche, jantar ou ceia)'
+    const askSentId = await sendTextMessage(from, askMsg)
+    await saveBotMessages(supabase, userId, incomingMessageId, askSentId, null, null)
+    return
+  }
+
+  const logResult = await logFoodToMeal(supabase, {
     userId,
     mealType: multipliedAnalysis.meal_type,
-    totalCalories: total,
-    originalMessage,
-    llmResponse: multipliedAnalysis as unknown as Record<string, unknown>,
     items: multipliedItems.map((item) => ({
       foodName: item.food,
       quantityGrams: item.quantity_grams ?? 0,
@@ -1032,44 +1032,18 @@ async function handleLabelPortions(
       fatG: item.fat ?? 0,
       source: 'manual' as const,
     })),
+    originalMessage,
+    llmResponse: multipliedAnalysis as unknown as Record<string, unknown>,
+    targetDate,
+    timezone: user.timezone,
   })
 
-  // Replace clearState with recent_meal state for contextual corrections
-  const labelMealWithItems = await getMealWithItems(supabase, labelMealId)
-  if (labelMealWithItems && labelMealWithItems.items.length > 0) {
-    await setState(userId, 'recent_meal', {
-      mealId: labelMealId,
-      mealType: labelMealWithItems.mealType,
-      items: labelMealWithItems.items.map(i => ({
-        id: i.id,
-        foodName: i.foodName,
-        quantityGrams: i.quantityGrams,
-        quantityDisplay: i.quantityDisplay,
-        calories: i.calories,
-        proteinG: i.proteinG,
-        carbsG: i.carbsG,
-        fatG: i.fatG,
-      })),
-    })
-  } else {
-    await clearState(userId)
-  }
+  await setRecentMealState(userId, logResult.meal)
 
-  const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user.timezone)
+  const dailyConsumed = await getDailyCalories(supabase, userId, targetDate, user.timezone)
   const target = user.dailyCalorieTarget ?? 2000
-
-  const response = formatMealBreakdown(
-    multipliedAnalysis.meal_type,
-    multipliedItems.map((item) => ({
-      food: item.food,
-      quantityGrams: item.quantity_grams ?? 0,
-      calories: item.calories ?? 0,
-    })),
-    total,
-    dailyConsumed,
-    target,
-  )
+  const response = buildConsolidatedMealResponse(logResult, dailyConsumed, target, dateLabel)
 
   const labelSentId = await sendTextMessage(from, response)
-  await saveBotMessages(supabase, userId, incomingMessageId, labelSentId, 'meal', labelMealId)
+  await saveBotMessages(supabase, userId, incomingMessageId, labelSentId, 'meal', logResult.mealId)
 }
