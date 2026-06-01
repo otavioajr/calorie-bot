@@ -20,6 +20,7 @@ import type { Product, ProductLookupOutcome } from '@/lib/products/types'
 import { localDateString, parseDateFromMessage, formatDateLabel } from '@/lib/utils/relative-date'
 import { buildConsolidatedMealResponse, setRecentMealState } from '@/lib/bot/meal-response'
 import { parseMealType } from '@/lib/bot/flows/meal-detail'
+import { buildMacrosBlock } from '@/lib/bot/macros'
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -162,23 +163,6 @@ class ProductInteractionRequired extends Error {
 
 function totalCaloriesFromEnriched(items: EnrichedItem[]): number {
   return Math.round(items.reduce((sum, item) => sum + item.calories, 0))
-}
-
-function buildMacrosBlock(
-  user: { dailyCalorieTarget: number | null; dailyProteinG?: number | null; dailyFatG?: number | null; dailyCarbsG?: number | null },
-  dailyMacros: { proteinG: number; fatG: number; carbsG: number },
-): {
-  target: number
-  macros: { consumed: { proteinG: number; fatG: number; carbsG: number }; target: { proteinG: number; fatG: number; carbsG: number } } | undefined
-} {
-  const target = user.dailyCalorieTarget ?? 2000
-  const macros = (user.dailyProteinG && user.dailyFatG && user.dailyCarbsG)
-    ? {
-        consumed: { proteinG: dailyMacros.proteinG, fatG: dailyMacros.fatG, carbsG: dailyMacros.carbsG },
-        target: { proteinG: user.dailyProteinG, fatG: user.dailyFatG, carbsG: user.dailyCarbsG },
-      }
-    : undefined
-  return { target, macros }
 }
 
 function safeParseJSON(raw: string): unknown {
