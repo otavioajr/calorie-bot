@@ -626,6 +626,43 @@ describe('handleMealLog', () => {
   // Decomposition fallback
   // -------------------------------------------------------------------------
 
+  // -------------------------------------------------------------------------
+  // Bulk quantities response (awaiting_bulk_quantities context)
+  // -------------------------------------------------------------------------
+
+  describe('bulk quantities response (awaiting_bulk_quantities context)', () => {
+    it('passes the macros block to formatMealBreakdown in the bulk-quantities flow when the user has macro goals', async () => {
+      const context = {
+        contextType: 'awaiting_bulk_quantities',
+        contextData: {
+          pending_items: [{ food: 'arroz', portion_type: 'bulk' }],
+          resolved_meal_id: null,
+          meal_type: 'lunch',
+          original_message: 'comi arroz',
+        },
+      } as unknown as ConversationContext
+
+      mockAnalyzeMeal.mockResolvedValue([{
+        meal_type: 'lunch', confidence: 'high', references_previous: false, reference_query: null,
+        items: [{ food: 'arroz', quantity_grams: 100, quantity_display: '100g', portion_type: 'bulk', has_user_quantity: true, calories: 130, protein: 3, carbs: 28, fat: 0.3, confidence: 'high' }],
+        unknown_items: [], needs_clarification: false,
+      }])
+      mockGetDailyMacros.mockResolvedValue({ calories: 130, proteinG: 3, carbsG: 28, fatG: 0 })
+
+      await handleMealLog(supabase, USER_ID, '100g de arroz', {
+        calorieMode: 'taco', dailyCalorieTarget: 2000,
+        dailyProteinG: 120, dailyFatG: 60, dailyCarbsG: 200, timezone: 'America/Sao_Paulo',
+      }, context)
+
+      const lastCall = mockFormatMealBreakdown.mock.calls.at(-1)!
+      // signature: (mealType, items, total, dailyConsumed, dailyTarget, macros?, dateLabel?)
+      expect(lastCall[5]).toEqual({
+        consumed: { proteinG: 3, fatG: 0, carbsG: 28 },
+        target: { proteinG: 120, fatG: 60, carbsG: 200 },
+      })
+    })
+  })
+
   describe('decomposition fallback', () => {
     it('goes to decomposition when TACO base and fuzzy both miss', async () => {
       mockMatchTacoByBase.mockResolvedValue([])

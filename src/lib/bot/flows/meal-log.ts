@@ -3,7 +3,7 @@ import { getLLMProvider } from '@/lib/llm/index'
 import type { MealAnalysis, MealItem } from '@/lib/llm/schemas/meal-analysis'
 import { setState, clearState } from '@/lib/bot/state'
 import type { ConversationContext } from '@/lib/bot/state'
-import { addMealItems, getDailyCalories, getDailyMacros, recalculateMealTotal, getMealWithItems, findOrCreateMeal, getDayBoundsForTimezone } from '@/lib/db/queries/meals'
+import { addMealItems, getDailyMacros, recalculateMealTotal, getMealWithItems, findOrCreateMeal, getDayBoundsForTimezone } from '@/lib/db/queries/meals'
 import type { MealItemInput, MealWithItems } from '@/lib/db/queries/meals'
 import { formatMealBreakdown, formatMultiMealBreakdown, formatProgress, formatSearchFeedback, formatDefaultNotice } from '@/lib/utils/formatters'
 import { getRecentMessages } from '@/lib/db/queries/message-history'
@@ -1076,6 +1076,9 @@ async function handleBulkQuantitiesResponse(
   user: {
     calorieMode: string
     dailyCalorieTarget: number | null
+    dailyProteinG?: number | null
+    dailyFatG?: number | null
+    dailyCarbsG?: number | null
     phone?: string
     timezone?: string
   },
@@ -1247,8 +1250,8 @@ async function handleBulkQuantitiesResponse(
     }
   }
 
-  const dailyConsumed = await getDailyCalories(supabase, userId, targetDate, user.timezone)
-  const target = user.dailyCalorieTarget ?? 2000
+  const dailyMacros = await getDailyMacros(supabase, userId, targetDate, user.timezone)
+  const { target, macros } = buildMacrosBlock(user, dailyMacros)
 
   if (resolvedMealId) {
     const fullMeal = await getMealWithItems(supabase, resolvedMealId)
@@ -1260,7 +1263,7 @@ async function handleBulkQuantitiesResponse(
         calories: i.calories,
       }))
       return {
-        response: formatMealBreakdown(fullMeal.mealType, receiptItems, fullMeal.totalCalories, dailyConsumed, target),
+        response: formatMealBreakdown(fullMeal.mealType, receiptItems, fullMeal.totalCalories, dailyMacros.calories, target, macros),
         completed: true,
         mealId: resolvedMealId,
       }
@@ -1273,8 +1276,9 @@ async function handleBulkQuantitiesResponse(
       mealType,
       enriched.map(i => ({ food: i.food, quantityGrams: i.quantityGrams, quantityDisplay: i.quantityDisplay, calories: i.calories })),
       total,
-      dailyConsumed,
+      dailyMacros.calories,
       target,
+      macros,
     ),
     completed: true,
     mealId: savedMealId ?? undefined,
