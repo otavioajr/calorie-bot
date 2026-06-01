@@ -5,6 +5,7 @@ import { classifyByRules, isCancelCommand } from '@/lib/bot/router'
 import { handleOnboarding } from '@/lib/bot/flows/onboarding'
 import { enrichItemsWithTaco, handleMealLog, logFoodToMeal, type EnrichedItem } from '@/lib/bot/flows/meal-log'
 import { setRecentMealState, buildConsolidatedMealResponse } from '@/lib/bot/meal-response'
+import { buildMacrosBlock } from '@/lib/bot/macros'
 import { handleSummary } from '@/lib/bot/flows/summary'
 import { handleQuery, handleQueryConfirmation, registerFromQuotedQuery } from '@/lib/bot/flows/query'
 import { handleEdit } from '@/lib/bot/flows/edit'
@@ -31,7 +32,7 @@ import { downloadAudioMedia, transcribeAudio, AudioTooLargeError } from '@/lib/a
 import { downloadWhatsAppMedia, MediaTooLargeError } from '@/lib/whatsapp/media'
 import { detectMimeType } from '@/lib/whatsapp/mime'
 import { logLLMUsage } from '@/lib/db/queries/llm-usage'
-import { getDailyCalories, getMealWithItems } from '@/lib/db/queries/meals'
+import { getDailyCalories, getDailyMacros, getMealWithItems } from '@/lib/db/queries/meals'
 import { saveMessage } from '@/lib/db/queries/message-history'
 import { resolveQuote } from '@/lib/bot/quote'
 import type { QuoteContext } from '@/lib/bot/quote'
@@ -954,9 +955,9 @@ export async function handleIncomingImage(
     // Keep recent_meal state pointing at the consolidated meal (for corrections)
     await setRecentMealState(user.id, logResult.meal)
 
-    const dailyConsumed = await getDailyCalories(supabase, user.id, targetDate, user.timezone)
-    const target = user.dailyCalorieTarget ?? 2000
-    const response = buildConsolidatedMealResponse(logResult, dailyConsumed, target, dateLabel)
+    const dailyMacros = await getDailyMacros(supabase, user.id, targetDate, user.timezone)
+    const { target, macros } = buildMacrosBlock(user, dailyMacros)
+    const response = buildConsolidatedMealResponse(logResult, dailyMacros.calories, target, dateLabel, macros)
 
     const imgSentId = await sendTextMessage(from, response)
     saveHistory(supabase, user.id, caption || '[imagem de alimento]', response)

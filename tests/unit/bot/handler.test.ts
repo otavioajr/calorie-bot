@@ -35,6 +35,7 @@ const {
   mockSetState,
   mockClearState,
   mockGetDailyCalories,
+  mockGetDailyMacros,
   mockCreateMeal,
   mockGetMealWithItems,
   mockFormatMealBreakdown,
@@ -77,6 +78,7 @@ const {
     mockSetState: vi.fn().mockResolvedValue(undefined),
     mockClearState: vi.fn().mockResolvedValue(undefined),
     mockGetDailyCalories: vi.fn().mockResolvedValue(0),
+    mockGetDailyMacros: vi.fn().mockResolvedValue({ calories: 0, proteinG: 0, carbsG: 0, fatG: 0 }),
     mockCreateMeal: vi.fn().mockResolvedValue('mock-meal-id'),
     mockGetMealWithItems: vi.fn().mockResolvedValue(null),
     mockFormatMealBreakdown: vi.fn().mockReturnValue('meal breakdown message'),
@@ -200,6 +202,7 @@ vi.mock('@/lib/whatsapp/mime', () => ({
 vi.mock('@/lib/db/queries/meals', () => ({
   createMeal: mockCreateMeal,
   getDailyCalories: mockGetDailyCalories,
+  getDailyMacros: mockGetDailyMacros,
   getMealWithItems: mockGetMealWithItems,
 }))
 
@@ -234,7 +237,7 @@ import { handleIncomingMessage, handleIncomingAudio, handleIncomingImage } from 
 import { MediaTooLargeError } from '@/lib/whatsapp/media'
 
 // Real formatter (the module is mocked above) so we can assert the actual "Somei" output.
-const { formatMealAddition: realFormatMealAddition } =
+const { formatMealAddition: realFormatMealAddition, formatMealBreakdown: realFormatMealBreakdown } =
   await vi.importActual<typeof import('@/lib/utils/formatters')>('@/lib/utils/formatters')
 
 // ---------------------------------------------------------------------------
@@ -1561,6 +1564,49 @@ describe('handleIncomingImage', () => {
     expect(sent).toContain('Somei')
     expect(sent).toContain('Café da manhã agora:')
     expect(sent).toContain('Total: 292 kcal')
+  })
+
+  it('includes the P:/G:/C: macro line in the photo confirmation when the user has macro goals', async () => {
+    mockFindUserByPhone.mockResolvedValue({
+      ...completedUser, // onboardingComplete: true, timezone set
+      dailyCalorieTarget: 2000,
+      dailyProteinG: 120,
+      dailyFatG: 60,
+      dailyCarbsG: 200,
+    })
+    mockAnalyzeImage.mockResolvedValue({
+      image_type: 'food',
+      meal_type: 'breakfast',
+      confidence: 'high',
+      needs_clarification: false,
+      items: [{ food: 'Ovo', quantity_grams: 100, calories: 143, protein: 13, carbs: 1, fat: 10 }],
+      unknown_items: [],
+    })
+    mockLogFoodToMeal.mockResolvedValue({
+      wasAppend: false,
+      mealId: 'm-photo',
+      addedItems: [{ foodName: 'Ovo', quantityGrams: 100, calories: 143, proteinG: 13, carbsG: 1, fatG: 10, source: 'manual' }],
+      meal: {
+        id: 'm-photo',
+        mealType: 'breakfast',
+        totalCalories: 143,
+        registeredAt: '2026-04-23T18:00:00Z',
+        items: [{ id: 'i1', foodName: 'Ovo', quantityGrams: 100, quantityDisplay: null, calories: 143, proteinG: 13, carbsG: 1, fatG: 10, source: 'manual', confidence: 'high' }],
+      },
+    })
+    mockGetDailyMacros.mockResolvedValue({ calories: 143, proteinG: 13, carbsG: 1, fatG: 10 })
+    // Use the real formatter for this single call so we assert the actual macro
+    // line rendering. mockImplementationOnce auto-reverts to the default
+    // 'meal breakdown message' stub after one call — leak-proof even if the
+    // assertion below throws (the photo path calls formatMealBreakdown once).
+    mockFormatMealBreakdown.mockImplementationOnce((...args: unknown[]) =>
+      realFormatMealBreakdown(...(args as Parameters<typeof realFormatMealBreakdown>)),
+    )
+
+    await handleIncomingImage(FROM, MESSAGE_ID, IMAGE_ID, 'meu café da manhã')
+
+    const sent = mockSendTextMessage.mock.calls.map(c => c[1]).join('\n')
+    expect(sent).toContain('P: 13/120g')
   })
 
   it('asks which meal for a backdated food photo without an explicit meal type', async () => {
