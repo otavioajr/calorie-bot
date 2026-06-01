@@ -32,7 +32,7 @@ import { downloadAudioMedia, transcribeAudio, AudioTooLargeError } from '@/lib/a
 import { downloadWhatsAppMedia, MediaTooLargeError } from '@/lib/whatsapp/media'
 import { detectMimeType } from '@/lib/whatsapp/mime'
 import { logLLMUsage } from '@/lib/db/queries/llm-usage'
-import { getDailyCalories, getDailyMacros, getMealWithItems } from '@/lib/db/queries/meals'
+import { getDailyMacros, getMealWithItems } from '@/lib/db/queries/meals'
 import { saveMessage } from '@/lib/db/queries/message-history'
 import { resolveQuote } from '@/lib/bot/quote'
 import type { QuoteContext } from '@/lib/bot/quote'
@@ -192,7 +192,13 @@ async function registerConfirmedProductMeal(
   pendingMeal: ProductPendingMeal,
   product: Product,
   quantityGrams: number | null,
-  user: { dailyCalorieTarget: number | null; timezone?: string },
+  user: {
+    dailyCalorieTarget: number | null
+    dailyProteinG?: number | null
+    dailyFatG?: number | null
+    dailyCarbsG?: number | null
+    timezone?: string
+  },
 ): Promise<{ response: string; mealId: string }> {
   const items = await buildConfirmedProductMealItems(supabase, userId, pendingMeal, product, quantityGrams)
 
@@ -228,9 +234,9 @@ async function registerConfirmedProductMeal(
 
   await setRecentMealState(userId, logResult.meal)
 
-  const dailyConsumed = await getDailyCalories(supabase, userId, targetDate, user.timezone)
-  const target = user.dailyCalorieTarget ?? 2000
-  const response = buildConsolidatedMealResponse(logResult, dailyConsumed, target, dateLabel)
+  const dailyMacros = await getDailyMacros(supabase, userId, targetDate, user.timezone)
+  const { target, macros } = buildMacrosBlock(user, dailyMacros)
+  const response = buildConsolidatedMealResponse(logResult, dailyMacros.calories, target, dateLabel, macros)
 
   return { response, mealId: logResult.mealId }
 }
@@ -478,6 +484,9 @@ export async function handleIncomingMessage(
             parsedQuantity.quantityGrams,
             {
               dailyCalorieTarget: user.dailyCalorieTarget,
+              dailyProteinG: user.dailyProteinG,
+              dailyFatG: user.dailyFatG,
+              dailyCarbsG: user.dailyCarbsG,
               timezone: user.timezone,
             },
           )
@@ -536,6 +545,9 @@ export async function handleIncomingMessage(
               quantityGrams,
               {
                 dailyCalorieTarget: user.dailyCalorieTarget,
+                dailyProteinG: user.dailyProteinG,
+                dailyFatG: user.dailyFatG,
+                dailyCarbsG: user.dailyCarbsG,
                 timezone: user.timezone,
               },
             )

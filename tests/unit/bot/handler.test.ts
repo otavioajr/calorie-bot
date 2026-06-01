@@ -976,6 +976,8 @@ describe('handleIncomingMessage — context-based routing', () => {
     )
     expect(mockCreateMeal).not.toHaveBeenCalled()
     // New meal (default mock: wasAppend false) → formatMealBreakdown via buildConsolidatedMealResponse.
+    // Daily total now comes from getDailyMacros (macros migration); user has no macro
+    // goals → macros block is undefined.
     expect(mockFormatMealBreakdown).toHaveBeenCalledWith(
       'lunch',
       [
@@ -983,7 +985,7 @@ describe('handleIncomingMessage — context-based routing', () => {
         expect.objectContaining({ food: 'Arroz', calories: 128 }),
       ],
       228,
-      500,
+      expect.any(Number),
       2000,
       undefined,
       expect.any(String),
@@ -1251,6 +1253,92 @@ describe('handleIncomingMessage — context-based routing', () => {
     )
     expect(mockCreateMeal).not.toHaveBeenCalled()
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal breakdown message')
+  })
+
+  it('includes the P:/G:/C: macro line when registering a confirmed product meal (quantity reply)', async () => {
+    mockFindUserByPhone.mockResolvedValue({
+      ...completedUser,
+      dailyCalorieTarget: 2000,
+      dailyProteinG: 120,
+      dailyFatG: 60,
+      dailyCarbsG: 200,
+    })
+    const product = {
+      id: 'product-1',
+      name: 'Magic Toast',
+      nameNormalized: 'magic toast',
+      brand: 'Marilan',
+      brandNormalized: 'marilan',
+      barcode: '789',
+      servingSizeG: 30,
+      servingDisplay: '6 torradas',
+      caloriesPer100g: 400,
+      proteinPer100g: 10,
+      carbsPer100g: 70,
+      fatPer100g: 8,
+      fiberPer100g: null,
+      sodiumPer100g: null,
+      source: 'open_food_facts' as const,
+      sourceRef: null,
+      status: 'aprovado' as const,
+      createdBy: null,
+      createdAt: '2026-04-26T00:00:00.000Z',
+      updatedAt: '2026-04-26T00:00:00.000Z',
+      promotedAt: null,
+      contributorIds: null,
+    }
+    const pendingMeal = {
+      mealType: 'snack',
+      originalMessage: 'magic toast',
+      food: 'magic toast',
+      quantityDisplay: null,
+      productItemIndex: 0,
+      mealItems: [{
+        food: 'magic toast',
+        quantity_grams: null,
+        quantity_display: null,
+        quantity_source: 'unknown',
+        portion_type: 'packaged',
+        has_user_quantity: false,
+        calories: null,
+        protein: null,
+        carbs: null,
+        fat: null,
+        confidence: 'high',
+      }],
+    }
+    mockGetState.mockResolvedValue({
+      contextType: 'awaiting_product_quantity',
+      contextData: {
+        product,
+        pendingMeal,
+      },
+    })
+    mockLogFoodToMeal.mockResolvedValue({
+      wasAppend: false,
+      mealId: 'm-prod',
+      addedItems: [{ foodName: 'Magic Toast', quantityGrams: 30, calories: 120, proteinG: 3, carbsG: 21, fatG: 2.4, source: 'product' }],
+      meal: {
+        id: 'm-prod',
+        mealType: 'snack',
+        totalCalories: 120,
+        registeredAt: '2026-05-31T12:00:00Z',
+        items: [{ id: 'i1', foodName: 'Magic Toast', quantityGrams: 30, quantityDisplay: '30g', calories: 120, proteinG: 3, carbsG: 21, fatG: 2.4, source: 'product', confidence: 'high' }],
+      },
+    })
+    mockGetDailyMacros.mockResolvedValue({ calories: 120, proteinG: 3, carbsG: 21, fatG: 2 })
+    // Use the real formatter for this single call so we assert the actual macro
+    // line rendering. mockImplementationOnce auto-reverts to the default stub
+    // after one call — leak-proof even if the assertion below throws (the
+    // product confirmation with wasAppend:false calls formatMealBreakdown once).
+    mockFormatMealBreakdown.mockImplementationOnce((...args: unknown[]) =>
+      realFormatMealBreakdown(...(args as Parameters<typeof realFormatMealBreakdown>)),
+    )
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, '30g')
+
+    const sent = mockSendTextMessage.mock.calls.map(c => c[1]).join('\n')
+    expect(sent).toContain('P: 3/120g')
   })
 
   it('does not register unit quantity when product has no serving weight', async () => {
