@@ -37,7 +37,7 @@ Uma WS só é **✅ DONE** quando cada caixa estiver marcada:
 - [x] PR aberto (#14), review CodeRabbit limpo
 - [x] **PR #14 mergeado no `main`** (commit `12ff2a5`) — desbloqueia WS2 e WS6
 
-### WS2 — Exibição de macros consistente — 🟡 PR aberto, aguardando merge
+### WS2 — Exibição de macros consistente — ✅ DONE
 - Plano: [`2026-05-31-ws2-macro-display-consistency.md`](2026-05-31-ws2-macro-display-consistency.md) · 9 tasks · Branch `fix/ws2-macro-display-consistency`
 - Decisões de produto confirmadas pelo Otávio (2026-05-31): macros em todos os fluxos · ordem P/G/C
 - [x] Todas as 9 tasks implementadas (TDD red→green cada) — commits `162d463`..`09c6251`
@@ -46,9 +46,9 @@ Uma WS só é **✅ DONE** quando cada caixa estiver marcada:
 - [x] `npx tsc --noEmit` — 10 erros, idênticos ao `main` (0 novos)
 - [x] Cada task revisada (spec + qualidade) por subagente; review final holístico: pronto
 - [x] **PR aberto contra `main`** — **PR #16**
-- [ ] Review limpo (CodeRabbit + Otávio)
-- [ ] **PR mergeado no `main` pelo Otávio** — o agente NÃO mergeia
-- Riscos p/ conferência manual antes do merge: smoke por fluxo com user que tem as 3 metas; caso keto 0g (gate `!= null`)
+- [x] Review + merge do Otávio
+- [x] **PR #16 mergeado no `main`** (merge commit `c319c73`, 2026-06-01)
+- Conferência manual recomendada (pós-merge): smoke por fluxo com user que tem as 3 metas; caso keto 0g (gate `!= null`)
 - Follow-ups fora de escopo (anotados): migrar `summary.ts` p/ usar `buildMacrosBlock`; helper `finalizeMealResponse` se um 4º fluxo copiar o triplet; corrigir os 10 erros tsc pré-existentes (fixtures `nutrition_basis_*`/`chat`/`quantity_source`)
 
 ### WS3 — Continuação de refeição ("também") — ⬜ NÃO INICIADA
@@ -77,4 +77,4 @@ Uma WS só é **✅ DONE** quando cada caixa estiver marcada:
 | Data | WS | PR | Notas |
 |------|----|----|-------|
 | 2026-05-31 | WS1 | #14 | ✅ Mergeado no `main` (commit `12ff2a5`) |
-| 2026-05-31 | WS2 | #16 | 🟡 PR aberto · 9 tasks · 1088 testes verdes · aguardando review/merge do Otávio |
+| 2026-06-01 | WS2 | #16 | ✅ Mergeado no `main` (merge commit `c319c73`) · 9 tasks · 1088 testes verdes |
