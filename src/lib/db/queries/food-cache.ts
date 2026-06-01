@@ -1,4 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js'
+import { decToNum } from '../utils'
 
 export interface CachedFood {
   id: string
@@ -24,15 +25,15 @@ function rowToCachedFood(row: Record<string, unknown>): CachedFood {
   return {
     id: row.id as string,
     foodNameNormalized: row.food_name_normalized as string,
-    caloriesPer100g: row.calories_per_100g as number,
-    proteinPer100g: row.protein_per_100g as number | null,
-    carbsPer100g: row.carbs_per_100g as number | null,
-    fatPer100g: row.fat_per_100g as number | null,
-    typicalPortionGrams: row.typical_portion_grams as number | null,
+    caloriesPer100g: decToNum(row.calories_per_100g) ?? 0,
+    proteinPer100g: decToNum(row.protein_per_100g),
+    carbsPer100g: decToNum(row.carbs_per_100g),
+    fatPer100g: decToNum(row.fat_per_100g),
+    typicalPortionGrams: decToNum(row.typical_portion_grams),
     source: row.source as string,
     hitCount: row.hit_count as number,
     portionType: (row.portion_type as string) ?? null,
-    defaultGrams: (row.default_grams as number) ?? null,
+    defaultGrams: decToNum(row.default_grams),
     defaultDisplay: (row.default_display as string) ?? null,
   }
 }

@@ -1,4 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js'
+import { decToNum } from '../utils'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -273,10 +274,10 @@ export async function getDailyMacros(
 
   const rows = data as Array<Record<string, unknown>>
   return {
-    calories: Math.round(rows.reduce((sum, r) => sum + (r.calories as number || 0), 0)),
-    proteinG: Math.round(rows.reduce((sum, r) => sum + (r.protein_g as number || 0), 0)),
-    carbsG: Math.round(rows.reduce((sum, r) => sum + (r.carbs_g as number || 0), 0)),
-    fatG: Math.round(rows.reduce((sum, r) => sum + (r.fat_g as number || 0), 0)),
+    calories: Math.round(rows.reduce((sum, r) => sum + (decToNum(r.calories) ?? 0), 0)),
+    proteinG: Math.round(rows.reduce((sum, r) => sum + (decToNum(r.protein_g) ?? 0), 0)),
+    carbsG: Math.round(rows.reduce((sum, r) => sum + (decToNum(r.carbs_g) ?? 0), 0)),
+    fatG: Math.round(rows.reduce((sum, r) => sum + (decToNum(r.fat_g) ?? 0), 0)),
   }
 }
 
@@ -473,12 +474,12 @@ export async function getMealWithItems(
   const items = (itemRows as Array<Record<string, unknown>> || []).map((row) => ({
     id: row.id as string,
     foodName: row.food_name as string,
-    quantityGrams: row.quantity_grams as number,
+    quantityGrams: decToNum(row.quantity_grams) ?? 0,
     quantityDisplay: (row.quantity_display as string) ?? null,
     calories: row.calories as number,
-    proteinG: row.protein_g as number,
-    carbsG: row.carbs_g as number,
-    fatG: row.fat_g as number,
+    proteinG: decToNum(row.protein_g) ?? 0,
+    carbsG: decToNum(row.carbs_g) ?? 0,
+    fatG: decToNum(row.fat_g) ?? 0,
     source: row.source as string,
     confidence: (row.confidence as string) ?? 'high',
   }))
@@ -638,7 +639,7 @@ export async function getMealDetailByType(
   return (data as Array<Record<string, unknown>>).map((row) => {
     const items = (row.meal_items as Array<Record<string, unknown>> || []).map((item) => ({
       foodName: item.food_name as string,
-      quantityGrams: item.quantity_grams as number,
+      quantityGrams: decToNum(item.quantity_grams) ?? 0,
       quantityDisplay: (item.quantity_display as string) ?? null,
       calories: item.calories as number,
     }))

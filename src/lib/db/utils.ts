@@ -15,6 +15,25 @@ function camelToSnake(key: string): string {
 }
 
 /**
+ * Coerce a Postgres DECIMAL/NUMERIC column value to a number.
+ *
+ * PostgREST serializes DECIMAL/NUMERIC as a STRING (e.g. "12.50") to preserve
+ * precision. A TypeScript `as number` cast does NOT convert at runtime, so
+ * arithmetic on these values silently breaks: `0 + "12.50" + "5.50"` concatenates
+ * to "012.505.50", and Math.round of that is NaN. Route every DECIMAL/NUMERIC
+ * read through this helper.
+ *
+ * Returns null for null/undefined/non-numeric input, so a genuinely unknown value
+ * stays null instead of becoming 0. Use `?? 0` at call sites that need a numeric
+ * fallback (e.g. when summing).
+ */
+export function decToNum(value: unknown): number | null {
+  if (value == null) return null
+  const n = Number(value)
+  return Number.isNaN(n) ? null : n
+}
+
+/**
  * Convert a DB row (snake_case keys) to a TypeScript object (camelCase keys).
  */
 export function fromDB<T>(row: Record<string, unknown>): T {
