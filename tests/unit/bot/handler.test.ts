@@ -1609,6 +1609,49 @@ describe('handleIncomingImage', () => {
     expect(sent).toContain('P: 13/120g')
   })
 
+  it('includes the P:/G:/C: macro line in the nutrition-label confirmation', async () => {
+    mockFindUserByPhone.mockResolvedValue({
+      ...completedUser,
+      dailyCalorieTarget: 2000,
+      dailyProteinG: 120,
+      dailyFatG: 60,
+      dailyCarbsG: 200,
+    })
+    mockAnalyzeImage.mockResolvedValue({
+      image_type: 'nutrition_label',
+      confidence: 'high',
+      needs_clarification: false,
+      items: [{ food: 'Granola', quantity_grams: 30, calories: 130, protein: 4, carbs: 20, fat: 4 }],
+      unknown_items: [],
+    })
+    mockLogFoodToMeal.mockResolvedValue({
+      wasAppend: false,
+      mealId: 'm-label',
+      addedItems: [{ foodName: 'Granola', quantityGrams: 30, calories: 130, proteinG: 4, carbsG: 20, fatG: 4, source: 'manual' }],
+      meal: {
+        id: 'm-label',
+        mealType: 'snack',
+        totalCalories: 130,
+        registeredAt: '2026-05-31T12:00:00Z',
+        items: [{ id: 'i1', foodName: 'Granola', quantityGrams: 30, quantityDisplay: null, calories: 130, proteinG: 4, carbsG: 20, fatG: 4, source: 'manual', confidence: 'high' }],
+      },
+    })
+    mockGetDailyMacros.mockResolvedValue({ calories: 130, proteinG: 4, carbsG: 20, fatG: 4 })
+    // Use the real formatter for this single call so we assert the actual macro
+    // line rendering. mockImplementationOnce auto-reverts to the default stub
+    // after one call — leak-proof even if the assertion below throws (the label
+    // path with wasAppend:false calls formatMealBreakdown exactly once).
+    mockFormatMealBreakdown.mockImplementationOnce((...args: unknown[]) =>
+      realFormatMealBreakdown(...(args as Parameters<typeof realFormatMealBreakdown>)),
+    )
+
+    // caption com "1 porção" para resolver direto (extractLabelPortionsFromCaption)
+    await handleIncomingImage(FROM, MESSAGE_ID, IMAGE_ID, '1 porção')
+
+    const sent = mockSendTextMessage.mock.calls.map(c => c[1]).join('\n')
+    expect(sent).toContain('P: 4/120g')
+  })
+
   it('asks which meal for a backdated food photo without an explicit meal type', async () => {
     mockAnalyzeImage.mockResolvedValue({
       image_type: 'food',

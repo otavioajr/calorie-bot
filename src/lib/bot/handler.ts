@@ -441,6 +441,9 @@ export async function handleIncomingMessage(
           await handleLabelPortions(supabase, from, user.id, messageId, text, context, {
             calorieMode: user.calorieMode,
             dailyCalorieTarget: user.dailyCalorieTarget,
+            dailyProteinG: user.dailyProteinG,
+            dailyFatG: user.dailyFatG,
+            dailyCarbsG: user.dailyCarbsG,
             timezone: user.timezone,
           })
           saveMessage(supabase, user.id, 'user', text).catch(() => {})
@@ -880,6 +883,9 @@ export async function handleIncomingImage(
           {
             calorieMode: user.calorieMode,
             dailyCalorieTarget: user.dailyCalorieTarget,
+            dailyProteinG: user.dailyProteinG,
+            dailyFatG: user.dailyFatG,
+            dailyCarbsG: user.dailyCarbsG,
             timezone: user.timezone,
           },
         )
@@ -977,7 +983,14 @@ async function handleLabelPortions(
   incomingMessageId: string,
   message: string,
   context: Pick<ConversationContext, 'contextData'>,
-  user: { calorieMode: string; dailyCalorieTarget: number | null; timezone?: string },
+  user: {
+    calorieMode: string
+    dailyCalorieTarget: number | null
+    dailyProteinG?: number | null
+    dailyFatG?: number | null
+    dailyCarbsG?: number | null
+    timezone?: string
+  },
 ): Promise<void> {
   const portions = parseFloat(message.trim().replace(',', '.'))
 
@@ -1041,9 +1054,9 @@ async function handleLabelPortions(
 
   await setRecentMealState(userId, logResult.meal)
 
-  const dailyConsumed = await getDailyCalories(supabase, userId, targetDate, user.timezone)
-  const target = user.dailyCalorieTarget ?? 2000
-  const response = buildConsolidatedMealResponse(logResult, dailyConsumed, target, dateLabel)
+  const dailyMacros = await getDailyMacros(supabase, userId, targetDate, user.timezone)
+  const { target, macros } = buildMacrosBlock(user, dailyMacros)
+  const response = buildConsolidatedMealResponse(logResult, dailyMacros.calories, target, dateLabel, macros)
 
   const labelSentId = await sendTextMessage(from, response)
   await saveBotMessages(supabase, userId, incomingMessageId, labelSentId, 'meal', logResult.mealId)
