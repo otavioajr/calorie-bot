@@ -29,17 +29,18 @@ Uma WS só é **✅ DONE** quando cada caixa estiver marcada:
 
 ## Status
 
-### WS1 — Coerção DECIMAL (macros davam NaN) — 🟡 PR aberto, aguardando merge
+### WS1 — Coerção DECIMAL (macros davam NaN) — ✅ DONE
 - Implementado direto (sem doc de plano) · Branch `fix/decimal-string-coercion-macros` · **PR #14**
 - [x] Tasks (TDD: `decToNum` + 6 sites de leitura)
 - [x] `npm test` verde (1074)
 - [x] lint 0 · tsc 0 erros novos
 - [x] PR aberto (#14), review CodeRabbit limpo
-- [ ] **PR #14 mergeado no `main`** ← bloqueia WS2 e WS6
+- [x] **PR #14 mergeado no `main`** (commit `12ff2a5`) — desbloqueia WS2 e WS6
 
-### WS2 — Exibição de macros consistente — ⬜ NÃO INICIADA
+### WS2 — Exibição de macros consistente — 🟡 EM ANDAMENTO
 - Plano: [`2026-05-31-ws2-macro-display-consistency.md`](2026-05-31-ws2-macro-display-consistency.md) · 9 tasks
-- Depende de: WS1 mergeado
+- Depende de: WS1 mergeado ✅ · Branch `fix/ws2-macro-display-consistency`
+- Decisões de produto confirmadas pelo Otávio (2026-05-31): macros em todos os fluxos · ordem P/G/C
 - [ ] Definition of Done (todos os gates acima)
 
 ### WS3 — Continuação de refeição ("também") — ⬜ NÃO INICIADA
@@ -67,4 +68,5 @@ Uma WS só é **✅ DONE** quando cada caixa estiver marcada:
 
 | Data | WS | PR | Notas |
 |------|----|----|-------|
-| 2026-05-31 | WS1 | #14 | Aberto, aguardando merge |
+| 2026-05-31 | WS1 | #14 | ✅ Mergeado no `main` (commit `12ff2a5`) |
+| 2026-05-31 | WS2 | — | 🟡 Em andamento · branch `fix/ws2-macro-display-consistency` |
