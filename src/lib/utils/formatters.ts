@@ -94,11 +94,11 @@ export function formatMealAddition(
   mealTotal: number,
   dailyConsumed: number,
   dailyTarget: number,
-  dateLabel: string = 'Hoje',
   macros?: {
     consumed: { proteinG: number; fatG: number; carbsG: number }
     target: { proteinG: number; fatG: number; carbsG: number }
   },
+  dateLabel: string = 'Hoje',
 ): string {
   const renderItem = (item: MealItem): string => {
     const display = item.quantityDisplay || `${item.quantityGrams}g`

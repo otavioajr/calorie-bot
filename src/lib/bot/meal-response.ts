@@ -36,6 +36,6 @@ export function buildConsolidatedMealResponse(
     food: i.foodName, quantityGrams: i.quantityGrams, quantityDisplay: i.quantityDisplay ?? null, calories: i.calories,
   }))
   return logResult.wasAppend
-    ? formatMealAddition(logResult.meal.mealType, addedForMsg, fullItems, logResult.meal.totalCalories, dailyConsumed, target, dateLabel, macros)
+    ? formatMealAddition(logResult.meal.mealType, addedForMsg, fullItems, logResult.meal.totalCalories, dailyConsumed, target, macros, dateLabel)
     : formatMealBreakdown(logResult.meal.mealType, fullItems, logResult.meal.totalCalories, dailyConsumed, target, macros, dateLabel)
 }
