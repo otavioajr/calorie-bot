@@ -373,6 +373,9 @@ export async function handleIncomingMessage(
             const confirmResponse = await handleQueryConfirmation(supabase, user.id, text, context, {
               timezone: user.timezone,
               dailyCalorieTarget: user.dailyCalorieTarget,
+              dailyProteinG: user.dailyProteinG,
+              dailyFatG: user.dailyFatG,
+              dailyCarbsG: user.dailyCarbsG,
             })
             await sendTextMessage(from, confirmResponse)
             saveHistory(supabase, user.id, text, confirmResponse)
@@ -631,6 +634,9 @@ export async function handleIncomingMessage(
           const registerResponse = await registerFromQuotedQuery(supabase, user.id, quoteContext, {
             timezone: user.timezone,
             dailyCalorieTarget: user.dailyCalorieTarget,
+            dailyProteinG: user.dailyProteinG,
+            dailyFatG: user.dailyFatG,
+            dailyCarbsG: user.dailyCarbsG,
           })
           const sentId = await sendTextMessage(from, registerResponse, quotedMessageId)
           saveHistory(supabase, user.id, text, registerResponse)

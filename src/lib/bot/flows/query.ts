@@ -4,8 +4,9 @@ import type { MealAnalysis, MealItem } from '@/lib/llm/schemas/meal-analysis'
 import { setState, clearState } from '@/lib/bot/state'
 import type { ConversationContext } from '@/lib/bot/state'
 import { enrichItemsWithTaco, logFoodToMeal } from '@/lib/bot/flows/meal-log'
-import { getDailyCalories } from '@/lib/db/queries/meals'
+import { getDailyMacros } from '@/lib/db/queries/meals'
 import { buildConsolidatedMealResponse } from '@/lib/bot/meal-response'
+import { buildMacrosBlock } from '@/lib/bot/macros'
 import { parseDateFromMessage, formatDateLabel } from '@/lib/utils/relative-date'
 
 // ---------------------------------------------------------------------------
@@ -29,7 +30,7 @@ async function registerQueryItems(
   }>,
   mealType: string,
   originalMessage: string,
-  user: { timezone?: string; dailyCalorieTarget?: number | null } | undefined,
+  user: { timezone?: string; dailyCalorieTarget?: number | null; dailyProteinG?: number | null; dailyFatG?: number | null; dailyCarbsG?: number | null } | undefined,
 ): Promise<string> {
   const { date: targetDate } = parseDateFromMessage(originalMessage, user?.timezone)
   const dateLabel = formatDateLabel(targetDate, user?.timezone)
@@ -56,16 +57,19 @@ async function registerQueryItems(
 
   await clearState(userId)
 
-  const dailyConsumed = await getDailyCalories(supabase, userId, targetDate, user?.timezone)
-  const target = user?.dailyCalorieTarget ?? 2000
-  return buildConsolidatedMealResponse(logResult, dailyConsumed, target, dateLabel)
+  const dailyMacros = await getDailyMacros(supabase, userId, targetDate, user?.timezone)
+  const { target, macros } = buildMacrosBlock(
+    { dailyCalorieTarget: user?.dailyCalorieTarget ?? null, dailyProteinG: user?.dailyProteinG, dailyFatG: user?.dailyFatG, dailyCarbsG: user?.dailyCarbsG },
+    dailyMacros,
+  )
+  return buildConsolidatedMealResponse(logResult, dailyMacros.calories, target, dateLabel, macros)
 }
 
 export async function registerFromQuotedQuery(
   supabase: SupabaseClient,
   userId: string,
   quoteContext: { metadata?: Record<string, unknown> },
-  user?: { timezone?: string; dailyCalorieTarget?: number | null },
+  user?: { timezone?: string; dailyCalorieTarget?: number | null; dailyProteinG?: number | null; dailyFatG?: number | null; dailyCarbsG?: number | null },
 ): Promise<string> {
   const metadata = quoteContext.metadata
   if (!metadata?.items || !Array.isArray(metadata.items)) {
@@ -294,7 +298,7 @@ export async function handleQueryConfirmation(
   userId: string,
   message: string,
   context: ConversationContext,
-  user?: { timezone?: string; dailyCalorieTarget?: number | null },
+  user?: { timezone?: string; dailyCalorieTarget?: number | null; dailyProteinG?: number | null; dailyFatG?: number | null; dailyCarbsG?: number | null },
 ): Promise<string> {
   const trimmed = message.trim()
 
