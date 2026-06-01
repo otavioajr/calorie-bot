@@ -936,7 +936,7 @@ export async function handleIncomingImage(
         '📋 Tabela nutricional detectada!',
         '',
         `• ${item.food} (porção ${previewItem.quantity_grams ?? 0}g) — ${previewItem.calories ?? 0} kcal`,
-        `  P: ${previewItem.protein ?? 0}g | C: ${previewItem.carbs ?? 0}g | G: ${previewItem.fat ?? 0}g`,
+        `  P: ${previewItem.protein ?? 0}g | G: ${previewItem.fat ?? 0}g | C: ${previewItem.carbs ?? 0}g`,
         '',
         'Quantas porções você comeu? Responda com o número para eu registrar.',
       ].join('\n')

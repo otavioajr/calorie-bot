@@ -1874,6 +1874,25 @@ describe('handleIncomingImage', () => {
     )
   })
 
+  it('renders the nutrition-label preview macros in P/G/C order (fat before carbs)', async () => {
+    mockAnalyzeImage.mockResolvedValue({
+      image_type: 'nutrition_label',
+      confidence: 'high',
+      needs_clarification: false,
+      items: [{ food: 'Barra', quantity_grams: 25, calories: 100, protein: 8, carbs: 12, fat: 3 }],
+      unknown_items: [],
+    })
+
+    // No caption with portions → falls into the preview that sets awaiting_label_portions.
+    await handleIncomingImage(FROM, MESSAGE_ID, IMAGE_ID)
+
+    const preview = mockSendTextMessage.mock.calls
+      .map((c) => c[1])
+      .find((m) => typeof m === 'string' && m.includes('Tabela nutricional'))!
+    // P/G/C: fat (G) before carbs (C)
+    expect(preview).toMatch(/P:\s*8g\s*\|\s*G:\s*3g\s*\|\s*C:\s*12g/)
+  })
+
   it('registers nutrition label immediately when caption already includes portions', async () => {
     mockAnalyzeImage.mockResolvedValue({
       image_type: 'nutrition_label',
