@@ -11,7 +11,7 @@ import {
   updateMealType,
   removeMealItem,
   recalculateMealTotal,
-  getDailyCalories,
+  getDailyMacros,
 } from '@/lib/db/queries/meals'
 import type { RecentMeal } from '@/lib/db/queries/meals'
 import { getLLMProvider } from '@/lib/llm/index'
@@ -20,6 +20,7 @@ import { CorrectionSchema } from '@/lib/llm/schemas/correction'
 import type { Correction } from '@/lib/llm/schemas/correction'
 import { appendItemsToMeal } from '@/lib/bot/flows/meal-log'
 import { formatProgress } from '@/lib/utils/formatters'
+import { buildMacrosBlock } from '@/lib/bot/macros'
 
 // ---------------------------------------------------------------------------
 // Patterns
@@ -52,6 +53,28 @@ function mealLabel(mealType: string): string {
   return MEAL_TYPE_LABELS[mealType] ?? mealType
 }
 
+type EditUser = {
+  timezone?: string
+  dailyCalorieTarget?: number | null
+  dailyProteinG?: number | null
+  dailyFatG?: number | null
+  dailyCarbsG?: number | null
+}
+
+/** Builds the progress line (calories + optional macros) for an edit reply. */
+async function progressForUser(
+  supabase: SupabaseClient,
+  userId: string,
+  user?: EditUser,
+): Promise<string> {
+  const dailyMacros = await getDailyMacros(supabase, userId, undefined, user?.timezone)
+  const { target, macros } = buildMacrosBlock(
+    { dailyCalorieTarget: user?.dailyCalorieTarget ?? null, dailyProteinG: user?.dailyProteinG, dailyFatG: user?.dailyFatG, dailyCarbsG: user?.dailyCarbsG },
+    dailyMacros,
+  )
+  return formatProgress(dailyMacros.calories, target, macros)
+}
+
 // ---------------------------------------------------------------------------
 // handleEdit (main entry)
 // ---------------------------------------------------------------------------
@@ -61,7 +84,7 @@ export async function handleEdit(
   userId: string,
   message: string,
   context: ConversationContext | null,
-  user?: { timezone?: string; dailyCalorieTarget?: number | null },
+  user?: EditUser,
   quoteContext?: QuoteContext,
 ): Promise<string> {
   const trimmed = message.trim()
@@ -173,7 +196,7 @@ async function handleAwaitingCorrectionItem(
   userId: string,
   message: string,
   context: ConversationContext,
-  user?: { timezone?: string; dailyCalorieTarget?: number | null },
+  user?: EditUser,
 ): Promise<string> {
   const mealId = context.contextData.mealId as string
   const items = context.contextData.items as unknown as Array<{
@@ -208,7 +231,7 @@ async function handleAwaitingCorrectionValue(
   userId: string,
   message: string,
   context: ConversationContext,
-  user?: { timezone?: string; dailyCalorieTarget?: number | null },
+  user?: EditUser,
 ): Promise<string> {
   const mealId = context.contextData.mealId as string
   const itemId = context.contextData.itemId as string
@@ -263,9 +286,7 @@ async function handleAwaitingCorrectionValue(
   await recalculateMealTotal(supabase, mealId)
   await clearState(userId)
 
-  const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user?.timezone)
-  const target = user?.dailyCalorieTarget ?? 2000
-  const progress = formatProgress(dailyConsumed, target)
+  const progress = await progressForUser(supabase, userId, user)
 
   return `✅ ${foodName} atualizado: ${currentGrams}g → ${newGrams}g (${targetItem.calories} → ${newCalories} kcal)\n${progress}`
 }
@@ -278,7 +299,7 @@ async function handleNaturalLanguageCorrection(
   supabase: SupabaseClient,
   userId: string,
   message: string,
-  user?: { timezone?: string; dailyCalorieTarget?: number | null },
+  user?: EditUser,
 ): Promise<string> {
   const llm = getLLMProvider()
 
@@ -327,7 +348,7 @@ async function handleNaturalLanguageCorrectionWithMeal(
   message: string,
   mealId: string,
   items: Array<{ id: string; foodName: string; quantityGrams: number; calories: number; proteinG?: number; carbsG?: number; fatG?: number }>,
-  user?: { timezone?: string; dailyCalorieTarget?: number | null },
+  user?: EditUser,
   options?: { allowMealTypeChange?: boolean; currentMealType?: string },
 ): Promise<string> {
   const llm = getLLMProvider()
@@ -405,13 +426,12 @@ async function handleNaturalLanguageCorrectionWithMeal(
         const display = item.quantityDisplay || `${item.quantityGrams}g`
         return `• ${item.food} (${display}) — ${item.calories} kcal`
       }).join('\n')
-      const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user?.timezone)
-      const target = user?.dailyCalorieTarget ?? 2000
+      const progress = await progressForUser(supabase, userId, user)
       return [
         '✅ Adicionado:',
         itemLines,
         `Novo total da refeição: ${result.newTotal} kcal`,
-        formatProgress(dailyConsumed, target),
+        progress,
       ].join('\n')
     }
 
@@ -429,9 +449,8 @@ async function handleNaturalLanguageCorrectionWithMeal(
       await updateMealType(supabase, mealId, correction.target_meal_type)
       await clearState(userId)
 
-      const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user?.timezone)
-      const target = user?.dailyCalorieTarget ?? 2000
-      return `✅ Refeição movida de ${mealLabel(options.currentMealType)} para ${mealLabel(correction.target_meal_type)}.\n${formatProgress(dailyConsumed, target)}`
+      const progress = await progressForUser(supabase, userId, user)
+      return `✅ Refeição movida de ${mealLabel(options.currentMealType)} para ${mealLabel(correction.target_meal_type)}.\n${progress}`
     }
 
     case 'remove_item': {
@@ -442,9 +461,8 @@ async function handleNaturalLanguageCorrectionWithMeal(
       await removeMealItem(supabase, targetItem.id)
       const newTotal = await recalculateMealTotal(supabase, mealId)
       await clearState(userId)
-      const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user?.timezone)
-      const target = user?.dailyCalorieTarget ?? 2000
-      return `✅ ${targetItem.foodName} removido! Novo total: ${newTotal} kcal\n${formatProgress(dailyConsumed, target)}`
+      const progress = await progressForUser(supabase, userId, user)
+      return `✅ ${targetItem.foodName} removido! Novo total: ${newTotal} kcal\n${progress}`
     }
 
     case 'update_quantity': {
@@ -508,9 +526,8 @@ async function handleNaturalLanguageCorrectionWithMeal(
       await recalculateMealTotal(supabase, mealId)
       await clearState(userId)
 
-      const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user?.timezone)
-      const target = user?.dailyCalorieTarget ?? 2000
-      return `✅ ${targetItem.foodName}: ${oldValue} → ${amount} ${fieldLabels[field]}\n${formatProgress(dailyConsumed, target)}`
+      const progress = await progressForUser(supabase, userId, user)
+      return `✅ ${targetItem.foodName}: ${oldValue} → ${amount} ${fieldLabels[field]}\n${progress}`
     }
 
     default:
@@ -543,7 +560,7 @@ async function renameItem(
   mealId: string,
   targetItem: { id: string; foodName: string; quantityGrams: number; calories: number; proteinG?: number; carbsG?: number; fatG?: number },
   newFoodName: string,
-  user?: { timezone?: string; dailyCalorieTarget?: number | null },
+  user?: EditUser,
 ): Promise<string> {
   const llm = getLLMProvider()
 
@@ -569,8 +586,7 @@ async function renameItem(
 
     const newTotal = await recalculateMealTotal(supabase, mealId)
     await clearState(userId)
-    const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user?.timezone)
-    const target = user?.dailyCalorieTarget ?? 2000
+    const progress = await progressForUser(supabase, userId, user)
 
     return [
       '✏️ Corrigido!',
@@ -578,7 +594,7 @@ async function renameItem(
       `  ${oldCalories} kcal → ${Math.round(newItem.calories ?? 0)} kcal`,
       '',
       `📊 Novo total da refeição: ${newTotal} kcal`,
-      formatProgress(dailyConsumed, target),
+      progress,
     ].join('\n')
   } catch {
     return `Não consegui analisar *${newFoodName}*. Pode tentar de novo?`
@@ -590,7 +606,7 @@ async function handleQuotedEdit(
   userId: string,
   message: string,
   quoteContext: QuoteContext,
-  user?: { timezone?: string; dailyCalorieTarget?: number | null },
+  user?: EditUser,
 ): Promise<string> {
   if (quoteContext.resourceType !== 'meal' || !quoteContext.resourceId) {
     return 'Ainda não consigo fazer isso com mensagens citadas 😅 Mas posso te ajudar com outra coisa! Digite *menu* para ver as opções.'
@@ -605,9 +621,8 @@ async function handleQuotedEdit(
   if (QUOTE_DELETE_NO_ITEM.test(message)) {
     await deleteMeal(supabase, quoteContext.resourceId)
     await clearState(userId)
-    const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user?.timezone)
-    const target = user?.dailyCalorieTarget ?? 2000
-    return `Refeição apagada! ✅\n${formatProgress(dailyConsumed, target)}`
+    const progress = await progressForUser(supabase, userId, user)
+    return `Refeição apagada! ✅\n${progress}`
   }
 
   // Delete specific item
@@ -624,9 +639,8 @@ async function handleQuotedEdit(
     await removeMealItem(supabase, targetItem.id)
     const newTotal = await recalculateMealTotal(supabase, quoteContext.resourceId)
     await clearState(userId)
-    const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user?.timezone)
-    const target = user?.dailyCalorieTarget ?? 2000
-    return `✅ ${targetItem.foodName} removido! Novo total: ${newTotal} kcal\n${formatProgress(dailyConsumed, target)}`
+    const progress = await progressForUser(supabase, userId, user)
+    return `✅ ${targetItem.foodName} removido! Novo total: ${newTotal} kcal\n${progress}`
   }
 
   // Quantity correction ("era 200g" or "era 200g de arroz") — checked BEFORE rename
@@ -665,9 +679,8 @@ async function handleQuotedEdit(
 
     await recalculateMealTotal(supabase, quoteContext.resourceId)
     await clearState(userId)
-    const dailyConsumed = await getDailyCalories(supabase, userId, undefined, user?.timezone)
-    const target = user?.dailyCalorieTarget ?? 2000
-    return `✅ ${targetItem.foodName} atualizado: ${targetItem.quantityGrams}g → ${newGrams}g (${targetItem.calories} → ${newCalories} kcal)\n${formatProgress(dailyConsumed, target)}`
+    const progress = await progressForUser(supabase, userId, user)
+    return `✅ ${targetItem.foodName} atualizado: ${targetItem.quantityGrams}g → ${newGrams}g (${targetItem.calories} → ${newCalories} kcal)\n${progress}`
   }
 
   // Rename food item ("era quinoa, não arroz" or "era quinoa") — only unambiguous "era" triggers

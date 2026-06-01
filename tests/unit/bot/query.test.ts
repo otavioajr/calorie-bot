@@ -11,13 +11,13 @@ const {
   mockEnrichItemsWithTaco,
   mockLogFoodToMeal,
   mockCreateMeal,
-  mockGetDailyCalories,
+  mockGetDailyMacros,
 } = vi.hoisted(() => {
   const mockAnalyzeMeal = vi.fn()
   const mockEnrichItemsWithTaco = vi.fn()
   const mockLogFoodToMeal = vi.fn()
   const mockCreateMeal = vi.fn()
-  const mockGetDailyCalories = vi.fn()
+  const mockGetDailyMacros = vi.fn()
   return {
     mockAnalyzeMeal,
     mockGetLLMProvider: vi.fn(() => ({
@@ -29,7 +29,7 @@ const {
     mockEnrichItemsWithTaco,
     mockLogFoodToMeal,
     mockCreateMeal,
-    mockGetDailyCalories,
+    mockGetDailyMacros,
   }
 })
 
@@ -49,7 +49,7 @@ vi.mock('@/lib/bot/flows/meal-log', () => ({
 
 vi.mock('@/lib/db/queries/meals', () => ({
   createMeal: mockCreateMeal,
-  getDailyCalories: mockGetDailyCalories,
+  getDailyMacros: mockGetDailyMacros,
 }))
 
 import { handleQuery, handleQueryConfirmation } from '@/lib/bot/flows/query'
@@ -282,7 +282,7 @@ describe('handleQueryConfirmation', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     supabase = buildSupabase()
-    mockGetDailyCalories.mockResolvedValue(580)
+    mockGetDailyMacros.mockResolvedValue({ calories: 580, proteinG: 0, carbsG: 0, fatG: 0 })
   })
 
   it('consolidates into the existing same-day meal via logFoodToMeal (wasAppend) instead of creating a new meal', async () => {
@@ -374,5 +374,39 @@ describe('handleQueryConfirmation', () => {
     expect(result).toContain('registrado')
     expect(result).toContain('coxinha')
     expect(result).toContain('290')
+  })
+
+  it('includes the P:/G:/C: macro line when the user has macro goals', async () => {
+    mockGetDailyMacros.mockResolvedValue({ calories: 580, proteinG: 30, carbsG: 70, fatG: 20 })
+    mockLogFoodToMeal.mockResolvedValue({
+      wasAppend: false, mealId: 'meal-new-1',
+      addedItems: [{ foodName: 'coxinha', quantityGrams: 130, calories: 290, proteinG: 13, carbsG: 22, fatG: 17, source: 'taco', quantityDisplay: '1 unidade' }],
+      meal: { id: 'meal-new-1', mealType: 'snack', totalCalories: 290, registeredAt: '2026-05-30T15:00:00.000Z',
+        items: [{ id: 'i1', foodName: 'coxinha', quantityGrams: 130, quantityDisplay: '1 unidade', calories: 290, proteinG: 13, carbsG: 22, fatG: 17, source: 'taco', confidence: 'high' }] },
+    })
+
+    const result = await handleQueryConfirmation(
+      supabase, USER_ID, 'registrar', confirmationContext,
+      { timezone: 'America/Sao_Paulo', dailyCalorieTarget: 2000, dailyProteinG: 120, dailyFatG: 60, dailyCarbsG: 200 },
+    )
+
+    expect(result).toContain('P: 30/120g')
+  })
+
+  it('omits the macro line when the user has no macro goals', async () => {
+    mockGetDailyMacros.mockResolvedValue({ calories: 290, proteinG: 13, carbsG: 22, fatG: 17 })
+    mockLogFoodToMeal.mockResolvedValue({
+      wasAppend: false, mealId: 'meal-new-2',
+      addedItems: [{ foodName: 'coxinha', quantityGrams: 130, calories: 290, proteinG: 13, carbsG: 22, fatG: 17, source: 'taco', quantityDisplay: '1 unidade' }],
+      meal: { id: 'meal-new-2', mealType: 'snack', totalCalories: 290, registeredAt: '2026-05-30T15:00:00.000Z',
+        items: [{ id: 'i1', foodName: 'coxinha', quantityGrams: 130, quantityDisplay: '1 unidade', calories: 290, proteinG: 13, carbsG: 22, fatG: 17, source: 'taco', confidence: 'high' }] },
+    })
+
+    const result = await handleQueryConfirmation(
+      supabase, USER_ID, 'registrar', confirmationContext,
+      { timezone: 'America/Sao_Paulo', dailyCalorieTarget: 2000 },
+    )
+
+    expect(result).not.toContain('P: 13/')
   })
 })

@@ -3,7 +3,7 @@ import { getLLMProvider } from '@/lib/llm/index'
 import type { MealAnalysis, MealItem } from '@/lib/llm/schemas/meal-analysis'
 import { setState, clearState } from '@/lib/bot/state'
 import type { ConversationContext } from '@/lib/bot/state'
-import { addMealItems, getDailyCalories, getDailyMacros, recalculateMealTotal, getMealWithItems, findOrCreateMeal, getDayBoundsForTimezone } from '@/lib/db/queries/meals'
+import { addMealItems, getDailyMacros, recalculateMealTotal, getMealWithItems, findOrCreateMeal, getDayBoundsForTimezone } from '@/lib/db/queries/meals'
 import type { MealItemInput, MealWithItems } from '@/lib/db/queries/meals'
 import { formatMealBreakdown, formatMultiMealBreakdown, formatProgress, formatSearchFeedback, formatDefaultNotice } from '@/lib/utils/formatters'
 import { getRecentMessages } from '@/lib/db/queries/message-history'
@@ -20,6 +20,7 @@ import type { Product, ProductLookupOutcome } from '@/lib/products/types'
 import { localDateString, parseDateFromMessage, formatDateLabel } from '@/lib/utils/relative-date'
 import { buildConsolidatedMealResponse, setRecentMealState } from '@/lib/bot/meal-response'
 import { parseMealType } from '@/lib/bot/flows/meal-detail'
+import { buildMacrosBlock } from '@/lib/bot/macros'
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -162,23 +163,6 @@ class ProductInteractionRequired extends Error {
 
 function totalCaloriesFromEnriched(items: EnrichedItem[]): number {
   return Math.round(items.reduce((sum, item) => sum + item.calories, 0))
-}
-
-function buildMacrosBlock(
-  user: { dailyCalorieTarget: number | null; dailyProteinG?: number | null; dailyFatG?: number | null; dailyCarbsG?: number | null },
-  dailyMacros: { proteinG: number; fatG: number; carbsG: number },
-): {
-  target: number
-  macros: { consumed: { proteinG: number; fatG: number; carbsG: number }; target: { proteinG: number; fatG: number; carbsG: number } } | undefined
-} {
-  const target = user.dailyCalorieTarget ?? 2000
-  const macros = (user.dailyProteinG && user.dailyFatG && user.dailyCarbsG)
-    ? {
-        consumed: { proteinG: dailyMacros.proteinG, fatG: dailyMacros.fatG, carbsG: dailyMacros.carbsG },
-        target: { proteinG: user.dailyProteinG, fatG: user.dailyFatG, carbsG: user.dailyCarbsG },
-      }
-    : undefined
-  return { target, macros }
 }
 
 function safeParseJSON(raw: string): unknown {
@@ -1092,6 +1076,9 @@ async function handleBulkQuantitiesResponse(
   user: {
     calorieMode: string
     dailyCalorieTarget: number | null
+    dailyProteinG?: number | null
+    dailyFatG?: number | null
+    dailyCarbsG?: number | null
     phone?: string
     timezone?: string
   },
@@ -1263,8 +1250,8 @@ async function handleBulkQuantitiesResponse(
     }
   }
 
-  const dailyConsumed = await getDailyCalories(supabase, userId, targetDate, user.timezone)
-  const target = user.dailyCalorieTarget ?? 2000
+  const dailyMacros = await getDailyMacros(supabase, userId, targetDate, user.timezone)
+  const { target, macros } = buildMacrosBlock(user, dailyMacros)
 
   if (resolvedMealId) {
     const fullMeal = await getMealWithItems(supabase, resolvedMealId)
@@ -1276,7 +1263,7 @@ async function handleBulkQuantitiesResponse(
         calories: i.calories,
       }))
       return {
-        response: formatMealBreakdown(fullMeal.mealType, receiptItems, fullMeal.totalCalories, dailyConsumed, target),
+        response: formatMealBreakdown(fullMeal.mealType, receiptItems, fullMeal.totalCalories, dailyMacros.calories, target, macros),
         completed: true,
         mealId: resolvedMealId,
       }
@@ -1289,8 +1276,9 @@ async function handleBulkQuantitiesResponse(
       mealType,
       enriched.map(i => ({ food: i.food, quantityGrams: i.quantityGrams, quantityDisplay: i.quantityDisplay, calories: i.calories })),
       total,
-      dailyConsumed,
+      dailyMacros.calories,
       target,
+      macros,
     ),
     completed: true,
     mealId: savedMealId ?? undefined,

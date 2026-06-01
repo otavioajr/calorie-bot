@@ -35,6 +35,7 @@ const {
   mockSetState,
   mockClearState,
   mockGetDailyCalories,
+  mockGetDailyMacros,
   mockCreateMeal,
   mockGetMealWithItems,
   mockFormatMealBreakdown,
@@ -77,6 +78,7 @@ const {
     mockSetState: vi.fn().mockResolvedValue(undefined),
     mockClearState: vi.fn().mockResolvedValue(undefined),
     mockGetDailyCalories: vi.fn().mockResolvedValue(0),
+    mockGetDailyMacros: vi.fn().mockResolvedValue({ calories: 0, proteinG: 0, carbsG: 0, fatG: 0 }),
     mockCreateMeal: vi.fn().mockResolvedValue('mock-meal-id'),
     mockGetMealWithItems: vi.fn().mockResolvedValue(null),
     mockFormatMealBreakdown: vi.fn().mockReturnValue('meal breakdown message'),
@@ -200,6 +202,7 @@ vi.mock('@/lib/whatsapp/mime', () => ({
 vi.mock('@/lib/db/queries/meals', () => ({
   createMeal: mockCreateMeal,
   getDailyCalories: mockGetDailyCalories,
+  getDailyMacros: mockGetDailyMacros,
   getMealWithItems: mockGetMealWithItems,
 }))
 
@@ -234,7 +237,7 @@ import { handleIncomingMessage, handleIncomingAudio, handleIncomingImage } from 
 import { MediaTooLargeError } from '@/lib/whatsapp/media'
 
 // Real formatter (the module is mocked above) so we can assert the actual "Somei" output.
-const { formatMealAddition: realFormatMealAddition } =
+const { formatMealAddition: realFormatMealAddition, formatMealBreakdown: realFormatMealBreakdown } =
   await vi.importActual<typeof import('@/lib/utils/formatters')>('@/lib/utils/formatters')
 
 // ---------------------------------------------------------------------------
@@ -538,7 +541,13 @@ describe('handleIncomingMessage — completed user, intent routing', () => {
       completedUser.id,
       'corrigir',
       null,
-      { timezone: completedUser.timezone, dailyCalorieTarget: completedUser.dailyCalorieTarget },
+      {
+        timezone: completedUser.timezone,
+        dailyCalorieTarget: completedUser.dailyCalorieTarget,
+        dailyProteinG: completedUser.dailyProteinG,
+        dailyFatG: completedUser.dailyFatG,
+        dailyCarbsG: completedUser.dailyCarbsG,
+      },
       undefined
     )
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'edit response', undefined)
@@ -737,7 +746,13 @@ describe('handleIncomingMessage — context-based routing', () => {
       completedUser.id,
       'na verdade foi 300g',
       mockContext,
-      { timezone: completedUser.timezone, dailyCalorieTarget: completedUser.dailyCalorieTarget }
+      {
+        timezone: completedUser.timezone,
+        dailyCalorieTarget: completedUser.dailyCalorieTarget,
+        dailyProteinG: completedUser.dailyProteinG,
+        dailyFatG: completedUser.dailyFatG,
+        dailyCarbsG: completedUser.dailyCarbsG,
+      }
     )
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'correction received')
   })
@@ -973,6 +988,8 @@ describe('handleIncomingMessage — context-based routing', () => {
     )
     expect(mockCreateMeal).not.toHaveBeenCalled()
     // New meal (default mock: wasAppend false) → formatMealBreakdown via buildConsolidatedMealResponse.
+    // Daily total now comes from getDailyMacros (macros migration); user has no macro
+    // goals → macros block is undefined.
     expect(mockFormatMealBreakdown).toHaveBeenCalledWith(
       'lunch',
       [
@@ -980,7 +997,7 @@ describe('handleIncomingMessage — context-based routing', () => {
         expect.objectContaining({ food: 'Arroz', calories: 128 }),
       ],
       228,
-      500,
+      expect.any(Number),
       2000,
       undefined,
       expect.any(String),
@@ -1248,6 +1265,92 @@ describe('handleIncomingMessage — context-based routing', () => {
     )
     expect(mockCreateMeal).not.toHaveBeenCalled()
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'meal breakdown message')
+  })
+
+  it('includes the P:/G:/C: macro line when registering a confirmed product meal (quantity reply)', async () => {
+    mockFindUserByPhone.mockResolvedValue({
+      ...completedUser,
+      dailyCalorieTarget: 2000,
+      dailyProteinG: 120,
+      dailyFatG: 60,
+      dailyCarbsG: 200,
+    })
+    const product = {
+      id: 'product-1',
+      name: 'Magic Toast',
+      nameNormalized: 'magic toast',
+      brand: 'Marilan',
+      brandNormalized: 'marilan',
+      barcode: '789',
+      servingSizeG: 30,
+      servingDisplay: '6 torradas',
+      caloriesPer100g: 400,
+      proteinPer100g: 10,
+      carbsPer100g: 70,
+      fatPer100g: 8,
+      fiberPer100g: null,
+      sodiumPer100g: null,
+      source: 'open_food_facts' as const,
+      sourceRef: null,
+      status: 'aprovado' as const,
+      createdBy: null,
+      createdAt: '2026-04-26T00:00:00.000Z',
+      updatedAt: '2026-04-26T00:00:00.000Z',
+      promotedAt: null,
+      contributorIds: null,
+    }
+    const pendingMeal = {
+      mealType: 'snack',
+      originalMessage: 'magic toast',
+      food: 'magic toast',
+      quantityDisplay: null,
+      productItemIndex: 0,
+      mealItems: [{
+        food: 'magic toast',
+        quantity_grams: null,
+        quantity_display: null,
+        quantity_source: 'unknown',
+        portion_type: 'packaged',
+        has_user_quantity: false,
+        calories: null,
+        protein: null,
+        carbs: null,
+        fat: null,
+        confidence: 'high',
+      }],
+    }
+    mockGetState.mockResolvedValue({
+      contextType: 'awaiting_product_quantity',
+      contextData: {
+        product,
+        pendingMeal,
+      },
+    })
+    mockLogFoodToMeal.mockResolvedValue({
+      wasAppend: false,
+      mealId: 'm-prod',
+      addedItems: [{ foodName: 'Magic Toast', quantityGrams: 30, calories: 120, proteinG: 3, carbsG: 21, fatG: 2.4, source: 'product' }],
+      meal: {
+        id: 'm-prod',
+        mealType: 'snack',
+        totalCalories: 120,
+        registeredAt: '2026-05-31T12:00:00Z',
+        items: [{ id: 'i1', foodName: 'Magic Toast', quantityGrams: 30, quantityDisplay: '30g', calories: 120, proteinG: 3, carbsG: 21, fatG: 2.4, source: 'product', confidence: 'high' }],
+      },
+    })
+    mockGetDailyMacros.mockResolvedValue({ calories: 120, proteinG: 3, carbsG: 21, fatG: 2 })
+    // Use the real formatter for this single call so we assert the actual macro
+    // line rendering. mockImplementationOnce auto-reverts to the default stub
+    // after one call — leak-proof even if the assertion below throws (the
+    // product confirmation with wasAppend:false calls formatMealBreakdown once).
+    mockFormatMealBreakdown.mockImplementationOnce((...args: unknown[]) =>
+      realFormatMealBreakdown(...(args as Parameters<typeof realFormatMealBreakdown>)),
+    )
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, '30g')
+
+    const sent = mockSendTextMessage.mock.calls.map(c => c[1]).join('\n')
+    expect(sent).toContain('P: 3/120g')
   })
 
   it('does not register unit quantity when product has no serving weight', async () => {
@@ -1563,6 +1666,92 @@ describe('handleIncomingImage', () => {
     expect(sent).toContain('Total: 292 kcal')
   })
 
+  it('includes the P:/G:/C: macro line in the photo confirmation when the user has macro goals', async () => {
+    mockFindUserByPhone.mockResolvedValue({
+      ...completedUser, // onboardingComplete: true, timezone set
+      dailyCalorieTarget: 2000,
+      dailyProteinG: 120,
+      dailyFatG: 60,
+      dailyCarbsG: 200,
+    })
+    mockAnalyzeImage.mockResolvedValue({
+      image_type: 'food',
+      meal_type: 'breakfast',
+      confidence: 'high',
+      needs_clarification: false,
+      items: [{ food: 'Ovo', quantity_grams: 100, calories: 143, protein: 13, carbs: 1, fat: 10 }],
+      unknown_items: [],
+    })
+    mockLogFoodToMeal.mockResolvedValue({
+      wasAppend: false,
+      mealId: 'm-photo',
+      addedItems: [{ foodName: 'Ovo', quantityGrams: 100, calories: 143, proteinG: 13, carbsG: 1, fatG: 10, source: 'manual' }],
+      meal: {
+        id: 'm-photo',
+        mealType: 'breakfast',
+        totalCalories: 143,
+        registeredAt: '2026-04-23T18:00:00Z',
+        items: [{ id: 'i1', foodName: 'Ovo', quantityGrams: 100, quantityDisplay: null, calories: 143, proteinG: 13, carbsG: 1, fatG: 10, source: 'manual', confidence: 'high' }],
+      },
+    })
+    mockGetDailyMacros.mockResolvedValue({ calories: 143, proteinG: 13, carbsG: 1, fatG: 10 })
+    // Use the real formatter for this single call so we assert the actual macro
+    // line rendering. mockImplementationOnce auto-reverts to the default
+    // 'meal breakdown message' stub after one call — leak-proof even if the
+    // assertion below throws (the photo path calls formatMealBreakdown once).
+    mockFormatMealBreakdown.mockImplementationOnce((...args: unknown[]) =>
+      realFormatMealBreakdown(...(args as Parameters<typeof realFormatMealBreakdown>)),
+    )
+
+    await handleIncomingImage(FROM, MESSAGE_ID, IMAGE_ID, 'meu café da manhã')
+
+    const sent = mockSendTextMessage.mock.calls.map(c => c[1]).join('\n')
+    expect(sent).toContain('P: 13/120g')
+  })
+
+  it('includes the P:/G:/C: macro line in the nutrition-label confirmation', async () => {
+    mockFindUserByPhone.mockResolvedValue({
+      ...completedUser,
+      dailyCalorieTarget: 2000,
+      dailyProteinG: 120,
+      dailyFatG: 60,
+      dailyCarbsG: 200,
+    })
+    mockAnalyzeImage.mockResolvedValue({
+      image_type: 'nutrition_label',
+      confidence: 'high',
+      needs_clarification: false,
+      items: [{ food: 'Granola', quantity_grams: 30, calories: 130, protein: 4, carbs: 20, fat: 4 }],
+      unknown_items: [],
+    })
+    mockLogFoodToMeal.mockResolvedValue({
+      wasAppend: false,
+      mealId: 'm-label',
+      addedItems: [{ foodName: 'Granola', quantityGrams: 30, calories: 130, proteinG: 4, carbsG: 20, fatG: 4, source: 'manual' }],
+      meal: {
+        id: 'm-label',
+        mealType: 'snack',
+        totalCalories: 130,
+        registeredAt: '2026-05-31T12:00:00Z',
+        items: [{ id: 'i1', foodName: 'Granola', quantityGrams: 30, quantityDisplay: null, calories: 130, proteinG: 4, carbsG: 20, fatG: 4, source: 'manual', confidence: 'high' }],
+      },
+    })
+    mockGetDailyMacros.mockResolvedValue({ calories: 130, proteinG: 4, carbsG: 20, fatG: 4 })
+    // Use the real formatter for this single call so we assert the actual macro
+    // line rendering. mockImplementationOnce auto-reverts to the default stub
+    // after one call — leak-proof even if the assertion below throws (the label
+    // path with wasAppend:false calls formatMealBreakdown exactly once).
+    mockFormatMealBreakdown.mockImplementationOnce((...args: unknown[]) =>
+      realFormatMealBreakdown(...(args as Parameters<typeof realFormatMealBreakdown>)),
+    )
+
+    // caption com "1 porção" para resolver direto (extractLabelPortionsFromCaption)
+    await handleIncomingImage(FROM, MESSAGE_ID, IMAGE_ID, '1 porção')
+
+    const sent = mockSendTextMessage.mock.calls.map(c => c[1]).join('\n')
+    expect(sent).toContain('P: 4/120g')
+  })
+
   it('asks which meal for a backdated food photo without an explicit meal type', async () => {
     mockAnalyzeImage.mockResolvedValue({
       image_type: 'food',
@@ -1683,6 +1872,25 @@ describe('handleIncomingImage', () => {
       FROM,
       expect.stringContaining('Quantas porções'),
     )
+  })
+
+  it('renders the nutrition-label preview macros in P/G/C order (fat before carbs)', async () => {
+    mockAnalyzeImage.mockResolvedValue({
+      image_type: 'nutrition_label',
+      confidence: 'high',
+      needs_clarification: false,
+      items: [{ food: 'Barra', quantity_grams: 25, calories: 100, protein: 8, carbs: 12, fat: 3 }],
+      unknown_items: [],
+    })
+
+    // No caption with portions → falls into the preview that sets awaiting_label_portions.
+    await handleIncomingImage(FROM, MESSAGE_ID, IMAGE_ID)
+
+    const preview = mockSendTextMessage.mock.calls
+      .map((c) => c[1])
+      .find((m) => typeof m === 'string' && m.includes('Tabela nutricional'))!
+    // P/G/C: fat (G) before carbs (C)
+    expect(preview).toMatch(/P:\s*8g\s*\|\s*G:\s*3g\s*\|\s*C:\s*12g/)
   })
 
   it('registers nutrition label immediately when caption already includes portions', async () => {

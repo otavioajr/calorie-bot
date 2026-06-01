@@ -9,8 +9,9 @@ const FULL = [
 ]
 
 describe('formatMealAddition', () => {
-  it('frames as "Somei … ao …" and lists the full meal', () => {
-    const msg = formatMealAddition('breakfast', ADDED, FULL, 292, 292, 2168, 'Hoje')
+  it('frames as "Somei … ao …" and lists the full meal (macros before dateLabel)', () => {
+    // New signature: (mealType, added, full, mealTotal, dailyConsumed, dailyTarget, macros?, dateLabel?)
+    const msg = formatMealAddition('breakfast', ADDED, FULL, 292, 292, 2168, undefined, 'Hoje')
     expect(msg).toContain('Somei')
     expect(msg).toContain('Açaí')
     expect(msg).toContain('Café da manhã agora:')
@@ -20,9 +21,19 @@ describe('formatMealAddition', () => {
     expect(msg).toContain('📊 Hoje: 292 / 2168 kcal')
   })
 
-  it('uses the date label for backdated additions', () => {
-    const msg = formatMealAddition('dinner', ADDED, FULL, 292, 292, 2168, 'Ontem')
+  it('uses the date label (now the 8th arg) for backdated additions', () => {
+    const msg = formatMealAddition('dinner', ADDED, FULL, 292, 292, 2168, undefined, 'Ontem')
     expect(msg).toContain('📊 Ontem: 292 / 2168 kcal')
+  })
+
+  it('renders the macro line when macros are passed (7th arg)', () => {
+    const macros = {
+      consumed: { proteinG: 18, fatG: 12, carbsG: 30 },
+      target: { proteinG: 144, fatG: 60, carbsG: 200 },
+    }
+    const msg = formatMealAddition('breakfast', ADDED, FULL, 292, 292, 2168, macros, 'Hoje')
+    expect(msg).toContain('P: 18/144g')
+    expect(msg).toContain('📊 Hoje: 292 / 2168 kcal')
   })
 })
 

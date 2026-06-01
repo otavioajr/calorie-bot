@@ -5,6 +5,7 @@ import { classifyByRules, isCancelCommand } from '@/lib/bot/router'
 import { handleOnboarding } from '@/lib/bot/flows/onboarding'
 import { enrichItemsWithTaco, handleMealLog, logFoodToMeal, type EnrichedItem } from '@/lib/bot/flows/meal-log'
 import { setRecentMealState, buildConsolidatedMealResponse } from '@/lib/bot/meal-response'
+import { buildMacrosBlock } from '@/lib/bot/macros'
 import { handleSummary } from '@/lib/bot/flows/summary'
 import { handleQuery, handleQueryConfirmation, registerFromQuotedQuery } from '@/lib/bot/flows/query'
 import { handleEdit } from '@/lib/bot/flows/edit'
@@ -31,7 +32,7 @@ import { downloadAudioMedia, transcribeAudio, AudioTooLargeError } from '@/lib/a
 import { downloadWhatsAppMedia, MediaTooLargeError } from '@/lib/whatsapp/media'
 import { detectMimeType } from '@/lib/whatsapp/mime'
 import { logLLMUsage } from '@/lib/db/queries/llm-usage'
-import { getDailyCalories, getMealWithItems } from '@/lib/db/queries/meals'
+import { getDailyMacros, getMealWithItems } from '@/lib/db/queries/meals'
 import { saveMessage } from '@/lib/db/queries/message-history'
 import { resolveQuote } from '@/lib/bot/quote'
 import type { QuoteContext } from '@/lib/bot/quote'
@@ -191,7 +192,13 @@ async function registerConfirmedProductMeal(
   pendingMeal: ProductPendingMeal,
   product: Product,
   quantityGrams: number | null,
-  user: { dailyCalorieTarget: number | null; timezone?: string },
+  user: {
+    dailyCalorieTarget: number | null
+    dailyProteinG?: number | null
+    dailyFatG?: number | null
+    dailyCarbsG?: number | null
+    timezone?: string
+  },
 ): Promise<{ response: string; mealId: string }> {
   const items = await buildConfirmedProductMealItems(supabase, userId, pendingMeal, product, quantityGrams)
 
@@ -227,9 +234,9 @@ async function registerConfirmedProductMeal(
 
   await setRecentMealState(userId, logResult.meal)
 
-  const dailyConsumed = await getDailyCalories(supabase, userId, targetDate, user.timezone)
-  const target = user.dailyCalorieTarget ?? 2000
-  const response = buildConsolidatedMealResponse(logResult, dailyConsumed, target, dateLabel)
+  const dailyMacros = await getDailyMacros(supabase, userId, targetDate, user.timezone)
+  const { target, macros } = buildMacrosBlock(user, dailyMacros)
+  const response = buildConsolidatedMealResponse(logResult, dailyMacros.calories, target, dateLabel, macros)
 
   return { response, mealId: logResult.mealId }
 }
@@ -298,6 +305,9 @@ export async function handleIncomingMessage(
             const editResponse = await handleEdit(supabase, user.id, text, null, {
               timezone: user.timezone,
               dailyCalorieTarget: user.dailyCalorieTarget,
+              dailyProteinG: user.dailyProteinG,
+              dailyFatG: user.dailyFatG,
+              dailyCarbsG: user.dailyCarbsG,
             }, quoteContext)
             await clearState(user.id)
             const sentId = await sendTextMessage(from, editResponse, quotedMessageId)
@@ -320,6 +330,9 @@ export async function handleIncomingMessage(
               const editResponse = await handleEdit(supabase, user.id, gatekeeper.corrected_message, null, {
                 timezone: user.timezone,
                 dailyCalorieTarget: user.dailyCalorieTarget,
+                dailyProteinG: user.dailyProteinG,
+                dailyFatG: user.dailyFatG,
+                dailyCarbsG: user.dailyCarbsG,
               }, quoteContext ?? undefined)
 
               // After correction, refresh recent_meal state with updated items
@@ -366,6 +379,9 @@ export async function handleIncomingMessage(
             const confirmResponse = await handleQueryConfirmation(supabase, user.id, text, context, {
               timezone: user.timezone,
               dailyCalorieTarget: user.dailyCalorieTarget,
+              dailyProteinG: user.dailyProteinG,
+              dailyFatG: user.dailyFatG,
+              dailyCarbsG: user.dailyCarbsG,
             })
             await sendTextMessage(from, confirmResponse)
             saveHistory(supabase, user.id, text, confirmResponse)
@@ -406,6 +422,9 @@ export async function handleIncomingMessage(
           const editResponse = await handleEdit(supabase, user.id, text, context, {
             timezone: user.timezone,
             dailyCalorieTarget: user.dailyCalorieTarget,
+            dailyProteinG: user.dailyProteinG,
+            dailyFatG: user.dailyFatG,
+            dailyCarbsG: user.dailyCarbsG,
           })
           await sendTextMessage(from, editResponse)
           saveHistory(supabase, user.id, text, editResponse)
@@ -416,6 +435,9 @@ export async function handleIncomingMessage(
           const editResponse = await handleEdit(supabase, user.id, text, context, {
             timezone: user.timezone,
             dailyCalorieTarget: user.dailyCalorieTarget,
+            dailyProteinG: user.dailyProteinG,
+            dailyFatG: user.dailyFatG,
+            dailyCarbsG: user.dailyCarbsG,
           })
           await sendTextMessage(from, editResponse)
           saveHistory(supabase, user.id, text, editResponse)
@@ -440,6 +462,9 @@ export async function handleIncomingMessage(
           await handleLabelPortions(supabase, from, user.id, messageId, text, context, {
             calorieMode: user.calorieMode,
             dailyCalorieTarget: user.dailyCalorieTarget,
+            dailyProteinG: user.dailyProteinG,
+            dailyFatG: user.dailyFatG,
+            dailyCarbsG: user.dailyCarbsG,
             timezone: user.timezone,
           })
           saveMessage(supabase, user.id, 'user', text).catch(() => {})
@@ -474,6 +499,9 @@ export async function handleIncomingMessage(
             parsedQuantity.quantityGrams,
             {
               dailyCalorieTarget: user.dailyCalorieTarget,
+              dailyProteinG: user.dailyProteinG,
+              dailyFatG: user.dailyFatG,
+              dailyCarbsG: user.dailyCarbsG,
               timezone: user.timezone,
             },
           )
@@ -532,6 +560,9 @@ export async function handleIncomingMessage(
               quantityGrams,
               {
                 dailyCalorieTarget: user.dailyCalorieTarget,
+                dailyProteinG: user.dailyProteinG,
+                dailyFatG: user.dailyFatG,
+                dailyCarbsG: user.dailyCarbsG,
                 timezone: user.timezone,
               },
             )
@@ -576,6 +607,9 @@ export async function handleIncomingMessage(
       const editResponse = await handleEdit(supabase, user.id, text, null, {
         timezone: user.timezone,
         dailyCalorieTarget: user.dailyCalorieTarget,
+        dailyProteinG: user.dailyProteinG,
+        dailyFatG: user.dailyFatG,
+        dailyCarbsG: user.dailyCarbsG,
       }, quoteContext)
       const sentId = await sendTextMessage(from, editResponse, quotedMessageId)
       saveHistory(supabase, user.id, text, editResponse)
@@ -588,6 +622,9 @@ export async function handleIncomingMessage(
       const editResponse = await handleEdit(supabase, user.id, text, null, {
         timezone: user.timezone,
         dailyCalorieTarget: user.dailyCalorieTarget,
+        dailyProteinG: user.dailyProteinG,
+        dailyFatG: user.dailyFatG,
+        dailyCarbsG: user.dailyCarbsG,
       }, quoteContext)
       const sentId = await sendTextMessage(from, editResponse, quotedMessageId)
       saveHistory(supabase, user.id, text, editResponse)
@@ -615,6 +652,9 @@ export async function handleIncomingMessage(
           const registerResponse = await registerFromQuotedQuery(supabase, user.id, quoteContext, {
             timezone: user.timezone,
             dailyCalorieTarget: user.dailyCalorieTarget,
+            dailyProteinG: user.dailyProteinG,
+            dailyFatG: user.dailyFatG,
+            dailyCarbsG: user.dailyCarbsG,
           })
           const sentId = await sendTextMessage(from, registerResponse, quotedMessageId)
           saveHistory(supabase, user.id, text, registerResponse)
@@ -670,6 +710,9 @@ export async function handleIncomingMessage(
         response = await handleEdit(supabase, user.id, text, null, {
           timezone: user.timezone,
           dailyCalorieTarget: user.dailyCalorieTarget,
+          dailyProteinG: user.dailyProteinG,
+          dailyFatG: user.dailyFatG,
+          dailyCarbsG: user.dailyCarbsG,
         }, quoteContext ?? undefined)
         break
       case 'weight':
@@ -879,6 +922,9 @@ export async function handleIncomingImage(
           {
             calorieMode: user.calorieMode,
             dailyCalorieTarget: user.dailyCalorieTarget,
+            dailyProteinG: user.dailyProteinG,
+            dailyFatG: user.dailyFatG,
+            dailyCarbsG: user.dailyCarbsG,
             timezone: user.timezone,
           },
         )
@@ -890,7 +936,7 @@ export async function handleIncomingImage(
         '📋 Tabela nutricional detectada!',
         '',
         `• ${item.food} (porção ${previewItem.quantity_grams ?? 0}g) — ${previewItem.calories ?? 0} kcal`,
-        `  P: ${previewItem.protein ?? 0}g | C: ${previewItem.carbs ?? 0}g | G: ${previewItem.fat ?? 0}g`,
+        `  P: ${previewItem.protein ?? 0}g | G: ${previewItem.fat ?? 0}g | C: ${previewItem.carbs ?? 0}g`,
         '',
         'Quantas porções você comeu? Responda com o número para eu registrar.',
       ].join('\n')
@@ -954,9 +1000,9 @@ export async function handleIncomingImage(
     // Keep recent_meal state pointing at the consolidated meal (for corrections)
     await setRecentMealState(user.id, logResult.meal)
 
-    const dailyConsumed = await getDailyCalories(supabase, user.id, targetDate, user.timezone)
-    const target = user.dailyCalorieTarget ?? 2000
-    const response = buildConsolidatedMealResponse(logResult, dailyConsumed, target, dateLabel)
+    const dailyMacros = await getDailyMacros(supabase, user.id, targetDate, user.timezone)
+    const { target, macros } = buildMacrosBlock(user, dailyMacros)
+    const response = buildConsolidatedMealResponse(logResult, dailyMacros.calories, target, dateLabel, macros)
 
     const imgSentId = await sendTextMessage(from, response)
     saveHistory(supabase, user.id, caption || '[imagem de alimento]', response)
@@ -976,7 +1022,14 @@ async function handleLabelPortions(
   incomingMessageId: string,
   message: string,
   context: Pick<ConversationContext, 'contextData'>,
-  user: { calorieMode: string; dailyCalorieTarget: number | null; timezone?: string },
+  user: {
+    calorieMode: string
+    dailyCalorieTarget: number | null
+    dailyProteinG?: number | null
+    dailyFatG?: number | null
+    dailyCarbsG?: number | null
+    timezone?: string
+  },
 ): Promise<void> {
   const portions = parseFloat(message.trim().replace(',', '.'))
 
@@ -1040,9 +1093,9 @@ async function handleLabelPortions(
 
   await setRecentMealState(userId, logResult.meal)
 
-  const dailyConsumed = await getDailyCalories(supabase, userId, targetDate, user.timezone)
-  const target = user.dailyCalorieTarget ?? 2000
-  const response = buildConsolidatedMealResponse(logResult, dailyConsumed, target, dateLabel)
+  const dailyMacros = await getDailyMacros(supabase, userId, targetDate, user.timezone)
+  const { target, macros } = buildMacrosBlock(user, dailyMacros)
+  const response = buildConsolidatedMealResponse(logResult, dailyMacros.calories, target, dateLabel, macros)
 
   const labelSentId = await sendTextMessage(from, response)
   await saveBotMessages(supabase, userId, incomingMessageId, labelSentId, 'meal', logResult.mealId)
