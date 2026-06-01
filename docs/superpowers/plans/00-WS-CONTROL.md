@@ -45,7 +45,7 @@ Uma WS só é **✅ DONE** quando cada caixa estiver marcada:
 - [x] `npm run lint` — 0 erros (22 warnings pré-existentes)
 - [x] `npx tsc --noEmit` — 10 erros, idênticos ao `main` (0 novos)
 - [x] Cada task revisada (spec + qualidade) por subagente; review final holístico: pronto
-- [ ] **PR aberto contra `main`** ← preencher nº ao abrir
+- [x] **PR aberto contra `main`** — **PR #16**
 - [ ] Review limpo (CodeRabbit + Otávio)
 - [ ] **PR mergeado no `main` pelo Otávio** — o agente NÃO mergeia
 - Riscos p/ conferência manual antes do merge: smoke por fluxo com user que tem as 3 metas; caso keto 0g (gate `!= null`)
@@ -77,4 +77,4 @@ Uma WS só é **✅ DONE** quando cada caixa estiver marcada:
 | Data | WS | PR | Notas |
 |------|----|----|-------|
 | 2026-05-31 | WS1 | #14 | ✅ Mergeado no `main` (commit `12ff2a5`) |
-| 2026-05-31 | WS2 | — | 🟡 Em andamento · branch `fix/ws2-macro-display-consistency` |
+| 2026-05-31 | WS2 | #16 | 🟡 PR aberto · 9 tasks · 1088 testes verdes · aguardando review/merge do Otávio |
