@@ -541,7 +541,13 @@ describe('handleIncomingMessage — completed user, intent routing', () => {
       completedUser.id,
       'corrigir',
       null,
-      { timezone: completedUser.timezone, dailyCalorieTarget: completedUser.dailyCalorieTarget },
+      {
+        timezone: completedUser.timezone,
+        dailyCalorieTarget: completedUser.dailyCalorieTarget,
+        dailyProteinG: completedUser.dailyProteinG,
+        dailyFatG: completedUser.dailyFatG,
+        dailyCarbsG: completedUser.dailyCarbsG,
+      },
       undefined
     )
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'edit response', undefined)
@@ -740,7 +746,13 @@ describe('handleIncomingMessage — context-based routing', () => {
       completedUser.id,
       'na verdade foi 300g',
       mockContext,
-      { timezone: completedUser.timezone, dailyCalorieTarget: completedUser.dailyCalorieTarget }
+      {
+        timezone: completedUser.timezone,
+        dailyCalorieTarget: completedUser.dailyCalorieTarget,
+        dailyProteinG: completedUser.dailyProteinG,
+        dailyFatG: completedUser.dailyFatG,
+        dailyCarbsG: completedUser.dailyCarbsG,
+      }
     )
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'correction received')
   })

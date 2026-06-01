@@ -16,6 +16,7 @@ const {
   mockRemoveMealItem,
   mockRecalculateMealTotal,
   mockGetDailyCalories,
+  mockGetDailyMacros,
   mockUpdateMealType,
   mockLLMChat,
   mockAnalyzeMeal,
@@ -32,6 +33,7 @@ const {
     mockRemoveMealItem: vi.fn().mockResolvedValue(undefined),
     mockRecalculateMealTotal: vi.fn().mockResolvedValue(500),
     mockGetDailyCalories: vi.fn().mockResolvedValue(1200),
+    mockGetDailyMacros: vi.fn().mockResolvedValue({ calories: 1200, proteinG: 0, carbsG: 0, fatG: 0 }),
     mockUpdateMealType: vi.fn().mockResolvedValue(undefined),
     mockLLMChat: vi.fn(),
     mockAnalyzeMeal: vi.fn(),
@@ -48,6 +50,7 @@ vi.mock('@/lib/db/queries/meals', () => ({
   removeMealItem: mockRemoveMealItem,
   recalculateMealTotal: mockRecalculateMealTotal,
   getDailyCalories: mockGetDailyCalories,
+  getDailyMacros: mockGetDailyMacros,
   updateMealType: mockUpdateMealType,
 }))
 
@@ -61,7 +64,8 @@ vi.mock('@/lib/llm/index', () => ({
 }))
 
 vi.mock('@/lib/utils/formatters', () => ({
-  formatProgress: vi.fn().mockReturnValue('📊 Hoje: 1200 / 2000 kcal'),
+  formatProgress: vi.fn((consumed: number, target: number, macros?: unknown) =>
+    macros ? `📊 Hoje: ${consumed} / ${target} kcal\nP-LINE` : `📊 Hoje: ${consumed} / ${target} kcal`),
 }))
 
 vi.mock('@/lib/bot/flows/meal-log', () => ({
@@ -69,6 +73,7 @@ vi.mock('@/lib/bot/flows/meal-log', () => ({
 }))
 
 import { handleEdit } from '@/lib/bot/flows/edit'
+import { formatProgress } from '@/lib/utils/formatters'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -288,6 +293,30 @@ describe('handleEdit with quoteContext', () => {
     )
     expect(mockRemoveMealItem).toHaveBeenCalledWith(expect.anything(), 'item-1')
     expect(result).toContain('removido')
+  })
+
+  it('renders the macro line when the user has macro goals', async () => {
+    mockRecalculateMealTotal.mockResolvedValue(77)
+    mockGetDailyMacros.mockResolvedValue({ calories: 1200, proteinG: 60, carbsG: 100, fatG: 30 })
+
+    const result = await handleEdit(
+      buildSupabase(), USER_ID, 'apaga o arroz', null,
+      {
+        timezone: 'America/Sao_Paulo',
+        dailyCalorieTarget: 2000,
+        dailyProteinG: 120,
+        dailyFatG: 60,
+        dailyCarbsG: 200,
+      },
+      quoteContext,
+    )
+
+    expect(mockGetDailyMacros).toHaveBeenCalled()
+    expect(formatProgress).toHaveBeenCalledWith(1200, 2000, {
+      consumed: { proteinG: 60, fatG: 30, carbsG: 100 },
+      target: { proteinG: 120, fatG: 60, carbsG: 200 },
+    })
+    expect(result).toContain('P-LINE')
   })
 
   it('returns fallback when quoteContext has no meal resource', async () => {

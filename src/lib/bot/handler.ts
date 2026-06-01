@@ -305,6 +305,9 @@ export async function handleIncomingMessage(
             const editResponse = await handleEdit(supabase, user.id, text, null, {
               timezone: user.timezone,
               dailyCalorieTarget: user.dailyCalorieTarget,
+              dailyProteinG: user.dailyProteinG,
+              dailyFatG: user.dailyFatG,
+              dailyCarbsG: user.dailyCarbsG,
             }, quoteContext)
             await clearState(user.id)
             const sentId = await sendTextMessage(from, editResponse, quotedMessageId)
@@ -327,6 +330,9 @@ export async function handleIncomingMessage(
               const editResponse = await handleEdit(supabase, user.id, gatekeeper.corrected_message, null, {
                 timezone: user.timezone,
                 dailyCalorieTarget: user.dailyCalorieTarget,
+                dailyProteinG: user.dailyProteinG,
+                dailyFatG: user.dailyFatG,
+                dailyCarbsG: user.dailyCarbsG,
               }, quoteContext ?? undefined)
 
               // After correction, refresh recent_meal state with updated items
@@ -416,6 +422,9 @@ export async function handleIncomingMessage(
           const editResponse = await handleEdit(supabase, user.id, text, context, {
             timezone: user.timezone,
             dailyCalorieTarget: user.dailyCalorieTarget,
+            dailyProteinG: user.dailyProteinG,
+            dailyFatG: user.dailyFatG,
+            dailyCarbsG: user.dailyCarbsG,
           })
           await sendTextMessage(from, editResponse)
           saveHistory(supabase, user.id, text, editResponse)
@@ -426,6 +435,9 @@ export async function handleIncomingMessage(
           const editResponse = await handleEdit(supabase, user.id, text, context, {
             timezone: user.timezone,
             dailyCalorieTarget: user.dailyCalorieTarget,
+            dailyProteinG: user.dailyProteinG,
+            dailyFatG: user.dailyFatG,
+            dailyCarbsG: user.dailyCarbsG,
           })
           await sendTextMessage(from, editResponse)
           saveHistory(supabase, user.id, text, editResponse)
@@ -595,6 +607,9 @@ export async function handleIncomingMessage(
       const editResponse = await handleEdit(supabase, user.id, text, null, {
         timezone: user.timezone,
         dailyCalorieTarget: user.dailyCalorieTarget,
+        dailyProteinG: user.dailyProteinG,
+        dailyFatG: user.dailyFatG,
+        dailyCarbsG: user.dailyCarbsG,
       }, quoteContext)
       const sentId = await sendTextMessage(from, editResponse, quotedMessageId)
       saveHistory(supabase, user.id, text, editResponse)
@@ -607,6 +622,9 @@ export async function handleIncomingMessage(
       const editResponse = await handleEdit(supabase, user.id, text, null, {
         timezone: user.timezone,
         dailyCalorieTarget: user.dailyCalorieTarget,
+        dailyProteinG: user.dailyProteinG,
+        dailyFatG: user.dailyFatG,
+        dailyCarbsG: user.dailyCarbsG,
       }, quoteContext)
       const sentId = await sendTextMessage(from, editResponse, quotedMessageId)
       saveHistory(supabase, user.id, text, editResponse)
@@ -692,6 +710,9 @@ export async function handleIncomingMessage(
         response = await handleEdit(supabase, user.id, text, null, {
           timezone: user.timezone,
           dailyCalorieTarget: user.dailyCalorieTarget,
+          dailyProteinG: user.dailyProteinG,
+          dailyFatG: user.dailyFatG,
+          dailyCarbsG: user.dailyCarbsG,
         }, quoteContext ?? undefined)
         break
       case 'weight':
