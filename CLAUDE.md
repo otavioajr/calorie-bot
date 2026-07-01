@@ -26,7 +26,7 @@ WhatsApp message
   → Flow handler (meal-log, edit, summary, query, weight, settings,
                   meal-detail, onboarding, recalculate, help)
   → LLM analysis (OpenRouter primary, Ollama fallback — transparent to callers)
-  → Save to Supabase → sendTextMessage() → Meta Cloud API
+  → Save to Postgres (VPS) → sendTextMessage() → Meta Cloud API
 ```
 
 ## Key Non-Obvious Details
@@ -35,7 +35,7 @@ WhatsApp message
 
 **Auth:** OTP delivered via WhatsApp, not email. Session stored in HTTP-only cookie `caloriebot-user-id`. Logic in `src/lib/auth/`.
 
-**DB:** `src/lib/db/utils.ts` maps snake_case ↔ camelCase. Migrations in `supabase/migrations/`.
+**DB:** PostgreSQL self-hosted on the user's VPS — **not** Supabase Cloud. The app still uses `@supabase/supabase-js` via `NEXT_PUBLIC_SUPABASE_URL` / service-role key pointing at the VPS instance. Migrations live in `supabase/migrations/`. For production DB ops, use VPS access — do not assume Supabase Cloud dashboard or MCP.
 
 **Quoted messages:** `src/lib/bot/quote.ts` resolves replied-to messages to their resource (meal, query) before routing.
 

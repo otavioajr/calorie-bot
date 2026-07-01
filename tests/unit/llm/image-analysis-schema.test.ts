@@ -81,6 +81,48 @@ describe('ImageAnalysisSchema', () => {
       expect(result.data.image_type).toBe('food')
     }
   })
+
+  it('accepts meal_type null (common for drink photos)', () => {
+    const input = {
+      image_type: 'food',
+      meal_type: null,
+      confidence: 'high',
+      items: [{ food: 'Vinho tinto', quantity_grams: 150, calories: 125, protein: 0, carbs: 4, fat: 0 }],
+    }
+    const result = ImageAnalysisSchema.safeParse(input)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.meal_type).toBeUndefined()
+    }
+  })
+
+  it('accepts invented meal_type values like "drink"', () => {
+    const input = {
+      image_type: 'food',
+      meal_type: 'drink',
+      confidence: 'high',
+      items: [{ food: 'Cerveja', quantity_grams: 350, calories: 150, protein: 1, carbs: 13, fat: 0 }],
+    }
+    const result = ImageAnalysisSchema.safeParse(input)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.meal_type).toBeUndefined()
+    }
+  })
+
+  it('preserves valid meal_type values', () => {
+    const input = {
+      image_type: 'food',
+      meal_type: 'lunch',
+      confidence: 'high',
+      items: [{ food: 'Arroz', quantity_grams: 150, calories: 195, protein: 4, carbs: 42, fat: 0.5 }],
+    }
+    const result = ImageAnalysisSchema.safeParse(input)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.meal_type).toBe('lunch')
+    }
+  })
 })
 
 describe('buildVisionPrompt', () => {

@@ -2062,6 +2062,26 @@ describe('handleIncomingImage', () => {
     expect(mockSendTextMessage).toHaveBeenCalledWith(FROM, 'error message')
   })
 
+  it('sends clarification message when analyzeImage fails', async () => {
+    mockAnalyzeImage.mockRejectedValue(new Error('ImageAnalysis validation failed after retry'))
+
+    await handleIncomingImage(FROM, MESSAGE_ID, IMAGE_ID)
+
+    expect(mockFormatError).not.toHaveBeenCalled()
+    expect(mockSendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      'Não consegui identificar os alimentos nessa foto 😅 Pode descrever o que comeu?',
+    )
+    expect(mockLogLLMUsage).toHaveBeenCalledWith(
+      mockSupabase,
+      expect.objectContaining({
+        functionType: 'vision',
+        success: false,
+      }),
+    )
+    expect(mockLogFoodToMeal).not.toHaveBeenCalled()
+  })
+
   it('uses "[imagem]" as originalMessage when no caption', async () => {
     await handleIncomingImage(FROM, MESSAGE_ID, IMAGE_ID)
 
