@@ -857,7 +857,24 @@ export async function handleIncomingImage(
     const currentTime = getUserLocalTime(user.timezone)
 
     const startTime = Date.now()
-    const imageResult: ImageAnalysis = await llm.analyzeImage(dataUrl, caption, currentTime)
+    let imageResult: ImageAnalysis
+    try {
+      imageResult = await llm.analyzeImage(dataUrl, caption, currentTime)
+    } catch (err) {
+      const latencyMs = Date.now() - startTime
+      console.error('[handler] Image analysis error:', err)
+      logLLMUsage(supabase, {
+        provider: process.env.LLM_PROVIDER || 'openrouter',
+        model: process.env.LLM_MODEL_VISION || 'openai/gpt-4o',
+        functionType: 'vision',
+        latencyMs,
+        success: false,
+      }).catch(() => {})
+      const msg = 'Não consegui identificar os alimentos nessa foto 😅 Pode descrever o que comeu?'
+      await sendTextMessage(from, msg)
+      saveHistory(supabase, user.id, caption || '[imagem de alimento]', msg)
+      return
+    }
     const latencyMs = Date.now() - startTime
 
     logLLMUsage(supabase, {

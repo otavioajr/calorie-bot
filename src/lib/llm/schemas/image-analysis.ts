@@ -22,7 +22,7 @@ const ImageMealItemSchema = z.object({
 
 export const ImageAnalysisSchema = z.object({
   image_type: z.enum(['food', 'nutrition_label']).catch('food'),
-  meal_type: MealTypeSchema.optional(),
+  meal_type: MealTypeSchema.optional().catch(undefined),
   confidence: ConfidenceSchema.catch('medium'),
   items: z.array(ImageMealItemSchema).nullable().catch([]).transform(v => v ?? []),
   unknown_items: z.array(z.string()).nullable().catch([]).transform(v => v ?? []),
