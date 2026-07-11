@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
   parseWebhookPayload,
+  parseWebhookEvents,
   verifyWebhook,
+  verifyWebhookSignature,
+  signWebhookBody,
 } from '@/lib/whatsapp/webhook'
 import type { WhatsAppMessage, WhatsAppStatus } from '@/lib/whatsapp/webhook'
 
@@ -174,7 +177,7 @@ describe('parseWebhookPayload', () => {
     expect(result).toBeNull()
   })
 
-  it('returns first message only when payload contains multiple messages', () => {
+  it('returns all messages when payload contains multiple messages', () => {
     const payload = {
       object: 'whatsapp_business_account',
       entry: [
@@ -210,11 +213,50 @@ describe('parseWebhookPayload', () => {
       ],
     }
 
+    const events = parseWebhookEvents(payload)
+    expect(events).toHaveLength(2)
+    expect(events[0].messageId).toBe('wamid.first')
+    expect(events[1].messageId).toBe('wamid.second')
+  })
+
+  it('parseWebhookPayload still returns first message only (deprecated)', () => {
+    const payload = {
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: 'BIZ_ACCOUNT_ID',
+          changes: [
+            {
+              value: {
+                messaging_product: 'whatsapp',
+                messages: [
+                  {
+                    from: '5511999887766',
+                    id: 'wamid.first',
+                    timestamp: '1710000000',
+                    type: 'text',
+                    text: { body: 'first message' },
+                  },
+                  {
+                    from: '5511999887766',
+                    id: 'wamid.second',
+                    timestamp: '1710000001',
+                    type: 'text',
+                    text: { body: 'second message' },
+                  },
+                ],
+              },
+              field: 'messages',
+            },
+          ],
+        },
+      ],
+    }
+
     const result = parseWebhookPayload(payload)
     expect(result).not.toBeNull()
     const msg = result as WhatsAppMessage
     expect(msg.messageId).toBe('wamid.first')
-    expect(msg.text).toBe('first message')
   })
 
   it('returns WhatsAppMessage with type "image" for an image message', () => {
@@ -352,6 +394,134 @@ describe('parseWebhookPayload', () => {
     expect(result).not.toBeNull()
     const msg = result as WhatsAppMessage
     expect(msg.quotedMessageId).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// parseWebhookEvents
+// ---------------------------------------------------------------------------
+
+describe('parseWebhookEvents', () => {
+  it('returns messages even when statuses are present in the same value', () => {
+    const payload = {
+      object: 'whatsapp_business_account',
+      entry: [{
+        changes: [{
+          value: {
+            messaging_product: 'whatsapp',
+            statuses: [{ id: 'wamid.abc', status: 'delivered', timestamp: '1710000000' }],
+            messages: [{
+              from: '5511999887766',
+              id: 'wamid.abc123',
+              timestamp: '1710000000',
+              type: 'text',
+              text: { body: 'hello' },
+            }],
+          },
+          field: 'messages',
+        }],
+      }],
+    }
+
+    const events = parseWebhookEvents(payload)
+    expect(events).toHaveLength(1)
+    expect(events[0].type).toBe('text')
+    expect(events[0].text).toBe('hello')
+  })
+
+  it('marks video as unsupported with rawType', () => {
+    const payload = {
+      object: 'whatsapp_business_account',
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: '5511999887766',
+              id: 'wamid.vid',
+              timestamp: '1710000000',
+              type: 'video',
+            }],
+          },
+          field: 'messages',
+        }],
+      }],
+    }
+
+    const events = parseWebhookEvents(payload)
+    expect(events).toHaveLength(1)
+    expect(events[0].type).toBe('unsupported')
+    expect(events[0].rawType).toBe('video')
+  })
+
+  it('extracts phone_number_id from metadata', () => {
+    const result = parseWebhookEvents(makeTextPayload())
+    expect(result[0].phoneNumberId).toBe('PHONE_NUMBER_ID')
+  })
+
+  it('enumerates messages across multiple entries', () => {
+    const payload = {
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          changes: [{
+            value: {
+              messages: [{
+                from: '5511111111111',
+                id: 'wamid.a',
+                timestamp: '1',
+                type: 'text',
+                text: { body: 'a' },
+              }],
+            },
+            field: 'messages',
+          }],
+        },
+        {
+          changes: [{
+            value: {
+              messages: [{
+                from: '5522222222222',
+                id: 'wamid.b',
+                timestamp: '2',
+                type: 'text',
+                text: { body: 'b' },
+              }],
+            },
+            field: 'messages',
+          }],
+        },
+      ],
+    }
+
+    const events = parseWebhookEvents(payload)
+    expect(events.map((e) => e.messageId)).toEqual(['wamid.a', 'wamid.b'])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// verifyWebhookSignature
+// ---------------------------------------------------------------------------
+
+describe('verifyWebhookSignature', () => {
+  const secret = 'test-app-secret'
+  const body = '{"object":"whatsapp_business_account"}'
+
+  it('accepts a valid sha256 signature', () => {
+    const signature = signWebhookBody(body, secret)
+    expect(verifyWebhookSignature(body, signature, secret)).toBe(true)
+  })
+
+  it('rejects an invalid signature', () => {
+    expect(verifyWebhookSignature(body, 'sha256=deadbeef', secret)).toBe(false)
+  })
+
+  it('rejects when app secret is missing', () => {
+    const signature = signWebhookBody(body, secret)
+    expect(verifyWebhookSignature(body, signature, undefined)).toBe(false)
+  })
+
+  it('rejects when signature header is missing', () => {
+    expect(verifyWebhookSignature(body, null, secret)).toBe(false)
   })
 })
 

@@ -384,6 +384,27 @@ beforeEach(() => {
 // Test 1: New user (not found) → creates user + starts onboarding
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// handleIncomingMessage — blank / oversized text (ROUTE-07)
+// ---------------------------------------------------------------------------
+
+describe('handleIncomingMessage — input guards', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('responds locally to blank text without loading user or LLM', async () => {
+    await handleIncomingMessage(FROM, MESSAGE_ID, '   ')
+
+    expect(mockSendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining('Não recebi nenhum texto'),
+    )
+    expect(mockFindUserByPhone).not.toHaveBeenCalled()
+    expect(mockClassifyByRules).not.toHaveBeenCalled()
+  })
+})
+
 describe('handleIncomingMessage — new user', () => {
   it('calls createUser when findUserByPhone returns null', async () => {
     mockFindUserByPhone.mockResolvedValue(null)

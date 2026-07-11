@@ -38,6 +38,13 @@ describe('POST /api/cron/webhook-health', () => {
     expect(response.status).toBe(401)
   })
 
+  it('returns 401 when CRON_SECRET env is unset', async () => {
+    vi.stubEnv('CRON_SECRET', '')
+    const response = await callWebhookHealth('Bearer undefined')
+    expect(response.status).toBe(401)
+    vi.stubEnv('CRON_SECRET', CRON_SECRET)
+  })
+
   it('reports OK when subscription is active with messages field', async () => {
     server.use(
       http.get(`https://graph.facebook.com/v21.0/${APP_ID}/subscriptions`, () => {

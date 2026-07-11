@@ -1,15 +1,10 @@
 import { NextResponse } from 'next/server'
+import { isCronAuthorized } from '@/lib/auth/cron'
 import { createServiceRoleClient } from '@/lib/db/supabase'
 import { runConsensusPromotion } from '@/lib/products/consensus'
 
-function isAuthorized(request: Request): boolean {
-  const secret = process.env.CRON_SECRET?.trim()
-  if (!secret) return false
-  return request.headers.get('authorization') === `Bearer ${secret}`
-}
-
 async function handleProductsConsensus(request: Request) {
-  if (!isAuthorized(request)) {
+  if (!isCronAuthorized(request)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

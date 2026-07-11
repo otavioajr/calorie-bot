@@ -26,6 +26,8 @@ import {
 } from '@/lib/bot/flows/product-confirm'
 import { getLLMProvider } from '@/lib/llm/index'
 import { sendTextMessage } from '@/lib/whatsapp/client'
+import { isBlankText, isTextTooLong } from '@/lib/bot/input-validation'
+import { MAX_INCOMING_TEXT_CHARS } from '@/lib/whatsapp/limits'
 import { formatOutOfScope, formatError } from '@/lib/utils/formatters'
 import { parseDateFromMessage, formatDateLabel, localDateString } from '@/lib/utils/relative-date'
 import { downloadAudioMedia, transcribeAudio, AudioTooLargeError } from '@/lib/audio/transcribe'
@@ -241,12 +243,58 @@ async function registerConfirmedProductMeal(
   return { response, mealId: logResult.mealId }
 }
 
+function unsupportedTypeMessage(rawType: string): string {
+  const byType: Record<string, string> = {
+    video: 'Ainda não leio vídeo para registrar alimentos. Envie texto, áudio ou foto do prato ou rótulo.',
+    sticker: 'Ainda não leio figurinhas. Envie texto, áudio ou foto do prato ou rótulo.',
+    document: 'Ainda não leio documentos. Envie texto, áudio ou foto do prato ou rótulo.',
+    location: 'Ainda não uso localização para registrar alimentos. Escreva os itens ou envie texto/áudio/foto.',
+    contacts: 'Ainda não leio contatos. Envie texto, áudio ou foto do prato ou rótulo.',
+    reaction: 'Ainda não interpreto reações. Envie texto, áudio ou foto se quiser registrar ou corrigir algo.',
+    interactive: 'Use texto livre ou responda com o número da opção quando o bot pedir.',
+  }
+  return (
+    byType[rawType] ??
+    'Ainda não consigo processar esse tipo de mensagem. Envie texto, áudio ou foto do prato ou rótulo.'
+  )
+}
+
+export async function handleUnsupportedMessage(from: string, rawType: string): Promise<void> {
+  const response = unsupportedTypeMessage(rawType)
+  try {
+    await sendTextMessage(from, response)
+  } catch (err) {
+    console.error('[handler] Failed to send unsupported-type message:', err)
+  }
+}
+
 export async function handleIncomingMessage(
   from: string,
   messageId: string,
   text: string,
   quotedMessageId?: string,
 ): Promise<void> {
+  if (isBlankText(text)) {
+    const blankMsg =
+      'Não recebi nenhum texto. Me diga o que você comeu ou o que quer fazer (ex.: "almoço: arroz e feijão").'
+    try {
+      await sendTextMessage(from, blankMsg)
+    } catch (err) {
+      console.error('[handler] Failed to send blank-text response:', err)
+    }
+    return
+  }
+
+  if (isTextTooLong(text)) {
+    const longMsg = `Sua mensagem passou de ${MAX_INCOMING_TEXT_CHARS} caracteres. Divida em partes menores e envie novamente.`
+    try {
+      await sendTextMessage(from, longMsg)
+    } catch (err) {
+      console.error('[handler] Failed to send text-too-long response:', err)
+    }
+    return
+  }
+
   const supabase = createServiceRoleClient()
 
   try {
