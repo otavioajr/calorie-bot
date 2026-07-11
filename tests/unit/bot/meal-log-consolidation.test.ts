@@ -33,6 +33,7 @@ const {
   mockHandleStartOffChoice,
   mockHandleStartLabelInput,
   mockGetMealWithItems,
+  mockAddMealItems,
 } = vi.hoisted(() => {
   const mockAnalyzeMeal = vi.fn()
   const mockDecomposeMeal = vi.fn()
@@ -75,6 +76,7 @@ const {
     mockHandleStartOffChoice: vi.fn().mockResolvedValue({ response: 'Escolha um produto', completed: false }),
     mockHandleStartLabelInput: vi.fn().mockResolvedValue({ response: 'Envie o rótulo', completed: false }),
     mockGetMealWithItems: vi.fn().mockResolvedValue(null),
+    mockAddMealItems: vi.fn().mockResolvedValue(undefined),
   }
 })
 
@@ -95,7 +97,7 @@ vi.mock('@/lib/db/queries/meals', () => ({
   getDailyCalories: mockGetDailyCalories,
   getDailyMacros: mockGetDailyMacros,
   getMealWithItems: mockGetMealWithItems,
-  addMealItems: vi.fn().mockResolvedValue(undefined),
+  addMealItems: mockAddMealItems,
   recalculateMealTotal: vi.fn().mockResolvedValue(278),
   getDayBoundsForTimezone: vi.fn(() => ({
     startOfDay: new Date('2026-05-29T03:00:00Z'),
@@ -203,6 +205,77 @@ describe('handleMealLog — text consolidation', () => {
     expect(mockFindOrCreateMeal).toHaveBeenCalled()
     await expect(mockFindOrCreateMeal.mock.results[0].value).resolves.toEqual({ mealId: 'b1', wasAppend: true })
     expect(result.response).toContain('Somei')
+  })
+
+  it('lists only the food analyzed from the current message in the append receipt', async () => {
+    mockFindOrCreateMeal.mockResolvedValue({ mealId: 'b1', wasAppend: true })
+    const existingMelon = {
+      id: '1', foodName: 'Melão', quantityGrams: 345, quantityDisplay: '345g',
+      calories: 101, proteinG: 2, carbsG: 26, fatG: 0, source: 'taco', confidence: 'high',
+    }
+    const existingPastel = {
+      id: '2', foodName: 'Pastel de nata', quantityGrams: 30, quantityDisplay: '30g',
+      calories: 87, proteinG: 2, carbsG: 8, fatG: 5, source: 'taco', confidence: 'high',
+    }
+    mockGetMealWithItems.mockResolvedValue({
+      id: 'b1', mealType: 'breakfast', totalCalories: 188, registeredAt: 'x',
+      items: [existingMelon, existingPastel],
+    })
+    mockAnalyzeMeal.mockResolvedValue([{
+      meal_type: 'breakfast', confidence: 'high', references_previous: false, reference_query: null,
+      items: [
+        { food: 'Pastel de nata', quantity_grams: 30, quantity_display: '30g', quantity_source: 'user_provided', portion_type: 'unit', has_user_quantity: true, calories: null, protein: null, carbs: null, fat: null, confidence: 'high' },
+      ],
+      unknown_items: [], needs_clarification: false,
+    }])
+    mockMatchTacoByBase.mockImplementation(async (_sb: unknown, base: string) => {
+      if (String(base).toLowerCase().includes('mel')) {
+        return [{ id: 1, foodName: 'Melão', foodBase: 'Melão', foodVariant: '', caloriesPer100g: 29, proteinPer100g: 1, carbsPer100g: 8, fatPer100g: 0, isDefault: true }]
+      }
+      return [{ id: 2, foodName: 'Pastel de nata', foodBase: 'Pastel de nata', foodVariant: '', caloriesPer100g: 290, proteinPer100g: 5, carbsPer100g: 30, fatPer100g: 15, isDefault: true }]
+    })
+
+    const result = await handleMealLog(buildSupabase(), USER_ID, 'adicionar 30g de pastel de nata', { calorieMode: 'taco', dailyCalorieTarget: 2328 }, null)
+
+    expect(mockAddMealItems).toHaveBeenCalledTimes(1)
+    const inserted = mockAddMealItems.mock.calls[0][2] as Array<{ foodName: string }>
+    expect(inserted).toHaveLength(1)
+    expect(inserted[0].foodName).toBe('Pastel de nata')
+    const receiptItems = mockFormatMealAddition.mock.calls[0][1] as Array<{ food: string }>
+    expect(receiptItems).toEqual([expect.objectContaining({ food: 'Pastel de nata' })])
+    expect(result.response).toContain('Somei')
+  })
+
+  it('registers an identical food and quantity again instead of claiming it already exists', async () => {
+    mockFindOrCreateMeal.mockResolvedValue({ mealId: 'b1', wasAppend: true })
+    const existingMelon = {
+      id: '1', foodName: 'Melão', quantityGrams: 345, quantityDisplay: '345g',
+      calories: 101, proteinG: 2, carbsG: 26, fatG: 0, source: 'taco', confidence: 'high',
+    }
+    mockGetMealWithItems.mockResolvedValue({
+      id: 'b1', mealType: 'breakfast', totalCalories: 202, registeredAt: 'x',
+      items: [existingMelon, { ...existingMelon, id: '2' }],
+    })
+    mockAnalyzeMeal.mockResolvedValue([{
+      meal_type: 'breakfast', confidence: 'high', references_previous: false, reference_query: null,
+      items: [
+        { food: 'Melão', quantity_grams: 345, quantity_display: '345g', quantity_source: 'user_provided', portion_type: 'bulk', has_user_quantity: true, calories: null, protein: null, carbs: null, fat: null, confidence: 'high' },
+      ],
+      unknown_items: [], needs_clarification: false,
+    }])
+    mockMatchTacoByBase.mockResolvedValue([{ id: 1, foodName: 'Melão', foodBase: 'Melão', foodVariant: '', caloriesPer100g: 29, proteinPer100g: 1, carbsPer100g: 8, fatPer100g: 0, isDefault: true }])
+
+    const result = await handleMealLog(buildSupabase(), USER_ID, 'mais 345g de melão', { calorieMode: 'taco', dailyCalorieTarget: 2328 }, null)
+
+    expect(mockAddMealItems).toHaveBeenCalledWith(
+      expect.anything(),
+      'b1',
+      [expect.objectContaining({ foodName: 'Melão', quantityGrams: 345 })],
+    )
+    const receiptItems = mockFormatMealAddition.mock.calls[0][1] as Array<{ food: string }>
+    expect(receiptItems).toEqual([expect.objectContaining({ food: 'Melão' })])
+    expect(result.response).toContain('Somei')
+    expect(result.response).not.toContain('já estão registrados')
   })
 
   // Regression: when a history-reference single match builds a SHORTER enrichedMeals

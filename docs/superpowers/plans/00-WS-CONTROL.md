@@ -1,13 +1,39 @@
 # Meal-Flow Remediation — Controle / Progresso (WS1–WS6)
 
 > **Source of truth** da remediação do fluxo de registro (auditoria 2026-05-31).
-> O agente que implementa **atualiza este arquivo**: marca uma WS como **✅ DONE** somente quando TODOS os gates da "Definition of Done" estiverem marcados. Sempre pegar a próxima WS **NÃO INICIADA** na ordem, respeitando as dependências.
+> Este arquivo preserva o histórico de WS1–WS2. O fluxo genérico de “próxima WS” e a Definition of Done abaixo aplicam-se somente a WS1–WS2 e a eventuais WS legadas explicitamente marcadas como **não absorvidas**.
+> WS3–WS6 estão excluídas desse fluxo: não devem ser iniciadas, avançadas nem marcadas por estes gates; seu trabalho segue exclusivamente as fases e a Definition of Done do roadmap 2026-07-11.
 >
 > Progresso por-task (TDD) vive **dentro de cada plano** (`- [ ]` por step). Este arquivo controla o nível-WS.
 
-## Definition of Done (gates — iguais para toda WS)
+## Superseded por o roadmap 2026-07-11
 
-Uma WS só é **✅ DONE** quando cada caixa estiver marcada:
+A partir de **11/07/2026**, o programa de correção conversacional/nutricional/confiabilidade passou a ser governado por:
+
+**[`2026-07-11-roadmap-bot-inteligente-economico.md`](2026-07-11-roadmap-bot-inteligente-economico.md)**
+
+(fonte de achados: [`../specs/2026-07-11-auditoria-conversacional-e-registro-alimentos.md`](../specs/2026-07-11-auditoria-conversacional-e-registro-alimentos.md))
+
+### Absorção das WS abertas
+
+| WS | Status neste arquivo | Destino no roadmap |
+|---|---|---|
+| WS1 | ✅ DONE (permanece histórico) | — |
+| WS2 | ✅ DONE (permanece histórico) | — |
+| WS3 — continuação de refeição | ⏸ Absorvida — **não iniciar isolada** | Fase 4 (+ CROSS/STATE na Fase 8) |
+| WS4 — robustez rótulo/visão | ⏸ Absorvida — **não iniciar isolada** | Fase 6 (+ NUTX na Fase 5) |
+| WS5 — dedup vs confirmação | ⏸ Absorvida — **não iniciar isolada** | Fase 2 (inbox/`work_id` generaliza o claim) |
+| WS6 — DECIMAL em products | ⏸ Absorvida — **não iniciar isolada** | Fase 5 (PROD-04) |
+
+**Regra para agentes:** não abrir branch `fix/ws3|ws4|ws5|ws6-*` nem executar os planos WS3–WS6 como frentes isoladas. Ao detalhar a fase correspondente do roadmap, reutilizar tasks úteis dos planos WS e fechar o restante no novo plano da fase.
+
+Ordem operacional atual: validar e mergear a **Fase 0** já implementada na PR #20 → criar o plano detalhado da **Fase 1** → seguir a ordem das fases no roadmap.
+
+---
+
+## Definition of Done legada (somente WS1–WS2 e WS não absorvidas)
+
+Uma WS dentro deste escopo legado só é **✅ DONE** quando cada caixa estiver marcada. Estes gates **não se aplicam a WS3–WS6**, que usam a Definition of Done das fases do roadmap:
 
 - [ ] Todas as tasks do plano da WS marcadas (`- [ ]` → `- [x]`)
 - [ ] `npm test` — suíte completa verde, 0 falhas
@@ -19,11 +45,11 @@ Uma WS só é **✅ DONE** quando cada caixa estiver marcada:
 - [ ] Review limpo (CodeRabbit sem comentário acionável + revisão do Otávio)
 - [ ] **PR mergeado no `main` pelo Otávio** — o agente NÃO mergeia
 
-## Ordem & dependências
+## Ordem & dependências (histórico WS1–WS6)
 
 - **WS1 precisa estar no `main` antes de WS2 e WS6** (WS2 extrai `buildMacrosBlock`; WS6 reusa `decToNum`).
-- Sequência: WS1 → WS2 → WS3 → WS4 → WS5 → WS6 (WS6 pode rodar a qualquer momento após WS1).
-- Antes de iniciar uma WS, reler as "Decisões de produto" no topo do plano dela e aplicar ajustes que o Otávio pediu.
+- Sequência original: WS1 → WS2 → WS3 → WS4 → WS5 → WS6 (WS6 podia rodar após WS1).
+- **Atualização 2026-07-11:** WS3–WS6 não seguem mais esta sequência isolada; ver seção “Superseded” acima.
 
 ---
 
@@ -51,24 +77,28 @@ Uma WS só é **✅ DONE** quando cada caixa estiver marcada:
 - Conferência manual recomendada (pós-merge): smoke por fluxo com user que tem as 3 metas; caso keto 0g (gate `!= null`)
 - Follow-ups fora de escopo (anotados): migrar `summary.ts` p/ usar `buildMacrosBlock`; helper `finalizeMealResponse` se um 4º fluxo copiar o triplet; corrigir os 10 erros tsc pré-existentes (fixtures `nutrition_basis_*`/`chat`/`quantity_source`)
 
-### WS3 — Continuação de refeição ("também") — ⬜ NÃO INICIADA
-- Plano: [`2026-05-31-ws3-meal-continuation.md`](2026-05-31-ws3-meal-continuation.md) · 10 tasks
-- [ ] Definition of Done
+### WS3 — Continuação de refeição ("também") — ⏸ ABSORVIDA (não iniciar)
+- Plano legado: [`2026-05-31-ws3-meal-continuation.md`](2026-05-31-ws3-meal-continuation.md) · 10 tasks
+- Absorvida por: **Fase 4** (+ CROSS/STATE na **Fase 8**) do [roadmap 2026-07-11](2026-07-11-roadmap-bot-inteligente-economico.md)
+- Definition of Done legada: **não se aplica**; acompanhar os gates das fases correspondentes no roadmap.
 
-### WS4 — Robustez do rótulo/visão — ⬜ NÃO INICIADA
-- Plano: [`2026-05-31-ws4-label-vision-robustness.md`](2026-05-31-ws4-label-vision-robustness.md) · 7 tasks
-- Reparo pendente: trocar o marcador `TODO(WS5)` (tema null-vs-0 é da própria WS4)
-- [ ] Definition of Done
+### WS4 — Robustez do rótulo/visão — ⏸ ABSORVIDA (não iniciar)
+- Plano legado: [`2026-05-31-ws4-label-vision-robustness.md`](2026-05-31-ws4-label-vision-robustness.md) · 7 tasks
+- Reparo pendente no plano legado: trocar o marcador `TODO(WS5)` (tema null-vs-0 é da própria WS4) — tratar no plano da **Fase 6**
+- Absorvida por: **Fase 6** (+ NUTX na **Fase 5**) do [roadmap 2026-07-11](2026-07-11-roadmap-bot-inteligente-economico.md)
+- Definition of Done legada: **não se aplica**; acompanhar os gates das fases correspondentes no roadmap.
 
-### WS5 — Webhook: dedup vs confirmação — ⬜ NÃO INICIADA
-- Plano: [`2026-05-31-ws5-webhook-dedup-vs-confirmation.md`](2026-05-31-ws5-webhook-dedup-vs-confirmation.md) · 6 tasks
-- Inclui migration (coluna `status` em `processed_messages`)
-- [ ] Definition of Done
+### WS5 — Webhook: dedup vs confirmação — ⏸ ABSORVIDA (não iniciar)
+- Plano legado: [`2026-05-31-ws5-webhook-dedup-vs-confirmation.md`](2026-05-31-ws5-webhook-dedup-vs-confirmation.md) · 6 tasks
+- Inclui migration (coluna `status` em `processed_messages`) — generalizada pela inbox/`work_id` da **Fase 2**
+- Absorvida por: **Fase 2** do [roadmap 2026-07-11](2026-07-11-roadmap-bot-inteligente-economico.md)
+- Definition of Done legada: **não se aplica**; acompanhar os gates da Fase 2 no roadmap.
 
-### WS6 — DECIMAL no fluxo de products — ⬜ NÃO INICIADA
-- Plano: [`2026-05-31-ws6-products-decimal-coercion.md`](2026-05-31-ws6-products-decimal-coercion.md) · 2 tasks
-- Depende de: WS1 mergeado (reusa `decToNum`)
-- [ ] Definition of Done
+### WS6 — DECIMAL no fluxo de products — ⏸ ABSORVIDA (não iniciar)
+- Plano legado: [`2026-05-31-ws6-products-decimal-coercion.md`](2026-05-31-ws6-products-decimal-coercion.md) · 2 tasks
+- Depende de: WS1 mergeado (reusa `decToNum`) — já satisfeito
+- Absorvida por: **Fase 5** (PROD-04) do [roadmap 2026-07-11](2026-07-11-roadmap-bot-inteligente-economico.md)
+- Definition of Done legada: **não se aplica**; acompanhar os gates da Fase 5 no roadmap.
 
 ---
 
@@ -78,3 +108,4 @@ Uma WS só é **✅ DONE** quando cada caixa estiver marcada:
 |------|----|----|-------|
 | 2026-05-31 | WS1 | #14 | ✅ Mergeado no `main` (commit `12ff2a5`) |
 | 2026-06-01 | WS2 | #16 | ✅ Mergeado no `main` (merge commit `c319c73`) · 9 tasks · 1088 testes verdes |
+| 2026-07-11 | WS3–WS6 | — | ⏸ Absorvidas pelo roadmap [`2026-07-11-roadmap-bot-inteligente-economico.md`](2026-07-11-roadmap-bot-inteligente-economico.md); não iniciar isoladas |

@@ -63,6 +63,7 @@ TABELA DE PORÇÕES (use para converter medidas caseiras em gramas):
 - 1 pão de queijo = 40g
 
 REGRAS ABSOLUTAS:
+- Identifique APENAS alimentos mencionados na MENSAGEM ATUAL do usuário. NUNCA repita alimentos que aparecem somente em mensagens anteriores do histórico — o histórico serve apenas de contexto para resolver referências explícitas (ex: "igual aquela pizza").
 - Responda APENAS em JSON no formato especificado
 - SEMPRE escreva os nomes dos alimentos em português do Brasil (ex: "Arroz branco", "Feijão preto", "Frango grelhado")
 - NUNCA use nomes de alimentos em inglês — traduza sempre para PT-BR
@@ -138,6 +139,19 @@ Saída:
     "items": [
       {"food": "Leite", "portion_type": "bulk", "has_user_quantity": true, "quantity_grams": 206, "quantity_display": "200ml", "quantity_source": "user_provided"},
       {"food": "Pão francês", "portion_type": "unit", "has_user_quantity": true, "quantity_grams": 100, "quantity_display": "2 unidades", "quantity_source": "user_provided"}
+    ],
+    "unknown_items": [], "needs_clarification": false
+  }]
+}
+
+Entrada (mensagem atual): "no café da manhã, adicionar 30g de pastel de nata"
+Saída:
+{
+  "meals": [{
+    "meal_type": "breakfast",
+    "confidence": "high",
+    "items": [
+      {"food": "Pastel de nata", "portion_type": "unit", "has_user_quantity": true, "quantity_grams": 30, "quantity_display": "30g", "quantity_source": "user_provided"}
     ],
     "unknown_items": [], "needs_clarification": false
   }]

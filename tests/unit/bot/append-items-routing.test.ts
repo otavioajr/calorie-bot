@@ -159,7 +159,7 @@ function buildSupabase(): SupabaseClient {
   return {} as unknown as SupabaseClient
 }
 
-describe('appendItemsToMeal — routing of mismatched meal types', () => {
+describe('appendItemsToMeal — exact target contract', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockGetLLMProvider.mockReturnValue({
@@ -175,7 +175,7 @@ describe('appendItemsToMeal — routing of mismatched meal types', () => {
     mockRecordTacoUsage.mockResolvedValue(undefined)
   })
 
-  it('routes mismatched meal_type items to the correct meal instead of dropping them', async () => {
+  it('rejects an explicit different meal type instead of writing to multiple destinations', async () => {
     mockGetMealWithItems.mockResolvedValue({ id: 'b1', mealType: 'breakfast', totalCalories: 212, registeredAt: 'x', items: [] })
     mockAnalyzeMeal.mockResolvedValue([{
       meal_type: 'lunch', confidence: 'high', references_previous: false, reference_query: null,
@@ -183,17 +183,14 @@ describe('appendItemsToMeal — routing of mismatched meal types', () => {
       unknown_items: [], needs_clarification: false,
     }])
     mockMatchTacoByBase.mockResolvedValue([{ id: 7, foodName: 'Frango grelhado', foodBase: 'Frango', foodVariant: 'grelhado', caloriesPer100g: 159, proteinPer100g: 32, carbsPer100g: 0, fatPer100g: 3, isDefault: true }])
-    // no lunch yet today → find_or_create_meal creates it (wasAppend false)
-    mockFindOrCreateMeal.mockResolvedValue({ mealId: 'lunch-1', wasAppend: false })
-    mockRecalculateMealTotal.mockResolvedValue(212)
-
     const { appendItemsToMeal } = await import('@/lib/bot/flows/meal-log')
     const result = await appendItemsToMeal(buildSupabase(), USER_ID, 'b1', 'comi também frango no almoço', { timezone: 'America/Sao_Paulo' })
 
-    expect(result).not.toBeNull()
-    // the lunch meal was resolved via logFoodToMeal/find_or_create_meal (items not dropped)
-    expect(mockFindOrCreateMeal).toHaveBeenCalled()
-    expect(mockFindOrCreateMeal.mock.calls[0][1].mealType).toBe('lunch')
+    expect(result).toBeNull()
+    expect(mockAnalyzeMeal).not.toHaveBeenCalled()
+    expect(mockAddMealItems).not.toHaveBeenCalled()
+    expect(mockFindOrCreateMeal).not.toHaveBeenCalled()
+    expect(mockRecalculateMealTotal).not.toHaveBeenCalled()
   })
 
   it('appends same-type items directly to the target meal', async () => {
@@ -216,7 +213,7 @@ describe('appendItemsToMeal — routing of mismatched meal types', () => {
     expect(result!.newTotal).toBe(278)
   })
 
-  it('splits a mixed append: same-type to target, other-type to its own meal', async () => {
+  it('treats the explicit destination as authoritative for every item in the instruction', async () => {
     mockGetMealWithItems.mockResolvedValue({ id: 'b1', mealType: 'breakfast', totalCalories: 212, registeredAt: 'x', items: [] })
     mockAnalyzeMeal.mockResolvedValue([{
       meal_type: 'breakfast', confidence: 'high', references_previous: false, reference_query: null,
@@ -231,19 +228,112 @@ describe('appendItemsToMeal — routing of mismatched meal types', () => {
       if (String(base).toLowerCase().includes('pao') || String(base).toLowerCase().includes('pão')) return [{ id: 9, foodName: 'Pão francês', foodBase: 'Pão', foodVariant: 'francês', caloriesPer100g: 132, proteinPer100g: 4, carbsPer100g: 26, fatPer100g: 2, isDefault: true }]
       return [{ id: 7, foodName: 'Frango grelhado', foodBase: 'Frango', foodVariant: 'grelhado', caloriesPer100g: 159, proteinPer100g: 32, carbsPer100g: 0, fatPer100g: 3, isDefault: true }]
     })
-    mockFindOrCreateMeal.mockResolvedValue({ mealId: 'lunch-1', wasAppend: false })
     mockRecalculateMealTotal.mockResolvedValue(278)
 
     const { appendItemsToMeal } = await import('@/lib/bot/flows/meal-log')
-    const result = await appendItemsToMeal(buildSupabase(), USER_ID, 'b1', 'comi também pão e frango no almoço', { timezone: 'America/Sao_Paulo' })
+    const result = await appendItemsToMeal(buildSupabase(), USER_ID, 'b1', 'no café da manhã, adiciona pão e frango', { timezone: 'America/Sao_Paulo' })
 
     expect(result).not.toBeNull()
-    // same-type (Pão) appended to target b1
-    expect(mockAddMealItems).toHaveBeenCalledWith(expect.anything(), 'b1', expect.arrayContaining([expect.objectContaining({ foodName: 'Pão' })]))
-    // other-type (Frango) routed to its own lunch meal via logFoodToMeal/find_or_create_meal
-    expect(mockFindOrCreateMeal).toHaveBeenCalled()
-    expect(mockFindOrCreateMeal.mock.calls[0][1].mealType).toBe('lunch')
-    // added includes BOTH
+    expect(mockAddMealItems).toHaveBeenCalledTimes(1)
+    expect(mockAddMealItems).toHaveBeenCalledWith(
+      expect.anything(),
+      'b1',
+      expect.arrayContaining([
+        expect.objectContaining({ foodName: 'Pão' }),
+        expect.objectContaining({ foodName: 'Frango' }),
+      ]),
+    )
+    expect(mockFindOrCreateMeal).not.toHaveBeenCalled()
     expect(result!.added.map(i => i.food).sort()).toEqual(['Frango', 'Pão'])
+    expect(result!.newTotal).toBe(278)
+    expect(mockRecordTacoUsage).toHaveBeenCalledTimes(2)
+  })
+
+  it('analyzes only the current append instruction without fetching message history', async () => {
+    mockGetRecentMessages.mockResolvedValue([
+      { role: 'user', content: 'comi 345g de melão no café da manhã' },
+    ])
+    mockGetMealWithItems.mockResolvedValue({
+      id: 'b1', mealType: 'breakfast', totalCalories: 101, registeredAt: 'x', items: [],
+    })
+    mockAnalyzeMeal.mockResolvedValue([{
+      meal_type: 'breakfast', confidence: 'high', references_previous: false, reference_query: null,
+      items: [
+        { food: 'Pastel de nata', quantity_grams: 30, quantity_display: '30g', quantity_source: 'user_provided', portion_type: 'unit', has_user_quantity: true, calories: null, protein: null, carbs: null, fat: null, confidence: 'high' },
+      ],
+      unknown_items: [], needs_clarification: false,
+    }])
+    mockMatchTacoByBase.mockResolvedValue([{ id: 2, foodName: 'Pastel de nata', foodBase: 'Pastel de nata', foodVariant: '', caloriesPer100g: 290, proteinPer100g: 5, carbsPer100g: 30, fatPer100g: 15, isDefault: true }])
+    mockRecalculateMealTotal.mockResolvedValue(188)
+
+    const { appendItemsToMeal } = await import('@/lib/bot/flows/meal-log')
+    const result = await appendItemsToMeal(buildSupabase(), USER_ID, 'b1', 'adicionar 30g de pastel de nata', { timezone: 'America/Sao_Paulo' })
+
+    expect(result).not.toBeNull()
+    expect(mockGetRecentMessages).not.toHaveBeenCalled()
+    expect(mockAnalyzeMeal).toHaveBeenCalledWith(
+      'adicionar 30g de pastel de nata',
+      [],
+      expect.any(String),
+    )
+  })
+
+  it('appends an identical food and quantity as another consumption', async () => {
+    const existingBanana = {
+      id: 'banana-1', foodName: 'Banana', quantityGrams: 100, quantityDisplay: '1 unidade',
+      calories: 89, proteinG: 1, carbsG: 23, fatG: 0, source: 'taco', confidence: 'high',
+    }
+    mockGetMealWithItems.mockResolvedValue({
+      id: 'b1', mealType: 'breakfast', totalCalories: 89, registeredAt: 'x',
+      items: [existingBanana],
+    })
+    mockAnalyzeMeal.mockResolvedValue([{
+      meal_type: 'breakfast', confidence: 'high', references_previous: false, reference_query: null,
+      items: [
+        { food: 'Banana', quantity_grams: 100, quantity_display: '1 unidade', quantity_source: 'estimated', portion_type: 'unit', has_user_quantity: false, calories: null, protein: null, carbs: null, fat: null, confidence: 'high' },
+      ],
+      unknown_items: [], needs_clarification: false,
+    }])
+    mockMatchTacoByBase.mockResolvedValue([{ id: 3, foodName: 'Banana', foodBase: 'Banana', foodVariant: '', caloriesPer100g: 89, proteinPer100g: 1, carbsPer100g: 23, fatPer100g: 0, isDefault: true }])
+    mockRecalculateMealTotal.mockResolvedValue(178)
+
+    const { appendItemsToMeal } = await import('@/lib/bot/flows/meal-log')
+    const result = await appendItemsToMeal(buildSupabase(), USER_ID, 'b1', 'mais uma banana', { timezone: 'America/Sao_Paulo' })
+
+    expect(result).not.toBeNull()
+    expect(mockAddMealItems).toHaveBeenCalledWith(
+      expect.anything(),
+      'b1',
+      [expect.objectContaining({ foodName: 'Banana', quantityGrams: 100 })],
+    )
+    expect(result!.added.map((item) => item.food)).toEqual(['Banana'])
+  })
+
+  it('keeps the append on the target meal when the current instruction has no explicit meal type', async () => {
+    mockGetMealWithItems.mockResolvedValue({
+      id: 'b1', mealType: 'breakfast', totalCalories: 89, registeredAt: 'x', items: [],
+    })
+    mockAnalyzeMeal.mockResolvedValue([{
+      // The LLM may infer lunch from the clock, but the user did not say "almoço".
+      meal_type: 'lunch', confidence: 'medium', references_previous: false, reference_query: null,
+      items: [
+        { food: 'Banana', quantity_grams: 100, quantity_display: '1 unidade', quantity_source: 'estimated', portion_type: 'unit', has_user_quantity: false, calories: null, protein: null, carbs: null, fat: null, confidence: 'high' },
+      ],
+      unknown_items: [], needs_clarification: false,
+    }])
+    mockMatchTacoByBase.mockResolvedValue([{ id: 3, foodName: 'Banana', foodBase: 'Banana', foodVariant: '', caloriesPer100g: 89, proteinPer100g: 1, carbsPer100g: 23, fatPer100g: 0, isDefault: true }])
+    mockRecalculateMealTotal.mockResolvedValue(178)
+
+    const { appendItemsToMeal } = await import('@/lib/bot/flows/meal-log')
+    const result = await appendItemsToMeal(buildSupabase(), USER_ID, 'b1', 'mais uma banana', { timezone: 'America/Sao_Paulo' })
+
+    expect(result).not.toBeNull()
+    expect(mockAddMealItems).toHaveBeenCalledWith(
+      expect.anything(),
+      'b1',
+      [expect.objectContaining({ foodName: 'Banana' })],
+    )
+    expect(mockFindOrCreateMeal).not.toHaveBeenCalled()
+    expect(result!.added.map((item) => item.food)).toEqual(['Banana'])
   })
 })

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { isCronAuthorized } from '@/lib/auth/cron'
 import { sendTextMessage } from '@/lib/whatsapp/client'
 
 const GRAPH_API_BASE = 'https://graph.facebook.com/v21.0'
@@ -85,8 +86,7 @@ async function alertAdmin(message: string): Promise<void> {
 }
 
 export async function POST(request: Request) {
-  const authHeader = request.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!isCronAuthorized(request)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

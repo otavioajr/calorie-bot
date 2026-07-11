@@ -18,6 +18,7 @@ import { getLLMProvider } from '@/lib/llm/index'
 import { buildCorrectionPrompt, buildCorrectionPromptWithItems } from '@/lib/llm/prompts/correction'
 import { CorrectionSchema } from '@/lib/llm/schemas/correction'
 import type { Correction } from '@/lib/llm/schemas/correction'
+import type { MealAnalysis } from '@/lib/llm/schemas/meal-analysis'
 import { appendItemsToMeal } from '@/lib/bot/flows/meal-log'
 import { formatProgress } from '@/lib/utils/formatters'
 import { buildMacrosBlock } from '@/lib/bot/macros'
@@ -59,6 +60,25 @@ type EditUser = {
   dailyProteinG?: number | null
   dailyFatG?: number | null
   dailyCarbsG?: number | null
+}
+
+export type EditForMealOutcome = 'applied' | 'awaiting_user' | 'not_applied'
+
+export type EditForMealResult = {
+  response: string
+  outcome: EditForMealOutcome
+}
+
+function applied(response: string): EditForMealResult {
+  return { response, outcome: 'applied' }
+}
+
+function awaitingUser(response: string): EditForMealResult {
+  return { response, outcome: 'awaiting_user' }
+}
+
+function notApplied(response: string): EditForMealResult {
+  return { response, outcome: 'not_applied' }
 }
 
 /** Builds the progress line (calories + optional macros) for an edit reply. */
@@ -223,7 +243,10 @@ async function handleAwaitingCorrectionItem(
   }
 
   // Natural language correction within the meal
-  return handleNaturalLanguageCorrectionWithMeal(supabase, userId, message, mealId, items, user)
+  const result = await handleNaturalLanguageCorrectionWithMeal(
+    supabase, userId, message, mealId, items, user,
+  )
+  return result.response
 }
 
 async function handleAwaitingCorrectionValue(
@@ -233,6 +256,19 @@ async function handleAwaitingCorrectionValue(
   context: ConversationContext,
   user?: EditUser,
 ): Promise<string> {
+  const result = await handleAwaitingCorrectionValueResult(
+    supabase, userId, message, context, user,
+  )
+  return result.response
+}
+
+async function handleAwaitingCorrectionValueResult(
+  supabase: SupabaseClient,
+  userId: string,
+  message: string,
+  context: ConversationContext,
+  user?: EditUser,
+): Promise<EditForMealResult> {
   const mealId = context.contextData.mealId as string
   const itemId = context.contextData.itemId as string
   const foodName = context.contextData.foodName as string
@@ -255,7 +291,7 @@ async function handleAwaitingCorrectionValue(
   } catch {
     const num = parseFloat(message.replace(/[^\d.,]/g, '').replace(',', '.'))
     if (isNaN(num)) {
-      return 'Não entendi a quantidade. Pode me dizer em gramas, ml ou medidas caseiras? (ex: 200g, 1 escumadeira)'
+      return awaitingUser('Não entendi a quantidade. Pode me dizer em gramas, ml ou medidas caseiras? (ex: 200g, 1 escumadeira)')
     }
     newGrams = num
     newDisplay = message.trim()
@@ -265,7 +301,7 @@ async function handleAwaitingCorrectionValue(
   const targetItem = mealWithItems?.items.find(i => i.id === itemId)
   if (!targetItem) {
     await clearState(userId)
-    return 'Não encontrei o item para corrigir. Tenta de novo?'
+    return notApplied('Não encontrei o item para corrigir. Tenta de novo?')
   }
 
   const ratio = currentGrams > 0 ? newGrams / currentGrams : 1
@@ -288,7 +324,7 @@ async function handleAwaitingCorrectionValue(
 
   const progress = await progressForUser(supabase, userId, user)
 
-  return `✅ ${foodName} atualizado: ${currentGrams}g → ${newGrams}g (${targetItem.calories} → ${newCalories} kcal)\n${progress}`
+  return applied(`✅ ${foodName} atualizado: ${currentGrams}g → ${newGrams}g (${targetItem.calories} → ${newCalories} kcal)\n${progress}`)
 }
 
 // ---------------------------------------------------------------------------
@@ -315,6 +351,8 @@ async function handleNaturalLanguageCorrection(
     return showRecentMealsForCorrection(supabase, userId)
   }
 
+  // Do not let a low-confidence first parse choose a target meal. The shared
+  // executor repeats this guard because other entry points bypass this stage.
   if (correction.confidence === 'low') {
     return showRecentMealsForCorrection(supabase, userId)
   }
@@ -337,8 +375,37 @@ async function handleNaturalLanguageCorrection(
     return 'Não encontrei os itens dessa refeição.'
   }
 
-  return handleNaturalLanguageCorrectionWithMeal(
+  const result = await handleNaturalLanguageCorrectionWithMeal(
     supabase, userId, message, targetMeal.id, mealWithItems.items, user,
+  )
+  return result.response
+}
+
+/**
+ * Applies a natural-language correction to the meal already resolved by the
+ * conversation context. It deliberately does not search recent meals again.
+ */
+export async function handleEditForMeal(
+  supabase: SupabaseClient,
+  userId: string,
+  message: string,
+  mealId: string,
+  user?: EditUser,
+): Promise<EditForMealResult> {
+  const meal = await getMealWithItems(supabase, mealId)
+  if (!meal) {
+    await clearState(userId)
+    return notApplied('Não encontrei os itens dessa refeição.')
+  }
+
+  return handleNaturalLanguageCorrectionWithMeal(
+    supabase,
+    userId,
+    message,
+    mealId,
+    meal.items,
+    user,
+    { allowMealTypeChange: true, currentMealType: meal.mealType },
   )
 }
 
@@ -350,7 +417,7 @@ async function handleNaturalLanguageCorrectionWithMeal(
   items: Array<{ id: string; foodName: string; quantityGrams: number; calories: number; proteinG?: number; carbsG?: number; fatG?: number }>,
   user?: EditUser,
   options?: { allowMealTypeChange?: boolean; currentMealType?: string },
-): Promise<string> {
+): Promise<EditForMealResult> {
   const llm = getLLMProvider()
 
   let correction: Correction
@@ -366,7 +433,13 @@ async function handleNaturalLanguageCorrectionWithMeal(
     correction = CorrectionSchema.parse(JSON.parse(raw.trim()))
   } catch {
     await clearState(userId)
-    return 'Não entendi a correção. Pode descrever de novo? (ex: "o arroz era 2 escumadeiras")'
+    return notApplied('Não entendi a correção. Pode descrever de novo? (ex: "o arroz era 2 escumadeiras")')
+  }
+
+  // All entry points (free-form, recent-meal context and quote) share this
+  // safety gate. Low confidence must never reach a destructive switch case.
+  if (correction.confidence === 'low') {
+    return awaitingUser(await showRecentMealsForCorrection(supabase, userId))
   }
 
   const targetItem = correction.target_food
@@ -377,7 +450,7 @@ async function handleNaturalLanguageCorrectionWithMeal(
     case 'replace_item': {
       if (!targetItem || !correction.new_food) {
         await clearState(userId)
-        return 'Não entendi qual item trocar. Tenta "corrigir" pro menu guiado.'
+        return notApplied('Não entendi qual item trocar. Tenta "corrigir" pro menu guiado.')
       }
       return renameItem(supabase, userId, mealId, targetItem, correction.new_food, user)
     }
@@ -386,30 +459,7 @@ async function handleNaturalLanguageCorrectionWithMeal(
       const foodToAdd = correction.target_food ?? correction.new_food
       if (!foodToAdd) {
         await clearState(userId)
-        return 'Não entendi qual item adicionar. Tenta "corrigir" pro menu guiado.'
-      }
-      // If the "new" item is already in the meal, this is almost certainly a quantity update.
-      const existingItem = findItemByFoodName(items, foodToAdd)
-      if (existingItem && correction.new_quantity) {
-        await setState(userId, 'awaiting_correction_value', {
-          mealId,
-          itemId: existingItem.id,
-          foodName: existingItem.foodName,
-          currentGrams: existingItem.quantityGrams,
-        })
-        return handleAwaitingCorrectionValue(
-          supabase, userId, correction.new_quantity,
-          {
-            id: '', userId, contextType: 'awaiting_correction_value',
-            contextData: { mealId, itemId: existingItem.id, foodName: existingItem.foodName, currentGrams: existingItem.quantityGrams },
-            expiresAt: '', createdAt: '',
-          },
-          user,
-        )
-      }
-      if (existingItem) {
-        await clearState(userId)
-        return `"${existingItem.foodName}" já está nessa refeição. Me manda a quantidade nova pra eu atualizar (ex: "200g de ${existingItem.foodName}").`
+        return notApplied('Não entendi qual item adicionar. Tenta "corrigir" pro menu guiado.')
       }
       const synthetic = correction.new_quantity
         ? `Comi ${correction.new_quantity} de ${foodToAdd}`
@@ -420,55 +470,55 @@ async function handleNaturalLanguageCorrectionWithMeal(
       })
       await clearState(userId)
       if (!result || result.added.length === 0) {
-        return `Não consegui adicionar "${foodToAdd}". Tenta com a quantidade (ex: "200ml de ${foodToAdd}").`
+        return notApplied(`Não consegui adicionar "${foodToAdd}". Tenta com a quantidade (ex: "200ml de ${foodToAdd}").`)
       }
       const itemLines = result.added.map((item) => {
         const display = item.quantityDisplay || `${item.quantityGrams}g`
         return `• ${item.food} (${display}) — ${item.calories} kcal`
       }).join('\n')
       const progress = await progressForUser(supabase, userId, user)
-      return [
+      return applied([
         '✅ Adicionado:',
         itemLines,
         `Novo total da refeição: ${result.newTotal} kcal`,
         progress,
-      ].join('\n')
+      ].join('\n'))
     }
 
     case 'change_meal_type': {
       if (!options?.allowMealTypeChange || !options.currentMealType || !correction.target_meal_type) {
         await clearState(userId)
-        return 'Não entendi a correção. Manda "corrigir" pro menu guiado.'
+        return notApplied('Não entendi a correção. Manda "corrigir" pro menu guiado.')
       }
 
       if (correction.target_meal_type === options.currentMealType) {
         await clearState(userId)
-        return `Essa refeição já está como ${mealLabel(options.currentMealType)}.`
+        return notApplied(`Essa refeição já está como ${mealLabel(options.currentMealType)}.`)
       }
 
       await updateMealType(supabase, mealId, correction.target_meal_type)
       await clearState(userId)
 
       const progress = await progressForUser(supabase, userId, user)
-      return `✅ Refeição movida de ${mealLabel(options.currentMealType)} para ${mealLabel(correction.target_meal_type)}.\n${progress}`
+      return applied(`✅ Refeição movida de ${mealLabel(options.currentMealType)} para ${mealLabel(correction.target_meal_type)}.\n${progress}`)
     }
 
     case 'remove_item': {
       if (!targetItem) {
         await clearState(userId)
-        return `Não encontrei "${correction.target_food}" nessa refeição.`
+        return notApplied(`Não encontrei "${correction.target_food}" nessa refeição.`)
       }
       await removeMealItem(supabase, targetItem.id)
       const newTotal = await recalculateMealTotal(supabase, mealId)
       await clearState(userId)
       const progress = await progressForUser(supabase, userId, user)
-      return `✅ ${targetItem.foodName} removido! Novo total: ${newTotal} kcal\n${progress}`
+      return applied(`✅ ${targetItem.foodName} removido! Novo total: ${newTotal} kcal\n${progress}`)
     }
 
     case 'update_quantity': {
       if (!targetItem || !correction.new_quantity) {
         await clearState(userId)
-        return 'Não entendi qual item corrigir ou a nova quantidade. Tenta "corrigir" pro menu guiado.'
+        return notApplied('Não entendi qual item corrigir ou a nova quantidade. Tenta "corrigir" pro menu guiado.')
       }
       await setState(userId, 'awaiting_correction_value', {
         mealId,
@@ -476,7 +526,7 @@ async function handleNaturalLanguageCorrectionWithMeal(
         foodName: targetItem.foodName,
         currentGrams: targetItem.quantityGrams,
       })
-      return handleAwaitingCorrectionValue(
+      return handleAwaitingCorrectionValueResult(
         supabase, userId, correction.new_quantity,
         {
           id: '', userId, contextType: 'awaiting_correction_value',
@@ -490,13 +540,13 @@ async function handleNaturalLanguageCorrectionWithMeal(
     case 'delete_meal': {
       await deleteMeal(supabase, mealId)
       await clearState(userId)
-      return 'Refeição apagada! ✅'
+      return applied('Refeição apagada! ✅')
     }
 
     case 'update_value': {
       if (!targetItem || !correction.new_value) {
         await clearState(userId)
-        return 'Não entendi qual item corrigir ou o novo valor. Tenta "corrigir" pro menu guiado.'
+        return notApplied('Não entendi qual item corrigir ou o novo valor. Tenta "corrigir" pro menu guiado.')
       }
       const { field, amount } = correction.new_value
       const updateData = {
@@ -527,12 +577,12 @@ async function handleNaturalLanguageCorrectionWithMeal(
       await clearState(userId)
 
       const progress = await progressForUser(supabase, userId, user)
-      return `✅ ${targetItem.foodName}: ${oldValue} → ${amount} ${fieldLabels[field]}\n${progress}`
+      return applied(`✅ ${targetItem.foodName}: ${oldValue} → ${amount} ${fieldLabels[field]}\n${progress}`)
     }
 
     default:
       await clearState(userId)
-      return 'Não entendi a correção. Manda "corrigir" pro menu guiado.'
+      return notApplied('Não entendi a correção. Manda "corrigir" pro menu guiado.')
   }
 }
 
@@ -561,44 +611,45 @@ async function renameItem(
   targetItem: { id: string; foodName: string; quantityGrams: number; calories: number; proteinG?: number; carbsG?: number; fatG?: number },
   newFoodName: string,
   user?: EditUser,
-): Promise<string> {
+): Promise<EditForMealResult> {
   const llm = getLLMProvider()
 
+  let meals: MealAnalysis[]
   try {
-    const meals = await llm.analyzeMeal(`${newFoodName} ${targetItem.quantityGrams}g`)
-    const newItem = meals[0]?.items[0]
-
-    if (!newItem) {
-      return `Não consegui analisar *${newFoodName}*. Pode tentar de novo?`
-    }
-
-    const oldName = targetItem.foodName
-    const oldCalories = targetItem.calories
-
-    await updateMealItem(supabase, targetItem.id, {
-      quantityGrams: newItem.quantity_grams ?? targetItem.quantityGrams,
-      calories: Math.round(newItem.calories ?? 0),
-      proteinG: newItem.protein ?? 0,
-      carbsG: newItem.carbs ?? 0,
-      fatG: newItem.fat ?? 0,
-      foodName: newItem.food,
-    })
-
-    const newTotal = await recalculateMealTotal(supabase, mealId)
-    await clearState(userId)
-    const progress = await progressForUser(supabase, userId, user)
-
-    return [
-      '✏️ Corrigido!',
-      `  ${oldName} ${targetItem.quantityGrams}g → ${newItem.food} ${newItem.quantity_grams ?? targetItem.quantityGrams}g`,
-      `  ${oldCalories} kcal → ${Math.round(newItem.calories ?? 0)} kcal`,
-      '',
-      `📊 Novo total da refeição: ${newTotal} kcal`,
-      progress,
-    ].join('\n')
+    meals = await llm.analyzeMeal(`${newFoodName} ${targetItem.quantityGrams}g`)
   } catch {
-    return `Não consegui analisar *${newFoodName}*. Pode tentar de novo?`
+    return notApplied(`Não consegui analisar *${newFoodName}*. Pode tentar de novo?`)
   }
+
+  const newItem = meals[0]?.items[0]
+  if (!newItem) {
+    return notApplied(`Não consegui analisar *${newFoodName}*. Pode tentar de novo?`)
+  }
+
+  const oldName = targetItem.foodName
+  const oldCalories = targetItem.calories
+
+  await updateMealItem(supabase, targetItem.id, {
+    quantityGrams: newItem.quantity_grams ?? targetItem.quantityGrams,
+    calories: Math.round(newItem.calories ?? 0),
+    proteinG: newItem.protein ?? 0,
+    carbsG: newItem.carbs ?? 0,
+    fatG: newItem.fat ?? 0,
+    foodName: newItem.food,
+  })
+
+  const newTotal = await recalculateMealTotal(supabase, mealId)
+  await clearState(userId)
+  const progress = await progressForUser(supabase, userId, user)
+
+  return applied([
+    '✏️ Corrigido!',
+    `  ${oldName} ${targetItem.quantityGrams}g → ${newItem.food} ${newItem.quantity_grams ?? targetItem.quantityGrams}g`,
+    `  ${oldCalories} kcal → ${Math.round(newItem.calories ?? 0)} kcal`,
+    '',
+    `📊 Novo total da refeição: ${newTotal} kcal`,
+    progress,
+  ].join('\n'))
 }
 
 async function handleQuotedEdit(
@@ -708,11 +759,14 @@ async function handleQuotedEdit(
       return `Não encontrei *${oldFood || 'o item'}* nessa refeição. Os itens são: ${itemList}. Qual você quer corrigir?`
     }
 
-    return renameItem(supabase, userId, quoteContext.resourceId, targetItem, newFood, user)
+    const result = await renameItem(
+      supabase, userId, quoteContext.resourceId, targetItem, newFood, user,
+    )
+    return result.response
   }
 
   // Fall through to natural language correction (LLM with meal items context)
-  return handleNaturalLanguageCorrectionWithMeal(
+  const result = await handleNaturalLanguageCorrectionWithMeal(
     supabase,
     userId,
     message,
@@ -721,6 +775,7 @@ async function handleQuotedEdit(
     user,
     { allowMealTypeChange: true, currentMealType: meal.mealType },
   )
+  return result.response
 }
 
 // ---------------------------------------------------------------------------

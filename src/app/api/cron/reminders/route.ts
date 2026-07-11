@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { isCronAuthorized } from '@/lib/auth/cron'
 import { createServiceRoleClient } from '@/lib/db/supabase'
 import { cleanupOldMessages } from '@/lib/db/queries/bot-messages'
 import { sendTextMessage } from '@/lib/whatsapp/client'
@@ -342,8 +343,7 @@ async function processAutoConfirm(
 // ---------------------------------------------------------------------------
 
 export async function POST(request: Request) {
-  const authHeader = request.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!isCronAuthorized(request)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

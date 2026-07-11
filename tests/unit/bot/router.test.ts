@@ -133,6 +133,31 @@ describe('classifyByRules', () => {
     it('returns edit for "remove o último item"', () => {
       expect(classifyByRules('remove o último item')).toBe<IntentType>('edit')
     })
+
+    it('does not force an addition into edit without recent-meal context', () => {
+      expect(classifyByRules('adicionar 30g de pastel de nata')).toBeNull()
+    })
+
+    it('does not turn a negated addition into edit', () => {
+      expect(classifyByRules('não adiciona banana')).toBeNull()
+    })
+
+    it('does not match addition keywords inside another word', () => {
+      expect(classifyByRules('inclusive uma banana tem potássio')).toBeNull()
+    })
+
+    it('does not force "acrescenta" into edit without a resolved target', () => {
+      expect(classifyByRules('acrescenta um café')).toBeNull()
+    })
+
+    it.each([
+      'adiciona um café',
+      'inclui uma maçã',
+      'vou adicionar banana amanhã',
+      'se eu adicionar banana, quantas calorias dá?',
+    ])('does not force edit for addition without a resolved target: %s', (message) => {
+      expect(classifyByRules(message)).not.toBe<IntentType>('edit')
+    })
   })
 
   // --- WEIGHT ---

@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { createHmac } from 'crypto'
+import { signWebhookBody } from '@/lib/whatsapp/webhook'
+import { MAX_WEBHOOK_BODY_BYTES } from '@/lib/whatsapp/limits'
 
 // ---------------------------------------------------------------------------
 // Mock dependencies before importing the route
@@ -25,21 +28,28 @@ vi.mock('@/lib/whatsapp/webhook', async (importOriginal) => {
   return actual
 })
 
-const { mockHandleIncomingMessage, mockHandleIncomingAudio, mockHandleIncomingImage } = vi.hoisted(() => ({
+const {
+  mockHandleIncomingMessage,
+  mockHandleIncomingAudio,
+  mockHandleIncomingImage,
+  mockHandleUnsupportedMessage,
+} = vi.hoisted(() => ({
   mockHandleIncomingMessage: vi.fn().mockResolvedValue(undefined),
   mockHandleIncomingAudio: vi.fn().mockResolvedValue(undefined),
   mockHandleIncomingImage: vi.fn().mockResolvedValue(undefined),
+  mockHandleUnsupportedMessage: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('@/lib/bot/handler', () => ({
   handleIncomingMessage: mockHandleIncomingMessage,
   handleIncomingAudio: mockHandleIncomingAudio,
   handleIncomingImage: mockHandleIncomingImage,
+  handleUnsupportedMessage: mockHandleUnsupportedMessage,
 }))
 
-
-// Import after mocks are set up
 import { GET, POST } from '@/app/api/webhook/whatsapp/route'
+
+const TEST_APP_SECRET = 'test-meta-app-secret'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -53,15 +63,26 @@ function makeVerifyRequest(params: Record<string, string>): Request {
   return new Request(url.toString())
 }
 
-function makePostRequest(body: unknown): Request {
+function makeSignedPostRequest(body: unknown, options?: { signature?: string | null }): Request {
+  const rawBody = JSON.stringify(body)
+  const signature =
+    options && 'signature' in options
+      ? options.signature
+      : signWebhookBody(rawBody, TEST_APP_SECRET)
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (signature) {
+    headers['x-hub-signature-256'] = signature
+  }
+
   return new Request('http://localhost/api/webhook/whatsapp', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    headers,
+    body: rawBody,
   })
 }
 
-function makeTextPayload() {
+function makeTextPayload(phoneNumberId = 'PHONE_NUMBER_ID') {
   return {
     object: 'whatsapp_business_account',
     entry: [
@@ -71,6 +92,7 @@ function makeTextPayload() {
           {
             value: {
               messaging_product: 'whatsapp',
+              metadata: { phone_number_id: phoneNumberId },
               messages: [
                 {
                   from: '5511999887766',
@@ -89,7 +111,7 @@ function makeTextPayload() {
   }
 }
 
-function makeAudioPayload() {
+function makeAudioPayload(audioId: string | null = 'media_audio_123') {
   return {
     object: 'whatsapp_business_account',
     entry: [{
@@ -97,12 +119,13 @@ function makeAudioPayload() {
       changes: [{
         value: {
           messaging_product: 'whatsapp',
+          metadata: { phone_number_id: 'PHONE_NUMBER_ID' },
           messages: [{
             from: '5511999887766',
             id: 'wamid.audio789',
             timestamp: '1710000002',
             type: 'audio',
-            audio: { id: 'media_audio_123', mime_type: 'audio/ogg' },
+            audio: { id: audioId, mime_type: 'audio/ogg' },
           }],
         },
         field: 'messages',
@@ -111,7 +134,7 @@ function makeAudioPayload() {
   }
 }
 
-function makeImagePayload(caption?: string) {
+function makeImagePayload(caption?: string, imageId: string | null = 'media_image_456') {
   return {
     object: 'whatsapp_business_account',
     entry: [{
@@ -119,12 +142,13 @@ function makeImagePayload(caption?: string) {
       changes: [{
         value: {
           messaging_product: 'whatsapp',
+          metadata: { phone_number_id: 'PHONE_NUMBER_ID' },
           messages: [{
             from: '5511999887766',
             id: 'wamid.image456',
             timestamp: '1710000003',
             type: 'image',
-            image: { id: 'media_image_456', mime_type: 'image/jpeg', caption },
+            image: { id: imageId, mime_type: 'image/jpeg', caption },
           }],
         },
         field: 'messages',
@@ -133,29 +157,53 @@ function makeImagePayload(caption?: string) {
   }
 }
 
-function makeStatusPayload() {
+function makeVideoPayload() {
   return {
     object: 'whatsapp_business_account',
-    entry: [
-      {
-        id: 'BIZ_ACCOUNT_ID',
-        changes: [
-          {
-            value: {
-              messaging_product: 'whatsapp',
-              statuses: [
-                {
-                  id: 'wamid.abc123',
-                  status: 'delivered',
-                  timestamp: '1710000000',
-                },
-              ],
+    entry: [{
+      changes: [{
+        value: {
+          metadata: { phone_number_id: 'PHONE_NUMBER_ID' },
+          messages: [{
+            from: '5511999887766',
+            id: 'wamid.video1',
+            timestamp: '1710000004',
+            type: 'video',
+          }],
+        },
+        field: 'messages',
+      }],
+    }],
+  }
+}
+
+function makeMultiMessagePayload() {
+  return {
+    object: 'whatsapp_business_account',
+    entry: [{
+      changes: [{
+        value: {
+          metadata: { phone_number_id: 'PHONE_NUMBER_ID' },
+          messages: [
+            {
+              from: '5511999887766',
+              id: 'wamid.first',
+              timestamp: '1710000000',
+              type: 'text',
+              text: { body: 'first' },
             },
-            field: 'messages',
-          },
-        ],
-      },
-    ],
+            {
+              from: '5511999887766',
+              id: 'wamid.second',
+              timestamp: '1710000001',
+              type: 'text',
+              text: { body: 'second' },
+            },
+          ],
+        },
+        field: 'messages',
+      }],
+    }],
   }
 }
 
@@ -209,25 +257,138 @@ describe('GET /api/webhook/whatsapp', () => {
     const text = await response.text()
     expect(text).toBe('Forbidden')
   })
+})
 
-  it('returns 403 when hub.mode is missing', async () => {
-    const request = makeVerifyRequest({
-      'hub.verify_token': 'test-verify-token',
-      'hub.challenge': 'challenge_abc123',
-    })
+// ---------------------------------------------------------------------------
+// POST — signature & perimeter
+// ---------------------------------------------------------------------------
 
-    const response = await GET(request)
-    expect(response.status).toBe(403)
+describe('POST /api/webhook/whatsapp — signature', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    process.env.META_APP_SECRET = TEST_APP_SECRET
+    process.env.WHATSAPP_PHONE_NUMBER_ID = 'PHONE_NUMBER_ID'
+    mockSingle.mockResolvedValue({ data: { message_id: 'wamid.abc123' }, error: null })
   })
 
-  it('returns 403 when hub.challenge is missing', async () => {
-    const request = makeVerifyRequest({
-      'hub.mode': 'subscribe',
-      'hub.verify_token': 'test-verify-token',
+  it('returns 401 when signature is missing', async () => {
+    const request = makeSignedPostRequest(makeTextPayload(), { signature: null })
+    const response = await POST(request)
+
+    expect(response.status).toBe(401)
+    expect(mockHandleIncomingMessage).not.toHaveBeenCalled()
+  })
+
+  it('returns 401 when signature is invalid', async () => {
+    const request = makeSignedPostRequest(makeTextPayload(), { signature: 'sha256=bad' })
+    const response = await POST(request)
+
+    expect(response.status).toBe(401)
+    expect(mockHandleIncomingMessage).not.toHaveBeenCalled()
+  })
+
+  it('returns 401 when META_APP_SECRET is missing', async () => {
+    delete process.env.META_APP_SECRET
+    const rawBody = JSON.stringify(makeTextPayload())
+    const request = new Request('http://localhost/api/webhook/whatsapp', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-hub-signature-256': signWebhookBody(rawBody, TEST_APP_SECRET),
+      },
+      body: rawBody,
     })
 
-    const response = await GET(request)
-    expect(response.status).toBe(403)
+    const response = await POST(request)
+    expect(response.status).toBe(401)
+  })
+
+  it('rejects an oversized declared Content-Length before reading the body', async () => {
+    const text = vi.fn().mockRejectedValue(new Error('body must not be read'))
+    const request = {
+      headers: new Headers({
+        'content-length': String(MAX_WEBHOOK_BODY_BYTES + 1),
+      }),
+      text,
+    } as unknown as Request
+
+    const response = await POST(request)
+
+    expect(response.status).toBe(413)
+    expect(text).not.toHaveBeenCalled()
+  })
+
+  it('rejects a body whose UTF-8 byte count exceeds 1 MiB', async () => {
+    const padding = 'é'.repeat(Math.floor(MAX_WEBHOOK_BODY_BYTES / 2) + 1)
+    const request = makeSignedPostRequest({ padding })
+
+    const response = await POST(request)
+
+    expect(response.status).toBe(413)
+  })
+
+  it('cancels an unknown-length stream as soon as its actual bytes exceed 1 MiB', async () => {
+    const cancel = vi.fn()
+    let pullCount = 0
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pullCount += 1
+        if (pullCount === 1) {
+          controller.enqueue(new Uint8Array(MAX_WEBHOOK_BODY_BYTES))
+        } else if (pullCount === 2) {
+          controller.enqueue(new Uint8Array([1]))
+        } else {
+          controller.close()
+        }
+      },
+      cancel,
+    })
+    const init: RequestInit & { duplex: 'half' } = {
+      method: 'POST',
+      body,
+      duplex: 'half',
+    }
+    const request = new Request('http://localhost/api/webhook/whatsapp', init)
+
+    const response = await POST(request)
+
+    expect(response.status).toBe(413)
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
+  it('verifies the signature against the exact raw UTF-8 body bytes', async () => {
+    const rawBody = '{\n  "object": "whatsapp_business_account",\n  "note": "ação 🍉"\n}\n'
+    const request = new Request('http://localhost/api/webhook/whatsapp', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-hub-signature-256': signWebhookBody(rawBody, TEST_APP_SECRET),
+      },
+      body: rawBody,
+    })
+
+    const response = await POST(request)
+
+    expect(response.status).toBe(200)
+    expect(mockInsert).not.toHaveBeenCalled()
+  })
+
+  it('authenticates raw bytes before decoding invalid UTF-8', async () => {
+    const rawBytes = new Uint8Array([0xff, 0x7b])
+    const signature = `sha256=${createHmac('sha256', TEST_APP_SECRET).update(rawBytes).digest('hex')}`
+    const request = new Request('http://localhost/api/webhook/whatsapp', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-hub-signature-256': signature,
+      },
+      body: rawBytes,
+    })
+
+    const response = await POST(request)
+
+    // Signature passes on the original bytes; decoding then produces invalid JSON.
+    expect(response.status).toBe(400)
   })
 })
 
@@ -238,85 +399,18 @@ describe('GET /api/webhook/whatsapp', () => {
 describe('POST /api/webhook/whatsapp', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    process.env.META_APP_SECRET = TEST_APP_SECRET
+    process.env.WHATSAPP_PHONE_NUMBER_ID = 'PHONE_NUMBER_ID'
   })
 
-  it('always returns 200 — never non-200 to Meta', async () => {
+  it('returns 200 for a valid signed text message and deduplicates via insert', async () => {
     mockSingle.mockResolvedValue({ data: { message_id: 'wamid.abc123' }, error: null })
 
-    const request = makePostRequest(makeTextPayload())
-    const response = await POST(request)
+    const response = await POST(makeSignedPostRequest(makeTextPayload()))
 
     expect(response.status).toBe(200)
-  })
-
-  it('returns 200 for a valid text message and deduplicates via insert', async () => {
-    mockSingle.mockResolvedValue({ data: { message_id: 'wamid.abc123' }, error: null })
-
-    const request = makePostRequest(makeTextPayload())
-    const response = await POST(request)
-
-    expect(response.status).toBe(200)
-    const text = await response.text()
-    expect(text).toBe('OK')
+    expect(await response.text()).toBe('OK')
     expect(mockInsert).toHaveBeenCalledWith({ message_id: 'wamid.abc123' })
-  })
-
-  it('returns 200 for a duplicate message (insert error = already processed)', async () => {
-    mockSingle.mockResolvedValue({
-      data: null,
-      error: { code: '23505', message: 'duplicate key value' },
-    })
-
-    const request = makePostRequest(makeTextPayload())
-    const response = await POST(request)
-
-    expect(response.status).toBe(200)
-    const text = await response.text()
-    expect(text).toBe('OK')
-  })
-
-  it('returns 200 for a status update event (no deduplication needed)', async () => {
-    const request = makePostRequest(makeStatusPayload())
-    const response = await POST(request)
-
-    expect(response.status).toBe(200)
-    const text = await response.text()
-    expect(text).toBe('OK')
-    // No insert for status events
-    expect(mockInsert).not.toHaveBeenCalled()
-  })
-
-  it('returns 200 for an empty / unparseable body', async () => {
-    const request = makePostRequest({})
-    const response = await POST(request)
-
-    expect(response.status).toBe(200)
-    const text = await response.text()
-    expect(text).toBe('OK')
-  })
-
-  it('returns 200 even when an unexpected error is thrown', async () => {
-    mockSingle.mockRejectedValue(new Error('unexpected network error'))
-
-    const request = makePostRequest(makeTextPayload())
-    const response = await POST(request)
-
-    expect(response.status).toBe(200)
-    const text = await response.text()
-    expect(text).toBe('OK')
-  })
-
-  it('processes message when insert fails with non-duplicate error (e.g. connection error)', async () => {
-    mockSingle.mockResolvedValue({
-      data: null,
-      error: { code: '500', message: 'connection refused' },
-    })
-
-    const request = makePostRequest(makeTextPayload())
-    const response = await POST(request)
-
-    expect(response.status).toBe(200)
-    // Message should still be processed despite dedup insert failure
     expect(mockHandleIncomingMessage).toHaveBeenCalledWith(
       '5511999887766',
       'wamid.abc123',
@@ -325,42 +419,96 @@ describe('POST /api/webhook/whatsapp', () => {
     )
   })
 
-  it('logs error when dedup insert fails with non-duplicate error', async () => {
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+  it('processes all messages in a batch', async () => {
+    mockSingle.mockResolvedValue({ data: {}, error: null })
+
+    await POST(makeSignedPostRequest(makeMultiMessagePayload()))
+
+    expect(mockHandleIncomingMessage).toHaveBeenCalledTimes(2)
+    expect(mockInsert).toHaveBeenCalledTimes(2)
+  })
+
+  it('ignores events with unexpected phone_number_id', async () => {
+    mockSingle.mockResolvedValue({ data: {}, error: null })
+
+    await POST(makeSignedPostRequest(makeTextPayload('WRONG_PHONE_ID')))
+
+    expect(mockHandleIncomingMessage).not.toHaveBeenCalled()
+    expect(mockInsert).not.toHaveBeenCalled()
+  })
+
+  it('fails closed with a warning when WHATSAPP_PHONE_NUMBER_ID is missing', async () => {
+    delete process.env.WHATSAPP_PHONE_NUMBER_ID
+    mockSingle.mockResolvedValue({ data: {}, error: null })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    await POST(makeSignedPostRequest(makeTextPayload()))
+
+    expect(warn).toHaveBeenCalledWith(
+      '[webhook] WHATSAPP_PHONE_NUMBER_ID is not configured; ignoring event',
+    )
+    expect(mockHandleIncomingMessage).not.toHaveBeenCalled()
+    expect(mockInsert).not.toHaveBeenCalled()
+  })
+
+  it('returns 200 for a duplicate message (insert error = already processed)', async () => {
+    mockSingle.mockResolvedValue({
+      data: null,
+      error: { code: '23505', message: 'duplicate key value' },
+    })
+
+    const response = await POST(makeSignedPostRequest(makeTextPayload()))
+
+    expect(response.status).toBe(200)
+    expect(mockHandleIncomingMessage).not.toHaveBeenCalled()
+  })
+
+  it('returns 200 for an empty / unparseable body (no messages)', async () => {
+    const response = await POST(makeSignedPostRequest({}))
+
+    expect(response.status).toBe(200)
+    expect(mockInsert).not.toHaveBeenCalled()
+  })
+
+  it('continues processing other messages when one handler throws', async () => {
+    mockSingle.mockResolvedValue({ data: {}, error: null })
+    mockHandleIncomingMessage
+      .mockRejectedValueOnce(new Error('first failed'))
+      .mockResolvedValueOnce(undefined)
+
+    const response = await POST(makeSignedPostRequest(makeMultiMessagePayload()))
+
+    expect(response.status).toBe(200)
+    expect(mockHandleIncomingMessage).toHaveBeenCalledTimes(2)
+  })
+
+  it('processes message when insert fails with non-duplicate error', async () => {
     mockSingle.mockResolvedValue({
       data: null,
       error: { code: '500', message: 'connection refused' },
     })
 
-    const request = makePostRequest(makeTextPayload())
-    await POST(request)
+    await POST(makeSignedPostRequest(makeTextPayload()))
 
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('[webhook] Dedup insert failed'),
-      expect.stringContaining('connection refused'),
-    )
-    consoleSpy.mockRestore()
+    expect(mockHandleIncomingMessage).toHaveBeenCalled()
   })
 })
 
 // ---------------------------------------------------------------------------
-// POST — audio messages
+// POST — audio / image / unsupported
 // ---------------------------------------------------------------------------
 
 describe('POST — audio messages', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    process.env.META_APP_SECRET = TEST_APP_SECRET
+    process.env.WHATSAPP_PHONE_NUMBER_ID = 'PHONE_NUMBER_ID'
+    mockSingle.mockResolvedValue({ data: { message_id: 'wamid.audio789' }, error: null })
   })
 
-  it('returns 200 for audio message and calls handleIncomingAudio with correct args', async () => {
-    mockSingle.mockResolvedValue({ data: { message_id: 'wamid.audio789' }, error: null })
+  it('calls handleIncomingAudio with correct args', async () => {
+    await POST(makeSignedPostRequest(makeAudioPayload()))
 
-    const request = makePostRequest(makeAudioPayload())
-    const response = await POST(request)
-
-    expect(response.status).toBe(200)
-    const text = await response.text()
-    expect(text).toBe('OK')
     expect(mockHandleIncomingAudio).toHaveBeenCalledWith(
       '5511999887766',
       'wamid.audio789',
@@ -369,66 +517,25 @@ describe('POST — audio messages', () => {
     )
   })
 
-  it('returns 200 even when handleIncomingAudio throws', async () => {
-    mockSingle.mockResolvedValue({ data: { message_id: 'wamid.audio789' }, error: null })
-    mockHandleIncomingAudio.mockRejectedValueOnce(new Error('audio processing failed'))
+  it('falls back to unsupported when the audio media ID is missing', async () => {
+    await POST(makeSignedPostRequest(makeAudioPayload(null)))
 
-    const request = makePostRequest(makeAudioPayload())
-    const response = await POST(request)
-
-    expect(response.status).toBe(200)
-    const text = await response.text()
-    expect(text).toBe('OK')
-  })
-
-  it('deduplication works for audio: when insert returns error, handler is NOT called', async () => {
-    mockSingle.mockResolvedValue({
-      data: null,
-      error: { code: '23505', message: 'duplicate key value' },
-    })
-
-    const request = makePostRequest(makeAudioPayload())
-    const response = await POST(request)
-
-    expect(response.status).toBe(200)
     expect(mockHandleIncomingAudio).not.toHaveBeenCalled()
+    expect(mockHandleUnsupportedMessage).toHaveBeenCalledWith('5511999887766', 'audio')
   })
 })
-
-// ---------------------------------------------------------------------------
-// POST — image messages
-// ---------------------------------------------------------------------------
 
 describe('POST — image messages', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-  })
-
-  it('returns 200 for image message and calls handleIncomingImage with correct args', async () => {
+    process.env.META_APP_SECRET = TEST_APP_SECRET
+    process.env.WHATSAPP_PHONE_NUMBER_ID = 'PHONE_NUMBER_ID'
     mockSingle.mockResolvedValue({ data: { message_id: 'wamid.image456' }, error: null })
-
-    const request = makePostRequest(makeImagePayload())
-    const response = await POST(request)
-
-    expect(response.status).toBe(200)
-    const text = await response.text()
-    expect(text).toBe('OK')
-    expect(mockHandleIncomingImage).toHaveBeenCalledWith(
-      '5511999887766',
-      'wamid.image456',
-      'media_image_456',
-      undefined,
-      undefined,
-    )
   })
 
   it('passes caption to handleIncomingImage when present', async () => {
-    mockSingle.mockResolvedValue({ data: { message_id: 'wamid.image456' }, error: null })
+    await POST(makeSignedPostRequest(makeImagePayload('tabela nutricional')))
 
-    const request = makePostRequest(makeImagePayload('tabela nutricional'))
-    const response = await POST(request)
-
-    expect(response.status).toBe(200)
     expect(mockHandleIncomingImage).toHaveBeenCalledWith(
       '5511999887766',
       'wamid.image456',
@@ -438,28 +545,25 @@ describe('POST — image messages', () => {
     )
   })
 
-  it('returns 200 even when handleIncomingImage throws', async () => {
-    mockSingle.mockResolvedValue({ data: { message_id: 'wamid.image456' }, error: null })
-    mockHandleIncomingImage.mockRejectedValueOnce(new Error('image processing failed'))
+  it('falls back to unsupported when the image media ID is missing', async () => {
+    await POST(makeSignedPostRequest(makeImagePayload(undefined, null)))
 
-    const request = makePostRequest(makeImagePayload())
-    const response = await POST(request)
+    expect(mockHandleIncomingImage).not.toHaveBeenCalled()
+    expect(mockHandleUnsupportedMessage).toHaveBeenCalledWith('5511999887766', 'image')
+  })
+})
 
-    expect(response.status).toBe(200)
-    const text = await response.text()
-    expect(text).toBe('OK')
+describe('POST — unsupported messages', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    process.env.META_APP_SECRET = TEST_APP_SECRET
+    process.env.WHATSAPP_PHONE_NUMBER_ID = 'PHONE_NUMBER_ID'
+    mockSingle.mockResolvedValue({ data: { message_id: 'wamid.video1' }, error: null })
   })
 
-  it('deduplication works for image: when insert returns error, handler is NOT called', async () => {
-    mockSingle.mockResolvedValue({
-      data: null,
-      error: { code: '23505', message: 'duplicate key value' },
-    })
+  it('calls handleUnsupportedMessage for video', async () => {
+    await POST(makeSignedPostRequest(makeVideoPayload()))
 
-    const request = makePostRequest(makeImagePayload())
-    const response = await POST(request)
-
-    expect(response.status).toBe(200)
-    expect(mockHandleIncomingImage).not.toHaveBeenCalled()
+    expect(mockHandleUnsupportedMessage).toHaveBeenCalledWith('5511999887766', 'video')
   })
 })

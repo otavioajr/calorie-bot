@@ -5,14 +5,14 @@ import { setState, clearState } from '@/lib/bot/state'
 import type { ConversationContext } from '@/lib/bot/state'
 import { addMealItems, getDailyMacros, recalculateMealTotal, getMealWithItems, findOrCreateMeal, getDayBoundsForTimezone } from '@/lib/db/queries/meals'
 import type { MealItemInput, MealWithItems } from '@/lib/db/queries/meals'
-import { formatMealBreakdown, formatMultiMealBreakdown, formatProgress, formatSearchFeedback, formatDefaultNotice } from '@/lib/utils/formatters'
+import { formatMealBreakdown, formatMultiMealBreakdown, formatSearchFeedback, formatDefaultNotice } from '@/lib/utils/formatters'
 import { getRecentMessages } from '@/lib/db/queries/message-history'
 import { fuzzyMatchTacoMultiple, calculateMacros, matchTacoByBase, getLearnedDefault, recordTacoUsage } from '@/lib/db/queries/taco'
 import type { TacoFood } from '@/lib/db/queries/taco'
 import { sendTextMessage } from '@/lib/whatsapp/client'
 import { searchMealHistory, HistoryMatch } from '@/lib/db/queries/meal-history-search'
 import { normalizeFoodNameForTaco, applySynonyms, tokenMatchScore } from '@/lib/utils/food-normalize'
-import { getUserLocalTime, detectExplicitMealType } from '@/lib/utils/meal-time'
+import { getUserLocalTime, detectExplicitMealDestination, detectExplicitMealType } from '@/lib/utils/meal-time'
 import { buildProductQuantityPrompt, handleStartLabelInput, handleStartOffChoice } from '@/lib/bot/flows/product-confirm'
 import { tryProductLookup } from '@/lib/products/lookup'
 import { shouldUseProductFlow } from '@/lib/products/classify'
@@ -735,11 +735,19 @@ export async function appendItemsToMeal(
   message: string,
   user?: { timezone?: string },
 ): Promise<AppendItemsResult | null> {
+  const targetMeal = await getMealWithItems(supabase, mealId)
+  if (!targetMeal) return null
+
+  // This seam has exactly one destination: the meal resolved by the context.
+  // A message that explicitly names another meal must return to normal routing,
+  // never split writes or produce a receipt whose total belongs to another meal.
+  const explicitMealType = detectExplicitMealDestination(message)
+  if (explicitMealType && explicitMealType !== targetMeal.mealType) return null
+
   const llm = getLLMProvider()
-  const history = await getRecentMessages(supabase, userId)
   const currentTime = getUserLocalTime(user?.timezone)
 
-  const meals: MealAnalysis[] = await llm.analyzeMeal(message, history, currentTime)
+  const meals: MealAnalysis[] = await llm.analyzeMeal(message, [], currentTime)
   const items: MealItem[] = meals.flatMap((m) => m.items)
   if (items.length === 0) return null
 
@@ -749,9 +757,6 @@ export async function appendItemsToMeal(
       return null
     }
   }
-
-  const targetMeal = await getMealWithItems(supabase, mealId)
-  if (!targetMeal) return null
 
   const resolvedItems = items.filter((item) => {
     const hasQuantity = item.quantity_grams !== null && item.quantity_grams !== undefined && item.quantity_grams > 0
@@ -772,41 +777,8 @@ export async function appendItemsToMeal(
   const validEnriched = enriched.filter((e): e is EnrichedItem => e !== null && e !== undefined)
   if (validEnriched.length === 0) return null
 
-  // Map each enriched item to the meal_type its source message implies. Items whose
-  // analyzed meal_type matches the target go to the target meal; the rest are routed
-  // (find-or-create) to a meal of their own type for today — nothing is silently dropped.
-  const targetType = targetMeal.mealType
-  // add_item synthetic messages are typically single-food, so a food-name→type map is enough
-  // (a same-name collision under two meal_types would last-write-win, not a concern here).
-  const itemTypeByFood = new Map<string, string>()
-  for (const m of meals) {
-    for (const it of m.items) itemTypeByFood.set(it.food.toLowerCase(), m.meal_type)
-  }
-
-  const sameTypeInputs: MealItemInput[] = []
-  const otherByType = new Map<string, MealItemInput[]>()
-  for (const item of validEnriched) {
-    const input = enrichedToMealItemInput(item)
-    const itemType = itemTypeByFood.get(item.food.toLowerCase()) ?? targetType
-    if (itemType === targetType) {
-      sameTypeInputs.push(input)
-    } else {
-      const bucket = otherByType.get(itemType) ?? []
-      bucket.push(input)
-      otherByType.set(itemType, bucket)
-    }
-  }
-
-  // Same-type items → append directly to the target meal
-  if (sameTypeInputs.length > 0) {
-    await addMealItems(supabase, mealId, sameTypeInputs)
-  }
-  // Other-type items → their own meal (today), via the consolidation seam
-  for (const [type, inputs] of otherByType) {
-    await logFoodToMeal(supabase, {
-      userId, mealType: type, items: inputs, originalMessage: message, timezone: user?.timezone,
-    })
-  }
+  const inputs = validEnriched.map(enrichedToMealItemInput)
+  await addMealItems(supabase, mealId, inputs)
 
   for (const item of validEnriched) {
     if (item.tacoId && item.source === 'taco') {
@@ -815,11 +787,6 @@ export async function appendItemsToMeal(
     }
   }
 
-  // NOTE: `added` lists every enriched item (incl. any routed to a different meal_type
-  // above), but `newTotal` is only the TARGET meal's recalculated total. When items were
-  // routed elsewhere (rare: only when the gatekeeper and this re-analysis disagree on
-  // meal_type), edit.ts's "Novo total da refeição" won't include those routed items.
-  // Acceptable for this rare corrective path; a richer return (routedElsewhere) is a follow-up.
   const newTotal = await recalculateMealTotal(supabase, mealId)
   return { added: validEnriched, newTotal }
 }

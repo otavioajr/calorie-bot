@@ -72,7 +72,7 @@ vi.mock('@/lib/bot/flows/meal-log', () => ({
   appendItemsToMeal: mockAppendItemsToMeal,
 }))
 
-import { handleEdit } from '@/lib/bot/flows/edit'
+import { handleEdit, handleEditForMeal } from '@/lib/bot/flows/edit'
 import { formatProgress } from '@/lib/utils/formatters'
 
 // ---------------------------------------------------------------------------
@@ -389,6 +389,47 @@ describe('handleEdit — update_value via natural language', () => {
     supabase = buildSupabase()
   })
 
+  it('stops after a low-confidence first parse before selecting a meal', async () => {
+    mockLLMChat
+      .mockResolvedValueOnce(JSON.stringify({
+        action: 'remove_item',
+        target_food: 'banana',
+        new_quantity: null,
+        confidence: 'low',
+        target_meal_type: null,
+        new_food: null,
+        new_value: null,
+      }))
+      .mockResolvedValueOnce(JSON.stringify({
+        action: 'remove_item',
+        target_food: 'banana',
+        new_quantity: null,
+        confidence: 'high',
+        target_meal_type: null,
+        new_food: null,
+        new_value: null,
+      }))
+    mockGetRecentMeals.mockResolvedValue([
+      { id: 'meal-1', mealType: 'breakfast', totalCalories: 105, registeredAt: '2024-03-21T08:00:00Z' },
+    ])
+    mockGetMealWithItems.mockResolvedValue({
+      id: 'meal-1', mealType: 'breakfast', totalCalories: 105, registeredAt: '2024-03-21T08:00:00Z',
+      items: [{ id: 'banana-1', foodName: 'Banana', quantityGrams: 120, calories: 105, proteinG: 1, carbsG: 27, fatG: 0 }],
+    })
+
+    const result = await handleEdit(
+      supabase,
+      USER_ID,
+      'talvez tira a banana',
+      null,
+    )
+
+    expect(mockLLMChat).toHaveBeenCalledTimes(1)
+    expect(mockGetMealWithItems).not.toHaveBeenCalled()
+    expect(mockRemoveMealItem).not.toHaveBeenCalled()
+    expect(result).toContain('Qual refeição quer corrigir?')
+  })
+
   it('updates calories directly when LLM returns update_value', async () => {
     mockLLMChat.mockResolvedValue(JSON.stringify({
       action: 'update_value',
@@ -495,6 +536,105 @@ describe('handleEdit — add_item via natural language', () => {
     expect(mockClearState).toHaveBeenCalledWith(USER_ID)
   })
 
+  it('adds another consumption when the same food already exists in the exact target meal', async () => {
+    mockLLMChat.mockResolvedValue(JSON.stringify({
+      action: 'add_item',
+      target_food: 'banana',
+      new_quantity: '1 unidade',
+      confidence: 'high',
+      target_meal_type: null,
+      new_food: null,
+      new_value: null,
+    }))
+
+    mockGetMealWithItems.mockResolvedValue({
+      id: 'meal-from-context',
+      mealType: 'breakfast',
+      totalCalories: 105,
+      registeredAt: '2024-03-21T08:00:00Z',
+      items: [
+        { id: 'banana-1', foodName: 'Banana', quantityGrams: 120, calories: 105, proteinG: 1, carbsG: 27, fatG: 0 },
+      ],
+    })
+
+    mockAppendItemsToMeal.mockResolvedValue({
+      added: [
+        { food: 'Banana', quantityGrams: 120, quantityDisplay: '1 unidade', calories: 105, protein: 1, carbs: 27, fat: 0, source: 'taco' },
+      ],
+      newTotal: 210,
+    })
+
+    const result = await handleEditForMeal(
+      supabase,
+      USER_ID,
+      'coloca mais uma banana',
+      'meal-from-context',
+      { timezone: 'America/Sao_Paulo', dailyCalorieTarget: 2000 },
+    )
+
+    expect(mockGetMealWithItems).toHaveBeenCalledWith(expect.anything(), 'meal-from-context')
+    expect(mockGetRecentMeals).not.toHaveBeenCalled()
+    expect(mockAppendItemsToMeal).toHaveBeenCalledWith(
+      expect.anything(),
+      USER_ID,
+      'meal-from-context',
+      expect.stringContaining('banana'),
+      { timezone: 'America/Sao_Paulo' },
+    )
+    expect(mockUpdateMealItem).not.toHaveBeenCalled()
+    expect(mockSetState).not.toHaveBeenCalledWith(
+      USER_ID,
+      'awaiting_correction_value',
+      expect.anything(),
+    )
+    expect(result.outcome).toBe('applied')
+    expect(result.response).toContain('Adicionado')
+    expect(result.response).toContain('210')
+  })
+
+  it('does not execute a destructive correction when confidence is low', async () => {
+    mockLLMChat.mockResolvedValue(JSON.stringify({
+      action: 'remove_item',
+      target_food: 'banana',
+      new_quantity: null,
+      confidence: 'low',
+      target_meal_type: null,
+      new_food: null,
+      new_value: null,
+    }))
+    mockGetMealWithItems.mockResolvedValue({
+      id: 'meal-from-context',
+      mealType: 'breakfast',
+      totalCalories: 105,
+      registeredAt: '2024-03-21T08:00:00Z',
+      items: [
+        { id: 'banana-1', foodName: 'Banana', quantityGrams: 120, calories: 105, proteinG: 1, carbsG: 27, fatG: 0 },
+      ],
+    })
+    mockGetRecentMeals.mockResolvedValue([
+      { id: 'meal-from-context', mealType: 'breakfast', totalCalories: 105, registeredAt: '2024-03-21T08:00:00Z' },
+    ])
+
+    const result = await handleEditForMeal(
+      supabase,
+      USER_ID,
+      'talvez tira a banana',
+      'meal-from-context',
+    )
+
+    expect(mockRemoveMealItem).not.toHaveBeenCalled()
+    expect(mockUpdateMealType).not.toHaveBeenCalled()
+    expect(mockDeleteMeal).not.toHaveBeenCalled()
+    expect(mockAppendItemsToMeal).not.toHaveBeenCalled()
+    expect(mockSetState).toHaveBeenCalledWith(
+      USER_ID,
+      'awaiting_correction',
+      expect.objectContaining({ action: 'select_meal' }),
+    )
+    expect(result.outcome).toBe('awaiting_user')
+    expect(result.response).toContain('Qual refeição quer corrigir?')
+  })
+
   it('returns helpful error when append fails to resolve item', async () => {
     mockLLMChat.mockResolvedValue(JSON.stringify({
       action: 'add_item',
@@ -532,5 +672,50 @@ describe('handleEdit — add_item via natural language', () => {
 
     expect(result).toContain('Não consegui adicionar')
     expect(mockClearState).toHaveBeenCalledWith(USER_ID)
+  })
+
+  it('does not claim rename was not applied when a post-write refresh fails', async () => {
+    mockLLMChat.mockResolvedValue(JSON.stringify({
+      action: 'replace_item',
+      target_food: 'pão',
+      new_food: 'tapioca',
+      new_quantity: null,
+      confidence: 'high',
+      target_meal_type: null,
+      new_value: null,
+    }))
+    mockGetMealWithItems.mockResolvedValue({
+      id: 'meal-1',
+      mealType: 'breakfast',
+      totalCalories: 200,
+      registeredAt: '2024-03-21T08:00:00Z',
+      items: [
+        { id: 'item-1', foodName: 'Pão', quantityGrams: 50, calories: 200, proteinG: 5, carbsG: 30, fatG: 2 },
+      ],
+    })
+    mockAnalyzeMeal.mockResolvedValue([{
+      items: [{
+        food: 'Tapioca',
+        quantity_grams: 50,
+        calories: 116,
+        protein: 0,
+        carbs: 29,
+        fat: 0,
+      }],
+    }])
+    mockRecalculateMealTotal.mockRejectedValueOnce(new Error('refresh failed after update'))
+
+    await expect(handleEditForMeal(
+      supabase,
+      USER_ID,
+      'troca o pão por tapioca',
+      'meal-1',
+    )).rejects.toThrow('refresh failed after update')
+
+    expect(mockUpdateMealItem).toHaveBeenCalledWith(
+      expect.anything(),
+      'item-1',
+      expect.objectContaining({ foodName: 'Tapioca' }),
+    )
   })
 })

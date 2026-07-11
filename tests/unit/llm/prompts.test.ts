@@ -4,6 +4,7 @@ import { buildManualPrompt } from '@/lib/llm/prompts/manual'
 import { buildClassifyPrompt } from '@/lib/llm/prompts/classify'
 import { buildDecomposePrompt } from '@/lib/llm/prompts/decompose'
 import { buildVisionPrompt } from '@/lib/llm/prompts/vision'
+import { buildContextualCorrectionPrompt } from '@/lib/llm/prompts/contextual-correction'
 
 describe('buildAnalyzePrompt', () => {
   it('contains key constraints', () => {
@@ -38,6 +39,26 @@ describe('buildAnalyzePrompt', () => {
     expect(prompt).toContain('references_previous')
     expect(prompt).toContain('reference_query')
   })
+
+  it('limits extraction to foods from the current message unless explicitly referenced', () => {
+    const prompt = buildAnalyzePrompt()
+
+    expect(prompt).toContain('APENAS alimentos mencionados na MENSAGEM ATUAL')
+    expect(prompt).toContain('NUNCA repita alimentos que aparecem somente em mensagens anteriores')
+    expect(prompt).toContain('histórico serve apenas de contexto para resolver referências explícitas')
+  })
+
+  it('grounds the pastel de nata example entirely in the current message', () => {
+    const prompt = buildAnalyzePrompt()
+    const exampleStart = prompt.indexOf('Entrada (mensagem atual): "no café da manhã, adicionar 30g de pastel de nata"')
+    const exampleEnd = prompt.indexOf('NOTAS SOBRE CAMPOS:', exampleStart)
+    const example = prompt.slice(exampleStart, exampleEnd)
+
+    expect(exampleStart).toBeGreaterThanOrEqual(0)
+    expect(example).toContain('"food": "Pastel de nata"')
+    expect(example).toContain('"quantity_grams": 30')
+    expect(example).not.toContain('Melão')
+  })
 })
 
 describe('buildAnalyzePrompt portion classification', () => {
@@ -57,6 +78,41 @@ describe('buildAnalyzePrompt portion classification', () => {
   it('instructs to set quantity_grams null for bulk without user quantity', () => {
     const prompt = buildAnalyzePrompt()
     expect(prompt).toContain('quantity_grams": null')
+  })
+})
+
+describe('buildContextualCorrectionPrompt', () => {
+  const recentItems = [
+    {
+      foodName: 'Banana',
+      quantityDisplay: '1 unidade',
+      calories: 105,
+      proteinG: 1,
+      carbsG: 27,
+      fatG: 0,
+    },
+  ]
+
+  it('identifies the current meal type so the model can compare explicit destinations', () => {
+    const prompt = buildContextualCorrectionPrompt(
+      recentItems,
+      'adiciona um café',
+      'breakfast',
+    )
+
+    expect(prompt).toContain('TIPO ATUAL DA REFEIÇÃO: breakfast (Café da manhã)')
+    expect(prompt).toMatch(/tipo explicitamente diferente.*tipo atual/i)
+  })
+
+  it('does not describe the beverage "um café" as an explicit meal type', () => {
+    const prompt = buildContextualCorrectionPrompt(
+      recentItems,
+      'adiciona um café',
+      'breakfast',
+    )
+
+    expect(prompt).toContain('"um café" é uma bebida')
+    expect(prompt).toContain('"no almoço"')
   })
 })
 

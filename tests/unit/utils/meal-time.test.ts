@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 
 import {
   classifyMealTypeByTime,
+  detectExplicitMealDestination,
   detectExplicitMealType,
   getUserLocalTime,
   resolveMealTypeFromContext,
@@ -27,6 +28,29 @@ describe('classifyMealTypeByTime', () => {
 
   it('falls back to snack on malformed input', () => {
     expect(classifyMealTypeByTime('not-a-time')).toBe('snack')
+  })
+})
+
+describe('detectExplicitMealDestination', () => {
+  it.each([
+    ['no almoço comi arroz', 'lunch'],
+    ['adiciona para o jantar', 'dinner'],
+    ['muda pro almoço', 'lunch'],
+    ['essa refeição era no almoço', 'lunch'],
+    ['jantei frango', 'dinner'],
+    ['lanche: iogurte e banana', 'snack'],
+    ['café da manhã com pão', 'breakfast'],
+  ])('detects an explicit conversational destination in %s', (message, expected) => {
+    expect(detectExplicitMealDestination(message)).toBe(expected)
+  })
+
+  it.each([
+    'adiciona um lanche natural',
+    'adiciona um café',
+    'gostei do lanche natural',
+    'quero um jantar leve',
+  ])('does not treat a food or generic mention as a destination: %s', (message) => {
+    expect(detectExplicitMealDestination(message)).toBeNull()
   })
 })
 

@@ -8,7 +8,7 @@ import { setRecentMealState, buildConsolidatedMealResponse } from '@/lib/bot/mea
 import { buildMacrosBlock } from '@/lib/bot/macros'
 import { handleSummary } from '@/lib/bot/flows/summary'
 import { handleQuery, handleQueryConfirmation, registerFromQuotedQuery } from '@/lib/bot/flows/query'
-import { handleEdit } from '@/lib/bot/flows/edit'
+import { handleEdit, handleEditForMeal } from '@/lib/bot/flows/edit'
 import { handleWeight } from '@/lib/bot/flows/weight'
 import { handleSettings } from '@/lib/bot/flows/settings'
 import { handleHelp, handleUserData } from '@/lib/bot/flows/help'
@@ -26,6 +26,8 @@ import {
 } from '@/lib/bot/flows/product-confirm'
 import { getLLMProvider } from '@/lib/llm/index'
 import { sendTextMessage } from '@/lib/whatsapp/client'
+import { isBlankText, isTextTooLong } from '@/lib/bot/input-validation'
+import { MAX_INCOMING_TEXT_CHARS } from '@/lib/whatsapp/limits'
 import { formatOutOfScope, formatError } from '@/lib/utils/formatters'
 import { parseDateFromMessage, formatDateLabel, localDateString } from '@/lib/utils/relative-date'
 import { downloadAudioMedia, transcribeAudio, AudioTooLargeError } from '@/lib/audio/transcribe'
@@ -39,15 +41,32 @@ import type { QuoteContext } from '@/lib/bot/quote'
 import { saveBotMessage } from '@/lib/db/queries/bot-messages'
 import { extractLabelGramsFromCaption, extractLabelPortionsFromCaption } from '@/lib/bot/label-portions'
 import { scaleNutritionLabelItem } from '@/lib/bot/nutrition-label'
-import { getUserLocalTime, resolveMealTypeFromContext, detectExplicitMealType } from '@/lib/utils/meal-time'
+import { getUserLocalTime, resolveMealTypeFromContext, detectExplicitMealType, detectExplicitMealDestination } from '@/lib/utils/meal-time'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ImageAnalysis } from '@/lib/llm/schemas/image-analysis'
 import type { MealAnalysis, MealItem } from '@/lib/llm/schemas/meal-analysis'
+import { ContextualCorrectionGatekeeperSchema } from '@/lib/llm/schemas/contextual-correction'
+import type { ContextualCorrectionGatekeeper } from '@/lib/llm/schemas/contextual-correction'
 import { buildContextualCorrectionPrompt } from '@/lib/llm/prompts/contextual-correction'
 import type { RecentMealItem } from '@/lib/llm/prompts/contextual-correction'
 import type { Product } from '@/lib/products/types'
 
 const MAX_IMAGE_SIZE = 5_242_880 // 5MB
+
+const MEAL_TYPE_RECLASSIFICATION_PATTERNS = [
+  /\b(?:(?:essa|esta|aquela)(?:\s+refeicao)?|a\s+refeicao|isso)\s+(?:era|foi)\s+(?:(?:o|a|um|uma|no|na|do|da)\s+)?(?:cafe da manha|almoco|lanche|jantar|ceia)\b/,
+  /^(?:na verdade[\s,:;-]*)?(?:era|foi)\s+(?:(?:o|a|um|uma|no|na|do|da)\s+)?(?:cafe da manha|almoco|lanche|jantar|ceia)\s*[.!?]*$/,
+  /\b(?:muda|mudar|troca|trocar|corrige|corrigir)\b.{0,40}\b(?:para o|para a|pro|pra|para|como)\s+(?:(?:o|um)\s+)?(?:cafe da manha|almoco|lanche|jantar|ceia)\b/,
+]
+
+function isMealTypeReclassification(message: string): boolean {
+  const normalized = message
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+  return MEAL_TYPE_RECLASSIFICATION_PATTERNS.some((pattern) => pattern.test(normalized))
+}
 
 function saveHistory(supabase: SupabaseClient, userId: string, userMsg: string, botMsg: string): void {
   saveMessage(supabase, userId, 'user', userMsg).catch(() => {})
@@ -241,12 +260,58 @@ async function registerConfirmedProductMeal(
   return { response, mealId: logResult.mealId }
 }
 
+function unsupportedTypeMessage(rawType: string): string {
+  const byType: Record<string, string> = {
+    video: 'Ainda não leio vídeo para registrar alimentos. Envie texto, áudio ou foto do prato ou rótulo.',
+    sticker: 'Ainda não leio figurinhas. Envie texto, áudio ou foto do prato ou rótulo.',
+    document: 'Ainda não leio documentos. Envie texto, áudio ou foto do prato ou rótulo.',
+    location: 'Ainda não uso localização para registrar alimentos. Escreva os itens ou envie texto/áudio/foto.',
+    contacts: 'Ainda não leio contatos. Envie texto, áudio ou foto do prato ou rótulo.',
+    reaction: 'Ainda não interpreto reações. Envie texto, áudio ou foto se quiser registrar ou corrigir algo.',
+    interactive: 'Use texto livre ou responda com o número da opção quando o bot pedir.',
+  }
+  return (
+    byType[rawType] ??
+    'Ainda não consigo processar esse tipo de mensagem. Envie texto, áudio ou foto do prato ou rótulo.'
+  )
+}
+
+export async function handleUnsupportedMessage(from: string, rawType: string): Promise<void> {
+  const response = unsupportedTypeMessage(rawType)
+  try {
+    await sendTextMessage(from, response)
+  } catch (err) {
+    console.error('[handler] Failed to send unsupported-type message:', err)
+  }
+}
+
 export async function handleIncomingMessage(
   from: string,
   messageId: string,
   text: string,
   quotedMessageId?: string,
 ): Promise<void> {
+  if (isBlankText(text)) {
+    const blankMsg =
+      'Não recebi nenhum texto. Me diga o que você comeu ou o que quer fazer (ex.: "almoço: arroz e feijão").'
+    try {
+      await sendTextMessage(from, blankMsg)
+    } catch (err) {
+      console.error('[handler] Failed to send blank-text response:', err)
+    }
+    return
+  }
+
+  if (isTextTooLong(text)) {
+    const longMsg = `Sua mensagem passou de ${MAX_INCOMING_TEXT_CHARS} caracteres. Divida em partes menores e envie novamente.`
+    try {
+      await sendTextMessage(from, longMsg)
+    } catch (err) {
+      console.error('[handler] Failed to send text-too-long response:', err)
+    }
+    return
+  }
+
   const supabase = createServiceRoleClient()
 
   try {
@@ -299,6 +364,7 @@ export async function handleIncomingMessage(
         case 'recent_meal': {
           const recentItems = context.contextData.items as unknown as RecentMealItem[]
           const recentMealId = context.contextData.mealId as string
+          const recentMealType = context.contextData.mealType as string
 
           // If user quoted a meal message, skip gatekeeper and go directly to edit
           if (quoteContext?.resourceType === 'meal' && quoteContext.resourceId) {
@@ -316,26 +382,55 @@ export async function handleIncomingMessage(
             return
           }
 
+          // A different explicit meal is a new routing decision, not an append to
+          // the recent meal. Skip one LLM call and let the normal intent flow handle
+          // the original message. Explicit reclassification of the current meal is
+          // still allowed through the correction gatekeeper.
+          const explicitMealType = detectExplicitMealDestination(text)
+          if (
+            explicitMealType
+            && explicitMealType !== recentMealType
+            && !isMealTypeReclassification(text)
+          ) {
+            await clearState(user.id)
+            break
+          }
+
           // LLM gatekeeper: is this a correction, confirmation, or something else?
+          // Keep this catch limited to classification/validation. A later edit
+          // error must not be reported as "no change applied", because the
+          // persistence outcome may already be unknown or partially completed.
+          let gatekeeper: ContextualCorrectionGatekeeper
           try {
             const llm = getLLMProvider()
             const gatekeeperRaw = await llm.chat(
-              buildContextualCorrectionPrompt(recentItems, text),
+              buildContextualCorrectionPrompt(recentItems, text, recentMealType),
               'Você classifica mensagens após registro de refeição. Responda APENAS com JSON válido.',
               true,
             )
-            const gatekeeper = JSON.parse(gatekeeperRaw.trim()) as { type: string; corrected_message?: string }
+            gatekeeper = ContextualCorrectionGatekeeperSchema.parse(
+              JSON.parse(gatekeeperRaw.trim()),
+            )
+          } catch (err) {
+            console.error('[handler] recent_meal gatekeeper failed:', err)
+            const retryMsg = 'Não apliquei nenhuma alteração porque não consegui validar a correção com segurança. Envie a correção novamente, por exemplo: “o arroz era 200g”.'
+            await sendTextMessage(from, retryMsg)
+            saveHistory(supabase, user.id, text, retryMsg)
+            return
+          }
 
-            if (gatekeeper.type === 'correction' && gatekeeper.corrected_message) {
-              const editResponse = await handleEdit(supabase, user.id, gatekeeper.corrected_message, null, {
-                timezone: user.timezone,
-                dailyCalorieTarget: user.dailyCalorieTarget,
-                dailyProteinG: user.dailyProteinG,
-                dailyFatG: user.dailyFatG,
-                dailyCarbsG: user.dailyCarbsG,
-              }, quoteContext ?? undefined)
+          if (gatekeeper.type === 'correction') {
+            const editResult = await handleEditForMeal(supabase, user.id, gatekeeper.corrected_message, recentMealId, {
+              timezone: user.timezone,
+              dailyCalorieTarget: user.dailyCalorieTarget,
+              dailyProteinG: user.dailyProteinG,
+              dailyFatG: user.dailyFatG,
+              dailyCarbsG: user.dailyCarbsG,
+            })
 
-              // After correction, refresh recent_meal state with updated items
+            // Only a completed mutation may restore recent_meal. Corrections
+            // that opened an awaiting_* flow own the conversation state.
+            if (editResult.outcome === 'applied') {
               const updatedMeal = await getMealWithItems(supabase, recentMealId)
               if (updatedMeal && updatedMeal.items.length > 0) {
                 await setState(user.id, 'recent_meal', {
@@ -353,23 +448,22 @@ export async function handleIncomingMessage(
                   })),
                 })
               }
-
-              const corrSentId = await sendTextMessage(from, editResponse)
-              saveHistory(supabase, user.id, text, editResponse)
-              await saveBotMessages(supabase, user.id, messageId, corrSentId, 'meal', recentMealId)
-              return
             }
 
-            if (gatekeeper.type === 'confirmation') {
-              await clearState(user.id)
-              const confirmMsg = 'Tudo certo! ✅ Refeição registrada.'
-              await sendTextMessage(from, confirmMsg)
-              saveHistory(supabase, user.id, text, confirmMsg)
-              return
-            }
-          } catch (err) {
-            console.error('[handler] recent_meal gatekeeper failed:', err)
+            const corrSentId = await sendTextMessage(from, editResult.response)
+            saveHistory(supabase, user.id, text, editResult.response)
+            await saveBotMessages(supabase, user.id, messageId, corrSentId, 'meal', recentMealId)
+            return
           }
+
+          if (gatekeeper.type === 'confirmation') {
+            await clearState(user.id)
+            const confirmMsg = 'Tudo certo! ✅ Refeição registrada.'
+            await sendTextMessage(from, confirmMsg)
+            saveHistory(supabase, user.id, text, confirmMsg)
+            return
+          }
+
           // "other" — clear state and continue to intent classification
           await clearState(user.id)
           break
