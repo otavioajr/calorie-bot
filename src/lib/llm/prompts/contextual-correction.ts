@@ -7,18 +7,31 @@ export interface RecentMealItem {
   fatG: number
 }
 
+const MEAL_TYPE_LABELS: Record<string, string> = {
+  breakfast: 'Café da manhã',
+  lunch: 'Almoço',
+  snack: 'Lanche',
+  dinner: 'Jantar',
+  supper: 'Ceia',
+}
+
 export function buildContextualCorrectionPrompt(
   items: RecentMealItem[],
   message: string,
+  currentMealType: string,
 ): string {
   const itemLines = items.map(i => {
     const display = i.quantityDisplay || '?'
     return `• ${i.foodName} (${display}) — ${i.calories} kcal | P:${i.proteinG}g C:${i.carbsG}g G:${i.fatG}g`
   }).join('\n')
 
+  const currentMealLabel = MEAL_TYPE_LABELS[currentMealType] ?? currentMealType
+
   return `O usuário ACABOU de registrar uma refeição com estes itens:
 
 ${itemLines}
+
+TIPO ATUAL DA REFEIÇÃO: ${currentMealType} (${currentMealLabel})
 
 Agora ele enviou esta mensagem: "${message}"
 
@@ -39,6 +52,10 @@ Exemplos de CORREÇÃO:
 - "Comi também 110ml de suco" → adicionando item esquecido à MESMA refeição (sem novo meal_type)
 - "Tomei também um café" → adicionando item esquecido à MESMA refeição
 - "Também 2 fatias de pão" → adicionando item esquecido
+- "Adicionar 30g de pastel de nata" → adicionando item à mesma refeição
+- "Adiciona um café" → adicionando item à mesma refeição
+- "Coloca mais uma banana" → adicionando item à mesma refeição
+- "Mais 100ml de suco" → adicionando item à mesma refeição
 
 Exemplos de CONFIRMAÇÃO:
 - "É só isso" → confirmando que a refeição está completa
@@ -57,7 +74,7 @@ Exemplos de CONFIRMAÇÃO:
 Exemplos de OUTRO:
 - "Almocei arroz e feijão" → nova refeição
 - "Comi no café da manhã, 2 fatias de queijo e 220ml de suco" → nova refeição (mesmo tipo, novos itens com quantidade — usuário descreve refeição completa)
-- "Comi também uma maçã no lanche" → nova refeição (meal_type diferente: "no lanche")
+- "Comi também uma maçã no lanche" → nova refeição SOMENTE se snack/lanche for diferente do TIPO ATUAL
 - "No jantar comi frango com salada" → nova refeição (meal_type explícito)
 - "Quantas calorias tem uma pizza?" → consulta
 - "Como estou hoje?" → resumo
@@ -65,15 +82,17 @@ Exemplos de OUTRO:
 
 REGRAS DE DESEMPATE (aplicar nesta ordem):
 
-1. Se a mensagem usa "também" ou "esqueci"/"faltou" SEM mencionar um meal_type diferente (café, almoço, lanche, jantar, ceia), é CORREÇÃO com add_item — o usuário está adicionando um item que esqueceu na mesma refeição. Exemplos: "comi também 110ml de suco", "tomei também um café", "também 2 fatias de pão".
+1. Se a mensagem usa "também" ou "esqueci"/"faltou" SEM indicar um destino explicitamente diferente do tipo atual, é CORREÇÃO com add_item — o usuário está adicionando um item que esqueceu na mesma refeição. Exemplos: "comi também 110ml de suco", "tomei também um café", "também 2 fatias de pão".
 
-2. Se a mensagem começa com verbos de ingestão ("Comi", "Almocei", "Jantei", "Tomei", "Bebi") + meal_type EXPLÍCITO diferente ("no lanche", "no jantar", "no café"), é OUTRO — nova refeição.
+2. Se a mensagem começa com verbo de adição ("adicionar", "adiciona", "acrescenta", "coloca", "inclui", "mais") SEM indicar um tipo explicitamente diferente do tipo atual, é CORREÇÃO com add_item — o usuário quer incluir um item na mesma refeição. Exemplos: "adicionar 30g de pastel de nata", "adiciona um café", "coloca mais uma banana", "mais 100ml de suco".
 
-3. Se a mensagem começa com verbos de ingestão e DESCREVE uma refeição completa com múltiplos itens e quantidades, sem "também"/"esqueci"/"faltou", é OUTRO — nova refeição.
+3. Só considere meal_type explicitamente diferente quando a mensagem indicar o destino, por exemplo "no almoço", "para o jantar" ou "no café da manhã", e esse destino for diferente do TIPO ATUAL. A expressão "um café" é uma bebida, não um meal_type. Nesse caso de destino diferente, é OUTRO — nova refeição.
 
-4. Se a mensagem menciona o nome da refeição (café, almoço, jantar, lanche) + uma confirmação curta (ex: "Café é só isso", "Almoço pronto"), é CONFIRMAÇÃO.
+4. Se a mensagem começa com verbos de ingestão e DESCREVE uma refeição completa com múltiplos itens e quantidades, sem "também"/"esqueci"/"faltou"/verbo de adição, é OUTRO — nova refeição.
 
-5. CORREÇÃO de outros tipos só se aplica a mensagens curtas que claramente alteram um item existente ("o arroz é 200g", "tira o queijo").
+5. Se a mensagem menciona o nome da refeição (café, almoço, jantar, lanche) + uma confirmação curta (ex: "Café é só isso", "Almoço pronto"), é CONFIRMAÇÃO.
+
+6. Um pedido explícito para reclassificar a refeição atual (ex: "isso era almoço") continua sendo CORREÇÃO. Outros tipos de CORREÇÃO só se aplicam a mensagens curtas que claramente alteram um item existente ("o arroz é 200g", "tira o queijo").
 
 Se for CORREÇÃO, reformule a mensagem como uma instrução explícita de correção.
 

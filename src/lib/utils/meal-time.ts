@@ -82,6 +82,38 @@ export function detectExplicitMealType(caption?: string | null): MealType | null
   return null
 }
 
+/**
+ * Detects a meal used as the destination of a conversational command.
+ * This is deliberately stricter than detectExplicitMealType(), which also
+ * accepts generic labels useful for image captions. For example, "um lanche
+ * natural" is food; "no lanche" is a destination.
+ */
+export function detectExplicitMealDestination(message?: string | null): MealType | null {
+  if (!message) return null
+  const normalized = tokenize(message).join(' ')
+  if (!normalized) return null
+
+  if (/\b(?:almocei|almocar)\b/.test(normalized)) return 'lunch'
+  if (/\bjantei\b|\b(?:vou|fui)\s+jantar\b/.test(normalized)) return 'dinner'
+  if (/\blanchei\b/.test(normalized)) return 'snack'
+  if (/\bceei\b/.test(normalized)) return 'supper'
+
+  const hasDestination = (meal: string): boolean => new RegExp(
+    `(?:^${meal}\\b|\\b(?:no|na|num|numa|ao|pro|pra|para o|para a)\\s+${meal}\\b)`,
+  ).test(normalized)
+
+  // The full expression is unambiguous; bare "café" remains a beverage.
+  if (/\bcafe da manha\b/.test(normalized) || hasDestination('desjejum')) return 'breakfast'
+  if (hasDestination('almoco')) return 'lunch'
+  if (hasDestination('lanche')) return 'snack'
+  if (hasDestination('jantar')) return 'dinner'
+  if (hasDestination('ceia')) return 'supper'
+
+  if (/\b(?:comi|tomei|bebi)\b.{0,30}\bde\s+lanche\b/.test(normalized)) return 'snack'
+
+  return null
+}
+
 export function resolveMealTypeFromContext(params: {
   caption?: string | null
   currentTime: string

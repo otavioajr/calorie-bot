@@ -63,6 +63,31 @@ describe('logFoodToMeal', () => {
     expect(result.meal.totalCalories).toBe(292)
   })
 
+  it('persists an identical food and quantity as a new consumption', async () => {
+    mockFindOrCreateMeal.mockResolvedValue({ mealId: 'meal-1', wasAppend: true })
+    mockRecalculateMealTotal.mockResolvedValue(202)
+    const existingMelon = {
+      id: 'm1', foodName: 'Melão', quantityGrams: 345, quantityDisplay: '345g',
+      calories: 101, proteinG: 2, carbsG: 26, fatG: 0, source: 'taco', confidence: 'high' as const,
+    }
+    mockGetMealWithItems.mockResolvedValue({
+      id: 'meal-1', mealType: 'breakfast', totalCalories: 202, registeredAt: 'x',
+      items: [existingMelon, { ...existingMelon, id: 'm2' }],
+    })
+
+    const repeatedMelon = {
+      foodName: 'Melão', quantityGrams: 345, calories: 101, proteinG: 2, carbsG: 26, fatG: 0, source: 'taco',
+    }
+    const result = await logFoodToMeal(supabase, {
+      userId: 'u', mealType: 'breakfast', items: [repeatedMelon],
+      originalMessage: 'mais 345g de melão', targetDate: new Date(),
+    })
+
+    expect(mockAddMealItems).toHaveBeenCalledWith(supabase, 'meal-1', [repeatedMelon])
+    expect(mockRecalculateMealTotal).toHaveBeenCalledWith(supabase, 'meal-1')
+    expect(result.addedItems).toEqual([repeatedMelon])
+  })
+
   it('creates a new meal when none exists for the day/type', async () => {
     // find-or-create returned a freshly-created meal → wasAppend false.
     mockFindOrCreateMeal.mockResolvedValue({ mealId: 'new-meal', wasAppend: false })

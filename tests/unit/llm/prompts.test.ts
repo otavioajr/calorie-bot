@@ -4,6 +4,7 @@ import { buildManualPrompt } from '@/lib/llm/prompts/manual'
 import { buildClassifyPrompt } from '@/lib/llm/prompts/classify'
 import { buildDecomposePrompt } from '@/lib/llm/prompts/decompose'
 import { buildVisionPrompt } from '@/lib/llm/prompts/vision'
+import { buildContextualCorrectionPrompt } from '@/lib/llm/prompts/contextual-correction'
 
 describe('buildAnalyzePrompt', () => {
   it('contains key constraints', () => {
@@ -57,6 +58,41 @@ describe('buildAnalyzePrompt portion classification', () => {
   it('instructs to set quantity_grams null for bulk without user quantity', () => {
     const prompt = buildAnalyzePrompt()
     expect(prompt).toContain('quantity_grams": null')
+  })
+})
+
+describe('buildContextualCorrectionPrompt', () => {
+  const recentItems = [
+    {
+      foodName: 'Banana',
+      quantityDisplay: '1 unidade',
+      calories: 105,
+      proteinG: 1,
+      carbsG: 27,
+      fatG: 0,
+    },
+  ]
+
+  it('identifies the current meal type so the model can compare explicit destinations', () => {
+    const prompt = buildContextualCorrectionPrompt(
+      recentItems,
+      'adiciona um café',
+      'breakfast',
+    )
+
+    expect(prompt).toContain('TIPO ATUAL DA REFEIÇÃO: breakfast (Café da manhã)')
+    expect(prompt).toMatch(/tipo explicitamente diferente.*tipo atual/i)
+  })
+
+  it('does not describe the beverage "um café" as an explicit meal type', () => {
+    const prompt = buildContextualCorrectionPrompt(
+      recentItems,
+      'adiciona um café',
+      'breakfast',
+    )
+
+    expect(prompt).toContain('"um café" é uma bebida')
+    expect(prompt).toContain('"no almoço"')
   })
 })
 

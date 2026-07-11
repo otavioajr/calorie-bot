@@ -315,6 +315,8 @@ async function handleNaturalLanguageCorrection(
     return showRecentMealsForCorrection(supabase, userId)
   }
 
+  // Do not let a low-confidence first parse choose a target meal. The shared
+  // executor repeats this guard because other entry points bypass this stage.
   if (correction.confidence === 'low') {
     return showRecentMealsForCorrection(supabase, userId)
   }
@@ -339,6 +341,34 @@ async function handleNaturalLanguageCorrection(
 
   return handleNaturalLanguageCorrectionWithMeal(
     supabase, userId, message, targetMeal.id, mealWithItems.items, user,
+  )
+}
+
+/**
+ * Applies a natural-language correction to the meal already resolved by the
+ * conversation context. It deliberately does not search recent meals again.
+ */
+export async function handleEditForMeal(
+  supabase: SupabaseClient,
+  userId: string,
+  message: string,
+  mealId: string,
+  user?: EditUser,
+): Promise<string> {
+  const meal = await getMealWithItems(supabase, mealId)
+  if (!meal) {
+    await clearState(userId)
+    return 'Não encontrei os itens dessa refeição.'
+  }
+
+  return handleNaturalLanguageCorrectionWithMeal(
+    supabase,
+    userId,
+    message,
+    mealId,
+    meal.items,
+    user,
+    { allowMealTypeChange: true, currentMealType: meal.mealType },
   )
 }
 
@@ -369,6 +399,12 @@ async function handleNaturalLanguageCorrectionWithMeal(
     return 'Não entendi a correção. Pode descrever de novo? (ex: "o arroz era 2 escumadeiras")'
   }
 
+  // All entry points (free-form, recent-meal context and quote) share this
+  // safety gate. Low confidence must never reach a destructive switch case.
+  if (correction.confidence === 'low') {
+    return showRecentMealsForCorrection(supabase, userId)
+  }
+
   const targetItem = correction.target_food
     ? findItemByFoodName(items, correction.target_food)
     : null
@@ -387,29 +423,6 @@ async function handleNaturalLanguageCorrectionWithMeal(
       if (!foodToAdd) {
         await clearState(userId)
         return 'Não entendi qual item adicionar. Tenta "corrigir" pro menu guiado.'
-      }
-      // If the "new" item is already in the meal, this is almost certainly a quantity update.
-      const existingItem = findItemByFoodName(items, foodToAdd)
-      if (existingItem && correction.new_quantity) {
-        await setState(userId, 'awaiting_correction_value', {
-          mealId,
-          itemId: existingItem.id,
-          foodName: existingItem.foodName,
-          currentGrams: existingItem.quantityGrams,
-        })
-        return handleAwaitingCorrectionValue(
-          supabase, userId, correction.new_quantity,
-          {
-            id: '', userId, contextType: 'awaiting_correction_value',
-            contextData: { mealId, itemId: existingItem.id, foodName: existingItem.foodName, currentGrams: existingItem.quantityGrams },
-            expiresAt: '', createdAt: '',
-          },
-          user,
-        )
-      }
-      if (existingItem) {
-        await clearState(userId)
-        return `"${existingItem.foodName}" já está nessa refeição. Me manda a quantidade nova pra eu atualizar (ex: "200g de ${existingItem.foodName}").`
       }
       const synthetic = correction.new_quantity
         ? `Comi ${correction.new_quantity} de ${foodToAdd}`

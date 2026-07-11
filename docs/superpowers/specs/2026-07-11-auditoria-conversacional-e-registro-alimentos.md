@@ -1,9 +1,9 @@
 # Auditoria completa do fluxo conversacional e do registro de alimentos
 
 - **Data:** 11/07/2026
-- **Status:** levantamento concluído e pronto para revisão; nenhuma correção implementada por esta auditoria
+- **Status:** levantamento concluído; patch mínimo seguro das mudanças locais implementado na PR #20; idempotência completa permanece futura
 - **Escopo:** WhatsApp, conversa, estados, registro/correção/consulta de alimentos, nutrição, LLM, persistência e entrega da resposta
-- **Fora de escopo desta fase:** alterar código, banco ou produção; criar branch; commitar; escolher a ordem de implementação
+- **Fora do escopo do levantamento original:** alterar código, banco ou produção. A autorização posterior e o patch mínimo correspondente estão registrados na seção 20; os demais achados continuam sem implementação.
 
 ## 1. Conclusão executiva
 
@@ -1338,9 +1338,9 @@ Depois da revisão do usuário, o passo seguinte — somente com autorização s
 - **Escopo autorizado agora:** corrigir as dez mudanças locais anteriores à auditoria, atualizar testes/documentação e publicar na mesma PR, sem merge
 - **Fora do patch atual:** migration e implantação da idempotência completa descrita em 20.3
 
-Este adendo não reescreve o snapshot histórico da seção 2 nem transforma achado em “resolvido” antes de teste, commit e deploy. Ele separa:
+Este adendo não reescreve o snapshot histórico da seção 2 nem transforma a classe inteira de um achado em “resolvida”. Ele separa:
 
-1. o patch mínimo seguro que será preparado na PR #20;
+1. o patch mínimo seguro preparado na PR #20;
 2. a arquitetura completa que encerra a idempotência fim a fim em fase posterior.
 
 ### 20.1 Patch mínimo seguro para as mudanças antigas
@@ -1370,6 +1370,23 @@ Este adendo não reescreve o snapshot histórico da seção 2 nem transforma ach
 - preservar o guard de prompt “somente alimentos da mensagem atual”, corrigindo o exemplo contraditório;
 - substituir expectativas de “suprimir duplicado” por regressões de “repetição legítima” e “sem vazamento do histórico”.
 
+#### Estado implementado na PR #20
+
+- a igualdade `alimento normalizado + gramas` deixou de bloquear inserções; duas bananas iguais em mensagens distintas permanecem dois consumos;
+- `appendItemsToMeal` consulta o `mealId` resolvido, analisa a instrução atual com histórico vazio e possui um único destino;
+- uma mensagem que nomeia outro tipo de refeição não entra no append: o estado recente é liberado e a mensagem original segue pelo roteamento normal, sem chamada ao gatekeeper contextual;
+- o tipo explícito do destino é autoritativo para todos os itens da instrução; uma inferência divergente da LLM não divide a escrita entre refeições;
+- `add_item` não é convertido em atualização absoluta quando o alimento já existe;
+- a correção contextual recarrega e altera exatamente o `mealId` do estado, sem procurar novamente “a refeição mais recente”;
+- o gatekeeper recebe o tipo atual e preserva pedidos explícitos de reclassificação, como “essa refeição era almoço”;
+- um detector conversacional separa destino (“no almoço”, “muda pro almoço”) de alimento/menção (“um lanche natural”, “um café”);
+- baixa confiança é bloqueada no executor compartilhado de correções, inclusive nos caminhos de contexto recente e quote, antes de qualquer ação destrutiva;
+- os quatro verbos amplos de adição não participam mais das keywords globais de `edit`;
+- o recibo do append contém apenas itens gravados no único destino e o total recalculado desse mesmo destino;
+- o ruído do lockfile e o export auxiliar sem consumidor foram removidos; fixtures afetadas foram atualizadas sem relaxar os tipos de produção.
+
+Esta implementação deliberadamente não cria identidade por inbound/ato/item. Replay, concorrência entre operações e crash entre escritas continuam pertencendo à alternativa de 20.3 e aos achados que ela referencia.
+
 #### Por que não manter exceções sobre `alimento + gramas`
 
 Regras como “deduplicar, exceto quando houver ‘mais’” continuam frágeis: áudio, quote, duas bananas no mesmo texto, mensagens idênticas em horários diferentes e retries de transporte não podem ser distinguidos apenas pelo conteúdo. Essa abordagem foi rejeitada porque mantém DUP-01 e cria falsos positivos difíceis de observar.
@@ -1392,6 +1409,16 @@ O patch reduz o risco criado pelas mudanças locais, mas não encerra WEB-03/DB-
 - falha de persistência não produz recibo de sucesso;
 - testes unitários afetados incluem todos os campos obrigatórios de `MealItem`, eliminando os erros TypeScript relacionados;
 - suíte completa, lint, typecheck e build precisam passar antes do push final.
+
+#### Evidência local do patch
+
+- regressões afetadas executadas em ciclos RED → GREEN;
+- suíte completa: **77 arquivos e 1.147 testes aprovados**;
+- `tsc --noEmit`: aprovado sem erro;
+- ESLint completo: aprovado sem erro, preservando 21 warnings preexistentes e fora do recorte;
+- build Next.js de produção: aprovado após disponibilizar rede para as fontes e o runtime Node no `PATH` dos subprocessos do Turbopack;
+- revisão independente encontrou o antigo roteamento multi-destino como bloqueador; o seam foi simplificado para um único destino e revisado novamente por testes;
+- `git diff --check`: obrigatório novamente imediatamente antes do commit.
 
 ### 20.3 Alternativa completa — idempotência por trabalho, ato e item
 
@@ -1554,4 +1581,4 @@ Rollback desativa o feature flag e mantém ledger/colunas aditivas; não apaga o
 | PR #20 — patch atual | Remover dedupe por conteúdo, isolar append do histórico, alvo exato, prompt/roteamento/recibo/testes corretos | DUP-01; parte de NUTX-01, ROUTE-01, STATE-07/09, CROSS-03/04, EDIT-09, HIST-03/COST-12 |
 | Fase de idempotência completa | Inbox/ledger/operação/item/transação/outbox e fault suite | WEB-03/04/05, DB-01/02/03/04, INV-19/21/22, REL-05/25/26, LLM-01/COST-15 |
 
-O patch atual só pode ser marcado como concluído depois de regressões RED→GREEN, suíte completa, lint, typecheck, build, revisão do diff, commit e push na PR #20. A alternativa completa permanece mapeada como trabalho futuro até receber spec/plan próprio e autorização de implementação.
+O patch atual cumpriu localmente regressões RED→GREEN, suíte completa, lint, typecheck, build e revisão do diff. Antes do merge, ainda é obrigatório confirmar o SHA e os checks remotos da PR #20; este documento não autoriza merge automático. A alternativa completa permanece mapeada como trabalho futuro até receber spec/plan próprio e autorização de implementação.

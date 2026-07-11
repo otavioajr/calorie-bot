@@ -17,6 +17,7 @@ const {
   mockHandleSummary,
   mockHandleQuery,
   mockHandleEdit,
+  mockHandleEditForMeal,
   mockHandleWeight,
   mockHandleSettings,
   mockHandleHelp,
@@ -43,6 +44,7 @@ const {
   mockSaveMessage,
   mockHandleAwaitingOffConfirm,
   mockHandleAwaitingLabelConfirm,
+  mockBuildContextualCorrectionPrompt,
 } = vi.hoisted(() => {
   const mockClassifyIntent = vi.fn()
   const mockAnalyzeImage = vi.fn()
@@ -60,11 +62,12 @@ const {
     mockHandleSummary: vi.fn(),
     mockHandleQuery: vi.fn(),
     mockHandleEdit: vi.fn(),
+    mockHandleEditForMeal: vi.fn(),
     mockHandleWeight: vi.fn(),
     mockHandleSettings: vi.fn(),
     mockHandleHelp: vi.fn(),
     mockHandleUserData: vi.fn(),
-    mockGetLLMProvider: vi.fn(() => ({ classifyIntent: mockClassifyIntent, analyzeImage: mockAnalyzeImage })),
+    mockGetLLMProvider: vi.fn(() => ({ classifyIntent: mockClassifyIntent, analyzeImage: mockAnalyzeImage, chat: vi.fn() })),
     mockClassifyIntent,
     mockAnalyzeImage,
     mockSendTextMessage: vi.fn().mockResolvedValue('msg-id-123'),
@@ -86,6 +89,7 @@ const {
     mockSaveMessage: vi.fn().mockResolvedValue(undefined),
     mockHandleAwaitingOffConfirm: vi.fn(),
     mockHandleAwaitingLabelConfirm: vi.fn(),
+    mockBuildContextualCorrectionPrompt: vi.fn().mockReturnValue('gatekeeper prompt'),
   }
 })
 
@@ -146,6 +150,7 @@ vi.mock('@/lib/bot/flows/query', () => ({
 
 vi.mock('@/lib/bot/flows/edit', () => ({
   handleEdit: mockHandleEdit,
+  handleEditForMeal: mockHandleEditForMeal,
 }))
 
 vi.mock('@/lib/bot/flows/weight', () => ({
@@ -211,7 +216,7 @@ vi.mock('@/lib/db/queries/message-history', () => ({
 }))
 
 vi.mock('@/lib/llm/prompts/contextual-correction', () => ({
-  buildContextualCorrectionPrompt: vi.fn().mockReturnValue('gatekeeper prompt'),
+  buildContextualCorrectionPrompt: mockBuildContextualCorrectionPrompt,
 }))
 
 vi.mock('@/lib/bot/quote', () => ({
@@ -360,7 +365,7 @@ beforeEach(() => {
   mockHandleHelp.mockResolvedValue('help response')
   mockHandleUserData.mockResolvedValue('user data response')
   mockGetUserWithSettings.mockResolvedValue(mockSettingsData)
-  mockGetLLMProvider.mockReturnValue({ classifyIntent: mockClassifyIntent, analyzeImage: mockAnalyzeImage })
+  mockGetLLMProvider.mockReturnValue({ classifyIntent: mockClassifyIntent, analyzeImage: mockAnalyzeImage, chat: vi.fn() })
   mockDownloadAudioMedia.mockResolvedValue(Buffer.from('fake-audio'))
   mockTranscribeAudio.mockResolvedValue({ text: 'almocei arroz e feijão', latencyMs: 500 })
   mockDownloadImageMedia.mockResolvedValue(Buffer.from([0xFF, 0xD8, 0xFF, 0xE0]))
@@ -1616,6 +1621,7 @@ describe('handleIncomingImage', () => {
     mockGetLLMProvider.mockReturnValue({
       classifyIntent: mockClassifyIntent,
       analyzeImage: mockAnalyzeImage,
+      chat: vi.fn(),
     })
   })
 
@@ -2228,6 +2234,7 @@ describe('handleIncomingMessage — awaiting_label_portions context', () => {
     mockGetLLMProvider.mockReturnValue({
       classifyIntent: mockClassifyIntent,
       analyzeImage: mockAnalyzeImage,
+      chat: vi.fn(),
     })
   })
 
@@ -2472,19 +2479,147 @@ describe('handleIncomingMessage — recent_meal context', () => {
       chat: mockChat,
     })
 
-    mockHandleEdit.mockResolvedValue('✅ Magic Toast: 120 → 93 kcal')
+    mockHandleEditForMeal.mockResolvedValue('✅ Magic Toast: 120 → 93 kcal')
 
     await handleIncomingMessage('+5511999999999', 'msg-1', 'O magic toast é 93kcal')
 
-    expect(mockHandleEdit).toHaveBeenCalledWith(
+    expect(mockBuildContextualCorrectionPrompt).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'item-1', foodName: 'Magic Toast' }),
+      ]),
+      'O magic toast é 93kcal',
+      'breakfast',
+    )
+    expect(mockHandleEditForMeal).toHaveBeenCalledWith(
       expect.anything(),
       'user-123',
       'corrigir o magic toast para 93kcal',
-      null,
+      'meal-1',
       expect.objectContaining({ timezone: 'America/Sao_Paulo' }),
-      undefined,
     )
+    expect(mockHandleEdit).not.toHaveBeenCalled()
     expect(mockSendTextMessage).toHaveBeenCalledWith('+5511999999999', '✅ Magic Toast: 120 → 93 kcal')
+  })
+
+  it('sends an explicit different meal type to normal routing without calling the correction gatekeeper', async () => {
+    mockGetState.mockResolvedValue({
+      id: 'ctx-1',
+      userId: 'user-123',
+      contextType: 'recent_meal',
+      contextData: {
+        mealId: 'breakfast-1',
+        mealType: 'breakfast',
+        items: [
+          { id: 'item-1', foodName: 'Banana', quantityGrams: 100, quantityDisplay: '1 unidade', calories: 89, proteinG: 1, carbsG: 23, fatG: 0 },
+        ],
+      },
+      expiresAt: new Date(Date.now() + 300000).toISOString(),
+      createdAt: new Date().toISOString(),
+    })
+
+    const mockChat = vi.fn().mockResolvedValue(JSON.stringify({ type: 'other' }))
+    mockGetLLMProvider.mockReturnValue({
+      classifyIntent: mockClassifyIntent,
+      analyzeImage: mockAnalyzeImage,
+      chat: mockChat,
+    })
+    mockClassifyByRules.mockReturnValue('meal_log')
+    mockHandleMealLog.mockResolvedValue({ response: 'Almoço registrado!', completed: true })
+
+    await handleIncomingMessage('+5511999999999', 'msg-2', 'no almoço comi arroz e feijão')
+
+    expect(mockBuildContextualCorrectionPrompt).not.toHaveBeenCalled()
+    expect(mockChat).not.toHaveBeenCalled()
+    expect(mockHandleEditForMeal).not.toHaveBeenCalled()
+    expect(mockClearState).toHaveBeenCalledWith('user-123')
+    expect(mockHandleMealLog).toHaveBeenCalled()
+  })
+
+  it('does not confuse "um lanche natural" with destination snack', async () => {
+    mockGetState.mockResolvedValue({
+      id: 'ctx-1',
+      userId: 'user-123',
+      contextType: 'recent_meal',
+      contextData: {
+        mealId: 'breakfast-1',
+        mealType: 'breakfast',
+        items: [
+          { id: 'item-1', foodName: 'Banana', quantityGrams: 100, quantityDisplay: '1 unidade', calories: 89, proteinG: 1, carbsG: 23, fatG: 0 },
+        ],
+      },
+      expiresAt: new Date(Date.now() + 300000).toISOString(),
+      createdAt: new Date().toISOString(),
+    })
+
+    const mockChat = vi.fn().mockResolvedValue(JSON.stringify({
+      type: 'correction',
+      corrected_message: 'adicionar um lanche natural',
+    }))
+    mockGetLLMProvider.mockReturnValue({
+      classifyIntent: mockClassifyIntent,
+      analyzeImage: mockAnalyzeImage,
+      chat: mockChat,
+    })
+    mockHandleEditForMeal.mockResolvedValue('✅ Lanche natural adicionado.')
+
+    await handleIncomingMessage('+5511999999999', 'msg-4', 'adiciona um lanche natural')
+
+    expect(mockBuildContextualCorrectionPrompt).toHaveBeenCalled()
+    expect(mockHandleEditForMeal).toHaveBeenCalledWith(
+      expect.anything(),
+      'user-123',
+      'adicionar um lanche natural',
+      'breakfast-1',
+      expect.any(Object),
+    )
+    expect(mockHandleMealLog).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    'na verdade, essa refeição era no almoço',
+    'muda pro almoço',
+  ])('keeps an explicit reclassification in the correction flow: %s', async (message) => {
+    mockGetState.mockResolvedValue({
+      id: 'ctx-1',
+      userId: 'user-123',
+      contextType: 'recent_meal',
+      contextData: {
+        mealId: 'breakfast-1',
+        mealType: 'breakfast',
+        items: [
+          { id: 'item-1', foodName: 'Banana', quantityGrams: 100, quantityDisplay: '1 unidade', calories: 89, proteinG: 1, carbsG: 23, fatG: 0 },
+        ],
+      },
+      expiresAt: new Date(Date.now() + 300000).toISOString(),
+      createdAt: new Date().toISOString(),
+    })
+
+    const mockChat = vi.fn().mockResolvedValue(JSON.stringify({
+      type: 'correction',
+      corrected_message: 'mudar esta refeição para almoço',
+    }))
+    mockGetLLMProvider.mockReturnValue({
+      classifyIntent: mockClassifyIntent,
+      analyzeImage: mockAnalyzeImage,
+      chat: mockChat,
+    })
+    mockHandleEditForMeal.mockResolvedValue('✅ Refeição movida para Almoço.')
+
+    await handleIncomingMessage('+5511999999999', 'msg-3', message)
+
+    expect(mockBuildContextualCorrectionPrompt).toHaveBeenCalledWith(
+      expect.any(Array),
+      message,
+      'breakfast',
+    )
+    expect(mockChat).toHaveBeenCalledTimes(1)
+    expect(mockHandleEditForMeal).toHaveBeenCalledWith(
+      expect.anything(),
+      'user-123',
+      'mudar esta refeição para almoço',
+      'breakfast-1',
+      expect.any(Object),
+    )
   })
 
   it('falls through to normal classification when gatekeeper says not a correction', async () => {

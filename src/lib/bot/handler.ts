@@ -8,7 +8,7 @@ import { setRecentMealState, buildConsolidatedMealResponse } from '@/lib/bot/mea
 import { buildMacrosBlock } from '@/lib/bot/macros'
 import { handleSummary } from '@/lib/bot/flows/summary'
 import { handleQuery, handleQueryConfirmation, registerFromQuotedQuery } from '@/lib/bot/flows/query'
-import { handleEdit } from '@/lib/bot/flows/edit'
+import { handleEdit, handleEditForMeal } from '@/lib/bot/flows/edit'
 import { handleWeight } from '@/lib/bot/flows/weight'
 import { handleSettings } from '@/lib/bot/flows/settings'
 import { handleHelp, handleUserData } from '@/lib/bot/flows/help'
@@ -41,7 +41,7 @@ import type { QuoteContext } from '@/lib/bot/quote'
 import { saveBotMessage } from '@/lib/db/queries/bot-messages'
 import { extractLabelGramsFromCaption, extractLabelPortionsFromCaption } from '@/lib/bot/label-portions'
 import { scaleNutritionLabelItem } from '@/lib/bot/nutrition-label'
-import { getUserLocalTime, resolveMealTypeFromContext, detectExplicitMealType } from '@/lib/utils/meal-time'
+import { getUserLocalTime, resolveMealTypeFromContext, detectExplicitMealType, detectExplicitMealDestination } from '@/lib/utils/meal-time'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ImageAnalysis } from '@/lib/llm/schemas/image-analysis'
 import type { MealAnalysis, MealItem } from '@/lib/llm/schemas/meal-analysis'
@@ -50,6 +50,19 @@ import type { RecentMealItem } from '@/lib/llm/prompts/contextual-correction'
 import type { Product } from '@/lib/products/types'
 
 const MAX_IMAGE_SIZE = 5_242_880 // 5MB
+
+const MEAL_TYPE_RECLASSIFICATION_PATTERNS = [
+  /\b(?:era|foi)\s+(?:(?:o|um|no|na|do|da)\s+)?(?:cafe da manha|almoco|lanche|jantar|ceia)\b/,
+  /\b(?:muda|mudar|troca|trocar|corrige|corrigir)\b.{0,40}\b(?:para o|para a|pro|pra|para|como)\s+(?:(?:o|um)\s+)?(?:cafe da manha|almoco|lanche|jantar|ceia)\b/,
+]
+
+function isMealTypeReclassification(message: string): boolean {
+  const normalized = message
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+  return MEAL_TYPE_RECLASSIFICATION_PATTERNS.some((pattern) => pattern.test(normalized))
+}
 
 function saveHistory(supabase: SupabaseClient, userId: string, userMsg: string, botMsg: string): void {
   saveMessage(supabase, userId, 'user', userMsg).catch(() => {})
@@ -347,6 +360,7 @@ export async function handleIncomingMessage(
         case 'recent_meal': {
           const recentItems = context.contextData.items as unknown as RecentMealItem[]
           const recentMealId = context.contextData.mealId as string
+          const recentMealType = context.contextData.mealType as string
 
           // If user quoted a meal message, skip gatekeeper and go directly to edit
           if (quoteContext?.resourceType === 'meal' && quoteContext.resourceId) {
@@ -364,24 +378,38 @@ export async function handleIncomingMessage(
             return
           }
 
+          // A different explicit meal is a new routing decision, not an append to
+          // the recent meal. Skip one LLM call and let the normal intent flow handle
+          // the original message. Explicit reclassification of the current meal is
+          // still allowed through the correction gatekeeper.
+          const explicitMealType = detectExplicitMealDestination(text)
+          if (
+            explicitMealType
+            && explicitMealType !== recentMealType
+            && !isMealTypeReclassification(text)
+          ) {
+            await clearState(user.id)
+            break
+          }
+
           // LLM gatekeeper: is this a correction, confirmation, or something else?
           try {
             const llm = getLLMProvider()
             const gatekeeperRaw = await llm.chat(
-              buildContextualCorrectionPrompt(recentItems, text),
+              buildContextualCorrectionPrompt(recentItems, text, recentMealType),
               'Você classifica mensagens após registro de refeição. Responda APENAS com JSON válido.',
               true,
             )
             const gatekeeper = JSON.parse(gatekeeperRaw.trim()) as { type: string; corrected_message?: string }
 
             if (gatekeeper.type === 'correction' && gatekeeper.corrected_message) {
-              const editResponse = await handleEdit(supabase, user.id, gatekeeper.corrected_message, null, {
+              const editResponse = await handleEditForMeal(supabase, user.id, gatekeeper.corrected_message, recentMealId, {
                 timezone: user.timezone,
                 dailyCalorieTarget: user.dailyCalorieTarget,
                 dailyProteinG: user.dailyProteinG,
                 dailyFatG: user.dailyFatG,
                 dailyCarbsG: user.dailyCarbsG,
-              }, quoteContext ?? undefined)
+              })
 
               // After correction, refresh recent_meal state with updated items
               const updatedMeal = await getMealWithItems(supabase, recentMealId)
