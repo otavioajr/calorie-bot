@@ -62,6 +62,10 @@ ngrok URL changes on each restart. See `.env.example` for all required variables
 - Tests: `*.test.ts` in `tests/unit/<domain>/`; MSW mocks in `tests/mocks/`
 - Commits: Conventional Commits (`feat:`, `fix:`, `chore:`, …)
 
+## Production
+
+O bot está **em produção e funcional** — usuários reais usam o WhatsApp hoje. **Merge em `main` dispara deploy na Vercel**; mudanças entram em prod logo após o merge. Tratar cada PR como release: testes, env vars e migrations antes de mergear.
+
 ## References
 
 - Product requirements: `PRD.md`

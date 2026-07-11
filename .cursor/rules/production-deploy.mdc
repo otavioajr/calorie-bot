@@ -1,0 +1,23 @@
+---
+description: Bot em produção — merge em main vai direto para usuários reais
+alwaysApply: true
+---
+
+# Produção e deploy
+
+O Calorie Bot está **completamente funcional em produção** hoje. Usuários reais interagem via WhatsApp; o banco é Postgres na VPS.
+
+## Implicação para mudanças
+
+- **Merge de PR em `main` = deploy em produção** (Vercel). Não tratar o repo como ambiente isolado ou “só dev”.
+- Toda alteração em webhook, handler, flows, migrations, crons ou env vars pode afetar usuários imediatamente após o merge.
+- Antes de mergear: testes verdes, revisão consciente de regressão e impacto em conversas/dados já gravados.
+- Mudanças destrutivas ou que exigem nova env var (ex.: `META_APP_SECRET`) devem ser configuradas **antes** ou **no mesmo deploy** do merge.
+- Preferir PRs pequenos e reversíveis; fases do roadmap existem para não misturar risco grande com deploy contínuo.
+
+## Checklist mínimo pré-merge
+
+1. `npm test` · `npm run lint` · `npx tsc --noEmit` (0 erros novos)
+2. Comportamento alterado coberto por teste
+3. Variáveis de ambiente novas/alteradas documentadas em `.env.example` e aplicadas na Vercel
+4. Se houver migration: aplicar na VPS antes ou junto com o deploy que depende dela
