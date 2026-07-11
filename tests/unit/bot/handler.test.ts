@@ -240,6 +240,7 @@ vi.mock('@/lib/bot/flows/meal-detail', () => ({
 // ---------------------------------------------------------------------------
 import { handleIncomingMessage, handleIncomingAudio, handleIncomingImage } from '@/lib/bot/handler'
 import { MediaTooLargeError } from '@/lib/whatsapp/media'
+import { MAX_INCOMING_TEXT_CHARS } from '@/lib/whatsapp/limits'
 
 // Real formatter (the module is mocked above) so we can assert the actual "Somei" output.
 const { formatMealAddition: realFormatMealAddition, formatMealBreakdown: realFormatMealBreakdown } =
@@ -407,6 +408,20 @@ describe('handleIncomingMessage — input guards', () => {
     )
     expect(mockFindUserByPhone).not.toHaveBeenCalled()
     expect(mockClassifyByRules).not.toHaveBeenCalled()
+  })
+
+  it('responds locally to oversized text without loading user or LLM', async () => {
+    const longText = 'a'.repeat(MAX_INCOMING_TEXT_CHARS + 1)
+
+    await handleIncomingMessage(FROM, MESSAGE_ID, longText)
+
+    expect(mockSendTextMessage).toHaveBeenCalledWith(
+      FROM,
+      expect.stringContaining(`${MAX_INCOMING_TEXT_CHARS} caracteres`),
+    )
+    expect(mockFindUserByPhone).not.toHaveBeenCalled()
+    expect(mockClassifyByRules).not.toHaveBeenCalled()
+    expect(mockGetLLMProvider).not.toHaveBeenCalled()
   })
 })
 

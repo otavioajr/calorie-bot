@@ -25,7 +25,10 @@ export async function GET(request: Request) {
 
 function isExpectedPhoneNumberId(phoneNumberId: string | undefined): boolean {
   const expected = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim()
-  if (!expected) return true
+  if (!expected) {
+    console.warn('[webhook] WHATSAPP_PHONE_NUMBER_ID is not configured; ignoring event')
+    return false
+  }
   if (!phoneNumberId) {
     console.warn('[webhook] Missing phone_number_id in payload; expected', expected)
     return false
@@ -62,19 +65,27 @@ async function processMessage(event: WhatsAppMessage): Promise<void> {
     return
   }
 
-  if (event.type === 'audio' && event.audioId) {
-    await handleIncomingAudio(event.from, event.messageId, event.audioId, event.quotedMessageId)
+  if (event.type === 'audio') {
+    if (event.audioId) {
+      await handleIncomingAudio(event.from, event.messageId, event.audioId, event.quotedMessageId)
+    } else {
+      await handleUnsupportedMessage(event.from, 'audio')
+    }
     return
   }
 
-  if (event.type === 'image' && event.imageId) {
-    await handleIncomingImage(
-      event.from,
-      event.messageId,
-      event.imageId,
-      event.caption,
-      event.quotedMessageId,
-    )
+  if (event.type === 'image') {
+    if (event.imageId) {
+      await handleIncomingImage(
+        event.from,
+        event.messageId,
+        event.imageId,
+        event.caption,
+        event.quotedMessageId,
+      )
+    } else {
+      await handleUnsupportedMessage(event.from, 'image')
+    }
     return
   }
 
@@ -83,18 +94,74 @@ async function processMessage(event: WhatsAppMessage): Promise<void> {
   }
 }
 
+type WebhookBodyReadResult =
+  | { tooLarge: true }
+  | { tooLarge: false; rawBody: string; rawBytes: Uint8Array }
+
+function hasOversizedDeclaredBody(request: Request): boolean {
+  const contentLength = request.headers.get('content-length')?.trim()
+  if (!contentLength || !/^\d+$/.test(contentLength)) return false
+
+  return Number(contentLength) > MAX_WEBHOOK_BODY_BYTES
+}
+
+async function readWebhookBody(request: Request): Promise<WebhookBodyReadResult> {
+  if (hasOversizedDeclaredBody(request)) {
+    return { tooLarge: true }
+  }
+
+  if (!request.body) {
+    return { tooLarge: false, rawBody: '', rawBytes: new Uint8Array() }
+  }
+
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      if (value.byteLength > MAX_WEBHOOK_BODY_BYTES - totalBytes) {
+        await reader.cancel().catch(() => undefined)
+        return { tooLarge: true }
+      }
+
+      chunks.push(value)
+      totalBytes += value.byteLength
+    }
+  } finally {
+    reader.releaseLock()
+  }
+
+  const rawBytes = new Uint8Array(totalBytes)
+  let offset = 0
+  for (const chunk of chunks) {
+    rawBytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+
+  return {
+    tooLarge: false,
+    rawBody: new TextDecoder().decode(rawBytes),
+    rawBytes,
+  }
+}
+
 export async function POST(request: Request) {
   try {
-    const rawBody = await request.text()
-
-    if (rawBody.length > MAX_WEBHOOK_BODY_BYTES) {
+    const bodyRead = await readWebhookBody(request)
+    if (bodyRead.tooLarge) {
       return new Response('Payload Too Large', { status: 413 })
     }
+
+    const { rawBody, rawBytes } = bodyRead
 
     const appSecret = process.env.META_APP_SECRET
     const signatureHeader = request.headers.get('x-hub-signature-256')
 
-    if (!verifyWebhookSignature(rawBody, signatureHeader, appSecret)) {
+    if (!verifyWebhookSignature(rawBytes, signatureHeader, appSecret)) {
       return new Response('Unauthorized', { status: 401 })
     }
 

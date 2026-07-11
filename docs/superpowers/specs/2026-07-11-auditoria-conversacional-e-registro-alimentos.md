@@ -1413,11 +1413,12 @@ O patch reduz o risco criado pelas mudanças locais, mas não encerra WEB-03/DB-
 #### Evidência local do patch
 
 - regressões afetadas executadas em ciclos RED → GREEN;
-- suíte completa: **77 arquivos e 1.147 testes aprovados**;
+- suíte completa: **77 arquivos e 1.158 testes aprovados**;
 - `tsc --noEmit`: aprovado sem erro;
 - ESLint completo: aprovado sem erro, preservando 21 warnings preexistentes e fora do recorte;
 - build Next.js de produção: aprovado após disponibilizar rede para as fontes e o runtime Node no `PATH` dos subprocessos do Turbopack;
 - revisão independente encontrou o antigo roteamento multi-destino como bloqueador; o seam foi simplificado para um único destino e revisado novamente por testes;
+- os nove threads acionáveis antigos da PR #20 também foram tratados antes da recomendação de merge, incluindo limite real por bytes no webhook, fail-closed de configuração e ausência de silêncio em mídia sem ID;
 - `git diff --check`: obrigatório novamente imediatamente antes do commit.
 
 ### 20.3 Alternativa completa — idempotência por trabalho, ato e item

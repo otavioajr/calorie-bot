@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   parseWebhookPayload,
   parseWebhookEvents,
@@ -496,6 +496,25 @@ describe('parseWebhookEvents', () => {
     const events = parseWebhookEvents(payload)
     expect(events.map((e) => e.messageId)).toEqual(['wamid.a', 'wamid.b'])
   })
+
+  it('logs unexpected parser errors before returning accumulated events', () => {
+    const failure = new Error('broken payload getter')
+    const payload = {}
+    Object.defineProperty(payload, 'entry', {
+      get() { throw failure },
+    })
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    try {
+      expect(parseWebhookEvents(payload)).toEqual([])
+      expect(errorLog).toHaveBeenCalledWith(
+        '[whatsapp] Error parsing webhook events:',
+        failure,
+      )
+    } finally {
+      errorLog.mockRestore()
+    }
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -513,6 +532,10 @@ describe('verifyWebhookSignature', () => {
 
   it('rejects an invalid signature', () => {
     expect(verifyWebhookSignature(body, 'sha256=deadbeef', secret)).toBe(false)
+  })
+
+  it('rejects a full-length incorrect signature through constant-time comparison', () => {
+    expect(verifyWebhookSignature(body, `sha256=${'0'.repeat(64)}`, secret)).toBe(false)
   })
 
   it('rejects when app secret is missing', () => {

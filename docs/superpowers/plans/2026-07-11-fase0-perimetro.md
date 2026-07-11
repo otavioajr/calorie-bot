@@ -4,7 +4,7 @@
 
 **Goal:** Fechar a porta de entrada do bot: autenticar webhook, enumerar batch, cron seguro, validar phone_number_id, responder tipos não suportados e limitar entradas — sem migrations de domínio.
 
-**Architecture:** Validação D0 na borda (`webhook.ts`, `route.ts`, `cron auth`, `input-limits.ts`) antes de DB/LLM. `parseWebhookEvents` substitui o parser de evento único. Handlers existentes permanecem; novos `handleUnsupportedMessage` e guardas de texto vazio/tamanho.
+**Architecture:** Validação D0 na borda (`webhook.ts`, `route.ts`, `cron auth`, `limits.ts`, `input-validation.ts`) antes de DB/LLM. `parseWebhookEvents` substitui o parser de evento único. Handlers existentes permanecem; novos `handleUnsupportedMessage` e guardas de texto vazio/tamanho.
 
 **Tech Stack:** Next.js Route Handlers, Node `crypto` (HMAC), TypeScript strict, Vitest.
 
@@ -12,7 +12,7 @@
 
 **Achados:** WEB-01, WEB-02, SEC-02, REL-22, ROUTE-06, ROUTE-07 · **Invariantes:** INV-01, INV-02, INV-24
 
-**REL-15 (rate limit):** adiado para Fase 2 (inbox por usuário em serverless).
+**REL-15 (rate limit):** fora do escopo desta fase; a Fase 2 é autoritativa para quota, backpressure e circuit breaker junto da inbox por usuário em serverless.
 
 ---
 
@@ -21,7 +21,7 @@
 | Decisão | Default |
 |---|---|
 | Assinatura inválida / secret ausente | `401`, fail-closed — sem DB/LLM |
-| `WHATSAPP_PHONE_NUMBER_ID` ausente em dev | Validação desligada (log warning); em produção deve estar definido |
+| `WHATSAPP_PHONE_NUMBER_ID` ausente | Fail-closed: registrar warning e não processar nenhum evento |
 | Status + messages no mesmo `value` | Messages processadas; statuses ignorados nesta fase |
 | Tipos não suportados | Resposta orientada + dedup (não silêncio) |
 | Texto vazio | Resposta local, zero LLM |
@@ -75,7 +75,7 @@ tests/unit/bot/unsupported-message.test.ts [CREATE]
 ### Task 4: REL-22 — `phone_number_id`
 
 - [ ] Teste: evento com phone id errado é ignorado
-- [ ] Route filtra por `WHATSAPP_PHONE_NUMBER_ID` quando definido
+- [ ] Route exige `WHATSAPP_PHONE_NUMBER_ID`; configuração ausente ou ID divergente registra warning e não processa o evento
 
 ### Task 5: ROUTE-06 — Tipos não suportados
 

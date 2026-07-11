@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { createHmac } from 'crypto'
 import { signWebhookBody } from '@/lib/whatsapp/webhook'
+import { MAX_WEBHOOK_BODY_BYTES } from '@/lib/whatsapp/limits'
 
 // ---------------------------------------------------------------------------
 // Mock dependencies before importing the route
@@ -109,7 +111,7 @@ function makeTextPayload(phoneNumberId = 'PHONE_NUMBER_ID') {
   }
 }
 
-function makeAudioPayload() {
+function makeAudioPayload(audioId: string | null = 'media_audio_123') {
   return {
     object: 'whatsapp_business_account',
     entry: [{
@@ -123,7 +125,7 @@ function makeAudioPayload() {
             id: 'wamid.audio789',
             timestamp: '1710000002',
             type: 'audio',
-            audio: { id: 'media_audio_123', mime_type: 'audio/ogg' },
+            audio: { id: audioId, mime_type: 'audio/ogg' },
           }],
         },
         field: 'messages',
@@ -132,7 +134,7 @@ function makeAudioPayload() {
   }
 }
 
-function makeImagePayload(caption?: string) {
+function makeImagePayload(caption?: string, imageId: string | null = 'media_image_456') {
   return {
     object: 'whatsapp_business_account',
     entry: [{
@@ -146,7 +148,7 @@ function makeImagePayload(caption?: string) {
             id: 'wamid.image456',
             timestamp: '1710000003',
             type: 'image',
-            image: { id: 'media_image_456', mime_type: 'image/jpeg', caption },
+            image: { id: imageId, mime_type: 'image/jpeg', caption },
           }],
         },
         field: 'messages',
@@ -300,6 +302,94 @@ describe('POST /api/webhook/whatsapp — signature', () => {
     const response = await POST(request)
     expect(response.status).toBe(401)
   })
+
+  it('rejects an oversized declared Content-Length before reading the body', async () => {
+    const text = vi.fn().mockRejectedValue(new Error('body must not be read'))
+    const request = {
+      headers: new Headers({
+        'content-length': String(MAX_WEBHOOK_BODY_BYTES + 1),
+      }),
+      text,
+    } as unknown as Request
+
+    const response = await POST(request)
+
+    expect(response.status).toBe(413)
+    expect(text).not.toHaveBeenCalled()
+  })
+
+  it('rejects a body whose UTF-8 byte count exceeds 1 MiB', async () => {
+    const padding = 'é'.repeat(Math.floor(MAX_WEBHOOK_BODY_BYTES / 2) + 1)
+    const request = makeSignedPostRequest({ padding })
+
+    const response = await POST(request)
+
+    expect(response.status).toBe(413)
+  })
+
+  it('cancels an unknown-length stream as soon as its actual bytes exceed 1 MiB', async () => {
+    const cancel = vi.fn()
+    let pullCount = 0
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pullCount += 1
+        if (pullCount === 1) {
+          controller.enqueue(new Uint8Array(MAX_WEBHOOK_BODY_BYTES))
+        } else if (pullCount === 2) {
+          controller.enqueue(new Uint8Array([1]))
+        } else {
+          controller.close()
+        }
+      },
+      cancel,
+    })
+    const init: RequestInit & { duplex: 'half' } = {
+      method: 'POST',
+      body,
+      duplex: 'half',
+    }
+    const request = new Request('http://localhost/api/webhook/whatsapp', init)
+
+    const response = await POST(request)
+
+    expect(response.status).toBe(413)
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
+  it('verifies the signature against the exact raw UTF-8 body bytes', async () => {
+    const rawBody = '{\n  "object": "whatsapp_business_account",\n  "note": "ação 🍉"\n}\n'
+    const request = new Request('http://localhost/api/webhook/whatsapp', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-hub-signature-256': signWebhookBody(rawBody, TEST_APP_SECRET),
+      },
+      body: rawBody,
+    })
+
+    const response = await POST(request)
+
+    expect(response.status).toBe(200)
+    expect(mockInsert).not.toHaveBeenCalled()
+  })
+
+  it('authenticates raw bytes before decoding invalid UTF-8', async () => {
+    const rawBytes = new Uint8Array([0xff, 0x7b])
+    const signature = `sha256=${createHmac('sha256', TEST_APP_SECRET).update(rawBytes).digest('hex')}`
+    const request = new Request('http://localhost/api/webhook/whatsapp', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-hub-signature-256': signature,
+      },
+      body: rawBytes,
+    })
+
+    const response = await POST(request)
+
+    // Signature passes on the original bytes; decoding then produces invalid JSON.
+    expect(response.status).toBe(400)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -343,6 +433,20 @@ describe('POST /api/webhook/whatsapp', () => {
 
     await POST(makeSignedPostRequest(makeTextPayload('WRONG_PHONE_ID')))
 
+    expect(mockHandleIncomingMessage).not.toHaveBeenCalled()
+    expect(mockInsert).not.toHaveBeenCalled()
+  })
+
+  it('fails closed with a warning when WHATSAPP_PHONE_NUMBER_ID is missing', async () => {
+    delete process.env.WHATSAPP_PHONE_NUMBER_ID
+    mockSingle.mockResolvedValue({ data: {}, error: null })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    await POST(makeSignedPostRequest(makeTextPayload()))
+
+    expect(warn).toHaveBeenCalledWith(
+      '[webhook] WHATSAPP_PHONE_NUMBER_ID is not configured; ignoring event',
+    )
     expect(mockHandleIncomingMessage).not.toHaveBeenCalled()
     expect(mockInsert).not.toHaveBeenCalled()
   })
@@ -412,6 +516,13 @@ describe('POST — audio messages', () => {
       undefined,
     )
   })
+
+  it('falls back to unsupported when the audio media ID is missing', async () => {
+    await POST(makeSignedPostRequest(makeAudioPayload(null)))
+
+    expect(mockHandleIncomingAudio).not.toHaveBeenCalled()
+    expect(mockHandleUnsupportedMessage).toHaveBeenCalledWith('5511999887766', 'audio')
+  })
 })
 
 describe('POST — image messages', () => {
@@ -432,6 +543,13 @@ describe('POST — image messages', () => {
       'tabela nutricional',
       undefined,
     )
+  })
+
+  it('falls back to unsupported when the image media ID is missing', async () => {
+    await POST(makeSignedPostRequest(makeImagePayload(undefined, null)))
+
+    expect(mockHandleIncomingImage).not.toHaveBeenCalled()
+    expect(mockHandleUnsupportedMessage).toHaveBeenCalledWith('5511999887766', 'image')
   })
 })
 

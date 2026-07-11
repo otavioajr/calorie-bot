@@ -124,7 +124,7 @@ function asRawMetadata(value: unknown): RawMetadata | null {
 // ---------------------------------------------------------------------------
 
 export function verifyWebhookSignature(
-  rawBody: string,
+  rawBody: string | Uint8Array,
   signatureHeader: string | null,
   appSecret: string | undefined,
 ): boolean {
@@ -135,7 +135,11 @@ export function verifyWebhookSignature(
     ? signatureHeader.slice('sha256='.length)
     : signatureHeader
 
-  const expected = createHmac('sha256', secret).update(rawBody, 'utf8').digest('hex')
+  const hmac = createHmac('sha256', secret)
+  const expected = (typeof rawBody === 'string'
+    ? hmac.update(rawBody, 'utf8')
+    : hmac.update(rawBody)
+  ).digest('hex')
 
   try {
     return timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(provided, 'hex'))
@@ -245,7 +249,8 @@ export function parseWebhookEvents(body: unknown): WhatsAppMessage[] {
         }
       }
     }
-  } catch {
+  } catch (err) {
+    console.error('[whatsapp] Error parsing webhook events:', err)
     return events
   }
 

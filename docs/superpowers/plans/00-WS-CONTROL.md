@@ -1,7 +1,8 @@
 # Meal-Flow Remediation — Controle / Progresso (WS1–WS6)
 
 > **Source of truth** da remediação do fluxo de registro (auditoria 2026-05-31).
-> O agente que implementa **atualiza este arquivo**: marca uma WS como **✅ DONE** somente quando TODOS os gates da "Definition of Done" estiverem marcados. Sempre pegar a próxima WS **NÃO INICIADA** na ordem, respeitando as dependências.
+> Este arquivo preserva o histórico de WS1–WS2. O fluxo genérico de “próxima WS” e a Definition of Done abaixo aplicam-se somente a WS1–WS2 e a eventuais WS legadas explicitamente marcadas como **não absorvidas**.
+> WS3–WS6 estão excluídas desse fluxo: não devem ser iniciadas, avançadas nem marcadas por estes gates; seu trabalho segue exclusivamente as fases e a Definition of Done do roadmap 2026-07-11.
 >
 > Progresso por-task (TDD) vive **dentro de cada plano** (`- [ ]` por step). Este arquivo controla o nível-WS.
 
@@ -26,13 +27,13 @@ A partir de **11/07/2026**, o programa de correção conversacional/nutricional/
 
 **Regra para agentes:** não abrir branch `fix/ws3|ws4|ws5|ws6-*` nem executar os planos WS3–WS6 como frentes isoladas. Ao detalhar a fase correspondente do roadmap, reutilizar tasks úteis dos planos WS e fechar o restante no novo plano da fase.
 
-Ordem operacional atual: **Fase 0** (e opcionalmente **Fase 1** em paralelo) → depois Fase 2 → 3 → 4 → 5–8 conforme o roadmap.
+Ordem operacional atual: validar e mergear a **Fase 0** já implementada na PR #20 → criar o plano detalhado da **Fase 1** → seguir a ordem das fases no roadmap.
 
 ---
 
-## Definition of Done (gates — iguais para toda WS)
+## Definition of Done legada (somente WS1–WS2 e WS não absorvidas)
 
-Uma WS só é **✅ DONE** quando cada caixa estiver marcada:
+Uma WS dentro deste escopo legado só é **✅ DONE** quando cada caixa estiver marcada. Estes gates **não se aplicam a WS3–WS6**, que usam a Definition of Done das fases do roadmap:
 
 - [ ] Todas as tasks do plano da WS marcadas (`- [ ]` → `- [x]`)
 - [ ] `npm test` — suíte completa verde, 0 falhas
@@ -79,25 +80,25 @@ Uma WS só é **✅ DONE** quando cada caixa estiver marcada:
 ### WS3 — Continuação de refeição ("também") — ⏸ ABSORVIDA (não iniciar)
 - Plano legado: [`2026-05-31-ws3-meal-continuation.md`](2026-05-31-ws3-meal-continuation.md) · 10 tasks
 - Absorvida por: **Fase 4** (+ CROSS/STATE na **Fase 8**) do [roadmap 2026-07-11](2026-07-11-roadmap-bot-inteligente-economico.md)
-- [ ] Definition of Done — *fechada apenas quando a fase correspondente do roadmap estiver DONE*
+- Definition of Done legada: **não se aplica**; acompanhar os gates das fases correspondentes no roadmap.
 
 ### WS4 — Robustez do rótulo/visão — ⏸ ABSORVIDA (não iniciar)
 - Plano legado: [`2026-05-31-ws4-label-vision-robustness.md`](2026-05-31-ws4-label-vision-robustness.md) · 7 tasks
 - Reparo pendente no plano legado: trocar o marcador `TODO(WS5)` (tema null-vs-0 é da própria WS4) — tratar no plano da **Fase 6**
 - Absorvida por: **Fase 6** (+ NUTX na **Fase 5**) do [roadmap 2026-07-11](2026-07-11-roadmap-bot-inteligente-economico.md)
-- [ ] Definition of Done — *fechada apenas quando a fase correspondente do roadmap estiver DONE*
+- Definition of Done legada: **não se aplica**; acompanhar os gates das fases correspondentes no roadmap.
 
 ### WS5 — Webhook: dedup vs confirmação — ⏸ ABSORVIDA (não iniciar)
 - Plano legado: [`2026-05-31-ws5-webhook-dedup-vs-confirmation.md`](2026-05-31-ws5-webhook-dedup-vs-confirmation.md) · 6 tasks
 - Inclui migration (coluna `status` em `processed_messages`) — generalizada pela inbox/`work_id` da **Fase 2**
 - Absorvida por: **Fase 2** do [roadmap 2026-07-11](2026-07-11-roadmap-bot-inteligente-economico.md)
-- [ ] Definition of Done — *fechada apenas quando a fase correspondente do roadmap estiver DONE*
+- Definition of Done legada: **não se aplica**; acompanhar os gates da Fase 2 no roadmap.
 
 ### WS6 — DECIMAL no fluxo de products — ⏸ ABSORVIDA (não iniciar)
 - Plano legado: [`2026-05-31-ws6-products-decimal-coercion.md`](2026-05-31-ws6-products-decimal-coercion.md) · 2 tasks
 - Depende de: WS1 mergeado (reusa `decToNum`) — já satisfeito
 - Absorvida por: **Fase 5** (PROD-04) do [roadmap 2026-07-11](2026-07-11-roadmap-bot-inteligente-economico.md)
-- [ ] Definition of Done — *fechada apenas quando a fase correspondente do roadmap estiver DONE*
+- Definition of Done legada: **não se aplica**; acompanhar os gates da Fase 5 no roadmap.
 
 ---
 

@@ -1,7 +1,7 @@
 # Roadmap: bot inteligente e econômico
 
 - **Data:** 11/07/2026
-- **Status:** Fase 0 implementada em branch `fix/fase0-perimetro` (aguardando PR/merge); Fases 1–8 pendentes
+- **Status:** Fase 0 implementada na PR #20, branch `fix/fase0-perimetro` (aguardando validação final/merge); próximo plano: Fase 1; Fases 1–8 pendentes
 - **Fonte de verdade dos achados:** [`docs/superpowers/specs/2026-07-11-auditoria-conversacional-e-registro-alimentos.md`](../specs/2026-07-11-auditoria-conversacional-e-registro-alimentos.md)
 - **Política de produto:** recomendações padrão da seção 18 da auditoria, adotadas como defaults oficiais
 - **Escopo deste arquivo:** ordenar o trabalho em 9 fases (0–8), com IDs, invariantes, escopo técnico e gates. **Não** detalha tasks TDD nem altera código.
@@ -112,7 +112,7 @@ Uma fase só é **DONE** quando:
 | **Tamanho / risco** | Pequeno / baixo — mudanças localizadas em webhook, cron e parsers. |
 | **Pode sair primeiro** | Sim; independente de 2–8. |
 
-**Achados:** WEB-01, WEB-02, SEC-02, REL-22, ROUTE-06, ROUTE-07, REL-15 (rate limit mínimo).
+**Achados:** WEB-01, WEB-02, SEC-02, REL-22, ROUTE-06, ROUTE-07.
 
 **Invariantes:** INV-01, INV-02, INV-24.
 
@@ -124,7 +124,6 @@ Uma fase só é **DONE** quando:
 - Validar `phone_number_id` / WABA esperados.
 - Tipos não suportados (`video`, `sticker`, …) recebem orientação específica, não silêncio.
 - Normalizar texto vazio/limites de tamanho com resposta local.
-- Rate limit básico por usuário/WABA no webhook.
 
 **Gate de aceitação:**
 
@@ -171,7 +170,9 @@ Uma fase só é **DONE** quando:
 | **Tamanho / risco** | Grande / alto — migrations + mudança do contrato do webhook. |
 | **Depende de** | Fase 0 (assinatura/batch) fortemente recomendada; Fase 1 para provar. |
 
-**Achados:** WEB-03, WEB-04, WEB-05, STATE-11, REL-01, REL-02, REL-05 (parcial outbox), REL-25, REL-26, COST-15, LLM-01 (deadline propagado — início).
+**Achados:** WEB-03, WEB-04, WEB-05, STATE-11, REL-01, REL-02, REL-05 (parcial outbox), REL-15, REL-25, REL-26, COST-15, LLM-01 (deadline propagado — início).
+
+**REL-15:** a Fase 2 é autoritativa para rate limit, porque quota e backpressure precisam compartilhar a identidade durável e a serialização da inbox.
 
 **Invariantes:** INV-03, INV-21, INV-22, INV-25 (parcial), INV-26.
 
@@ -182,6 +183,7 @@ Uma fase só é **DONE** quando:
 - ACK `2xx` só após todos os eventos autenticados estarem duravelmente enfileirados; falha de inbox permite retry da Meta.
 - Claim idempotente é precondição; nunca fail-open (WEB-05).
 - Fila/serialização por usuário dentro de janela limitada (`event_at`, `received_at`).
+- Quota transacional por usuário/WABA, orçamento global, backpressure e circuit breaker.
 - Checkpoint de resultado LLM validado por `operation_id + input_hash + versões`.
 - Propagar `event_at` (não só relógio de processamento).
 - Retenção de dedup alinhada ao horizonte do provedor + idempotência de domínio.
@@ -426,7 +428,7 @@ Itens adiáveis sem bloquear a promessa de integridade. Cada um deve ser puxado 
 | CEIA/timezone viagem UX fina | §18 teste com usuários | Política base na Fase 8; calibração com usuários depois. |
 | Limiares numéricos exatos de budget/confiança | §14.5 | Calibrar com telemetria pós-Fase 7, não inventar no roadmap. |
 
-Nenhum achado P0 fica neste backlog: todos os 33 P0 estão mapeados nas Fases 0–4 (e IMG/NUTX P0 nas Fases 5–6).
+Nenhum achado P0 fica neste backlog: todos os 33 P0 estão mapeados nas Fases 0–6.
 
 ### Índice rápido dos 33 P0 → fase
 
@@ -462,9 +464,9 @@ Uma redução de tokens só conta como sucesso se os gates de integridade perman
 
 ## 9. Próximo passo operacional
 
-1. Otávio decide destino do worktree local (pendência §3).
-2. Abrir plano detalhado da **Fase 0** (e, em paralelo se desejado, **Fase 1**).
-3. Implementar Fase 0 em branch dedicada com TDD e DoD deste documento.
-4. Só então detalhar Fase 2 (inbox) — não pular a identidade de operação.
+1. Validar os gates da **Fase 0** já implementada na PR #20 e o Otávio decidir o merge em `main`.
+2. Abrir e aprovar o plano detalhado da **Fase 1**, que é o próximo plano ainda não escrito.
+3. Implementar a Fase 1 com TDD e a Definition of Done deste documento.
+4. Resolver a pendência do worktree local (§3) antes da Fase 3 e, após a Fase 1, detalhar a **Fase 2** (inbox) sem pular a identidade de operação.
 
 Este arquivo não escolhe cronograma de calendário; escolhe ordem e critérios.
