@@ -587,8 +587,9 @@ describe('handleEdit — add_item via natural language', () => {
       'awaiting_correction_value',
       expect.anything(),
     )
-    expect(result).toContain('Adicionado')
-    expect(result).toContain('210')
+    expect(result.outcome).toBe('applied')
+    expect(result.response).toContain('Adicionado')
+    expect(result.response).toContain('210')
   })
 
   it('does not execute a destructive correction when confidence is low', async () => {
@@ -630,7 +631,8 @@ describe('handleEdit — add_item via natural language', () => {
       'awaiting_correction',
       expect.objectContaining({ action: 'select_meal' }),
     )
-    expect(result).toContain('Qual refeição quer corrigir?')
+    expect(result.outcome).toBe('awaiting_user')
+    expect(result.response).toContain('Qual refeição quer corrigir?')
   })
 
   it('returns helpful error when append fails to resolve item', async () => {
@@ -670,5 +672,50 @@ describe('handleEdit — add_item via natural language', () => {
 
     expect(result).toContain('Não consegui adicionar')
     expect(mockClearState).toHaveBeenCalledWith(USER_ID)
+  })
+
+  it('does not claim rename was not applied when a post-write refresh fails', async () => {
+    mockLLMChat.mockResolvedValue(JSON.stringify({
+      action: 'replace_item',
+      target_food: 'pão',
+      new_food: 'tapioca',
+      new_quantity: null,
+      confidence: 'high',
+      target_meal_type: null,
+      new_value: null,
+    }))
+    mockGetMealWithItems.mockResolvedValue({
+      id: 'meal-1',
+      mealType: 'breakfast',
+      totalCalories: 200,
+      registeredAt: '2024-03-21T08:00:00Z',
+      items: [
+        { id: 'item-1', foodName: 'Pão', quantityGrams: 50, calories: 200, proteinG: 5, carbsG: 30, fatG: 2 },
+      ],
+    })
+    mockAnalyzeMeal.mockResolvedValue([{
+      items: [{
+        food: 'Tapioca',
+        quantity_grams: 50,
+        calories: 116,
+        protein: 0,
+        carbs: 29,
+        fat: 0,
+      }],
+    }])
+    mockRecalculateMealTotal.mockRejectedValueOnce(new Error('refresh failed after update'))
+
+    await expect(handleEditForMeal(
+      supabase,
+      USER_ID,
+      'troca o pão por tapioca',
+      'meal-1',
+    )).rejects.toThrow('refresh failed after update')
+
+    expect(mockUpdateMealItem).toHaveBeenCalledWith(
+      expect.anything(),
+      'item-1',
+      expect.objectContaining({ foodName: 'Tapioca' }),
+    )
   })
 })

@@ -39,7 +39,7 @@
 ### Passo 2: executar os testes e confirmar RED
 
 ```bash
-/Users/otavioajr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node node_modules/vitest/vitest.mjs run tests/unit/bot/log-food-to-meal.test.ts tests/unit/bot/meal-log-consolidation.test.ts
+npm test -- tests/unit/bot/log-food-to-meal.test.ts tests/unit/bot/meal-log-consolidation.test.ts
 ```
 
 Falha esperada: o filtro semântico ainda remove o segundo consumo ou retorna recibo incorreto.
@@ -77,7 +77,7 @@ Executar o mesmo comando do Passo 2 e conferir saída sem falhas.
 ### Passo 2: executar os testes e confirmar RED
 
 ```bash
-/Users/otavioajr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node node_modules/vitest/vitest.mjs run tests/unit/bot/append-items-routing.test.ts tests/unit/bot/meal-log-consolidation.test.ts
+npm test -- tests/unit/bot/append-items-routing.test.ts tests/unit/bot/meal-log-consolidation.test.ts
 ```
 
 Falha esperada: o histórico ainda é enviado, ou a resposta usa a lista analisada em vez dos resultados persistidos.
@@ -114,10 +114,8 @@ Executar o mesmo comando do Passo 2.
 ### Passo 2: executar os testes focados e confirmar RED
 
 ```bash
-/Users/otavioajr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node node_modules/vitest/vitest.mjs run tests/unit/bot/edit*.test.ts tests/unit/bot/handler*.test.ts
+npm test -- tests/unit/bot/edit.test.ts tests/unit/bot/handler.test.ts tests/unit/llm/prompts.test.ts
 ```
-
-Se os globs não corresponderem a arquivos, executar os nomes descobertos por `rg --files tests/unit/bot | rg '(edit|handler)'`.
 
 ### Passo 3: criar a entrada de edição ancorada
 
@@ -155,7 +153,7 @@ Executar o comando focado ajustado no Passo 2.
 ### Passo 2: executar e confirmar RED
 
 ```bash
-/Users/otavioajr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node node_modules/vitest/vitest.mjs run tests/unit/bot/router.test.ts
+npm test -- tests/unit/bot/router.test.ts tests/unit/llm/prompts.test.ts
 ```
 
 ### Passo 3: restringir os keywords
@@ -198,16 +196,27 @@ git status --short
 ### Passo 1: rodar testes afetados
 
 ```bash
-/Users/otavioajr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node node_modules/vitest/vitest.mjs run tests/unit/bot/append-items-routing.test.ts tests/unit/bot/log-food-to-meal.test.ts tests/unit/bot/meal-log-consolidation.test.ts tests/unit/bot/router.test.ts
+npm test -- \
+  tests/unit/bot/append-items-routing.test.ts \
+  tests/unit/bot/log-food-to-meal.test.ts \
+  tests/unit/bot/meal-log-consolidation.test.ts \
+  tests/unit/bot/meal-log.test.ts \
+  tests/unit/bot/query.test.ts \
+  tests/unit/bot/router.test.ts \
+  tests/unit/bot/edit.test.ts \
+  tests/unit/bot/handler.test.ts \
+  tests/unit/llm/prompts.test.ts \
+  tests/unit/llm/contextual-correction-schema.test.ts \
+  tests/unit/utils/meal-time.test.ts
 ```
 
 ### Passo 2: rodar as verificações completas
 
 ```bash
-/Users/otavioajr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node node_modules/vitest/vitest.mjs run
-/Users/otavioajr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node node_modules/typescript/bin/tsc --noEmit
-/Users/otavioajr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node node_modules/eslint/bin/eslint.js .
-/Users/otavioajr/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node node_modules/next/dist/bin/next build
+npm test
+./node_modules/.bin/tsc --noEmit
+npm run lint
+npm run build
 ```
 
 - Se alguma verificação falhar por defeito preexistente e não relacionado, registrar evidência exata e garantir que não houve regressão no subconjunto alterado.
@@ -227,10 +236,37 @@ git status --short
 ### Passo 4: commit e push sem merge
 
 ```bash
-git add package-lock.json src/lib/bot/flows/meal-log.ts src/lib/bot/flows/edit.ts src/lib/bot/handler.ts src/lib/bot/router.ts src/lib/llm/prompts/analyze.ts src/lib/llm/prompts/contextual-correction.ts src/lib/utils/formatters.ts tests/unit/bot docs/superpowers/plans/2026-07-11-correcao-mudancas-antigas.md docs/superpowers/specs/2026-07-11-auditoria-conversacional-e-registro-alimentos.md
+git add \
+  docs/superpowers/plans/2026-07-11-correcao-mudancas-antigas.md \
+  docs/superpowers/specs/2026-07-11-auditoria-conversacional-e-registro-alimentos.md \
+  src/lib/bot/flows/meal-log.ts \
+  src/lib/bot/flows/edit.ts \
+  src/lib/bot/handler.ts \
+  src/lib/llm/prompts/analyze.ts \
+  src/lib/llm/prompts/contextual-correction.ts \
+  src/lib/llm/schemas/contextual-correction.ts \
+  src/lib/utils/meal-time.ts \
+  tests/unit/bot/append-items-routing.test.ts \
+  tests/unit/bot/log-food-to-meal.test.ts \
+  tests/unit/bot/meal-log-consolidation.test.ts \
+  tests/unit/bot/meal-log.test.ts \
+  tests/unit/bot/query.test.ts \
+  tests/unit/bot/router.test.ts \
+  tests/unit/bot/edit.test.ts \
+  tests/unit/bot/handler.test.ts \
+  tests/unit/llm/prompts.test.ts \
+  tests/unit/llm/contextual-correction-schema.test.ts \
+  tests/unit/utils/meal-time.test.ts
+git diff --cached --name-status
+git diff --cached --stat
+git diff --cached --check
+git diff --cached
 git commit -m "fix(bot): tornar append e correções contextuais seguros"
 git push origin fix/fase0-perimetro
 ```
+
+- Antes do commit, inspecionar a lista e o patch staged completos; cada arquivo deve pertencer explicitamente ao escopo acima e não pode haver alteração inesperada, artefato de build ou segredo.
+- Se a inspeção staged divergir do escopo, corrigir o stage e repetir os quatro comandos `git diff --cached` antes de continuar.
 
 ### Passo 5: verificar a PR
 

@@ -1343,6 +1343,19 @@ Este adendo não reescreve o snapshot histórico da seção 2 nem transforma a c
 1. o patch mínimo seguro preparado na PR #20;
 2. a arquitetura completa que encerra a idempotência fim a fim em fase posterior.
 
+### 20.0 Status pós-snapshot dos achados de perímetro
+
+As descrições, severidades, contagens e referências das seções 2 e 6 pertencem ao snapshot **anterior à PR #20** e permanecem inalteradas como evidência histórica. A leitura do código atual da branch da PR acrescenta o seguinte status, sem retroagir sobre aquele levantamento:
+
+| Achado histórico | Status atual na branch da PR #20 | Limite que permanece |
+|---|---|---|
+| WEB-01 | Contido pela validação fail-closed de `X-Hub-Signature-256` sobre os bytes brutos antes de parse, DB ou LLM. | A configuração de `META_APP_SECRET` ainda precisa ser comprovada no ambiente protegido antes do merge. |
+| WEB-02 | Contido para mensagens: o parser enumera todas as `entry/change/messages`, inclusive quando `statuses` coexistem no mesmo `value`. | Persistência e reconciliação dos callbacks de status continuam abertas em REL-26. |
+| SEC-02 | Contido pelo helper compartilhado `isCronAuthorized`, que rejeita `CRON_SECRET` ausente ou vazio nos três crons. | A presença do segredo no ambiente protegido ainda precisa de gate pré-merge. |
+| WEB-03/04/05 | Abertos; a Fase 0 não altera o claim antecipado, o ACK em falha nem o modo fail-open quando o insert de dedupe falha. | Exigem a inbox/ledger e a retomada transacional descritas em 20.3. |
+
+Os testes locais de webhook/cron demonstram o comportamento da branch, mas não provam configuração remota, estado do banco ou checks da PR.
+
 ### 20.1 Patch mínimo seguro para as mudanças antigas
 
 #### Comportamento aprovado
@@ -1412,14 +1425,39 @@ O patch reduz o risco criado pelas mudanças locais, mas não encerra WEB-03/DB-
 
 #### Evidência local do patch
 
+Todos os resultados abaixo são evidência obtida exclusivamente no worktree local; não equivalem a checks de CI, inspeção do ambiente da Vercel ou validação do PostgreSQL de produção.
+
 - regressões afetadas executadas em ciclos RED → GREEN;
-- suíte completa: **77 arquivos e 1.158 testes aprovados**;
+- suíte completa: **78 arquivos e 1.182 testes aprovados**;
 - `tsc --noEmit`: aprovado sem erro;
 - ESLint completo: aprovado sem erro, preservando 21 warnings preexistentes e fora do recorte;
-- build Next.js de produção: aprovado após disponibilizar rede para as fontes e o runtime Node no `PATH` dos subprocessos do Turbopack;
+- build Next.js de produção **local**: aprovado após disponibilizar rede para as fontes e o runtime Node no `PATH` dos subprocessos do Turbopack;
 - revisão independente encontrou o antigo roteamento multi-destino como bloqueador; o seam foi simplificado para um único destino e revisado novamente por testes;
 - os nove threads acionáveis antigos da PR #20 também foram tratados antes da recomendação de merge, incluindo limite real por bytes no webhook, fail-closed de configuração e ausência de silêncio em mídia sem ID;
+- a rodada seguinte de review também foi incorporada: estado do seletor preservado, matcher de reclassificação estreitado, gatekeeper validado por Zod e regressões específicas do prompt;
 - `git diff --check`: obrigatório novamente imediatamente antes do commit.
+
+#### Gates reproduzíveis obrigatórios antes do merge
+
+Os checks remotos da PR devem repetir `npm test`, `./node_modules/.bin/tsc --noEmit`, `npm run lint` e `npm run build`. Além deles, um job protegido de pré-merge, com acesso somente aos nomes/segredos do ambiente de produção e sem imprimir valores, deve validar a configuração mínima:
+
+```bash
+for name in NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY WHATSAPP_VERIFY_TOKEN WHATSAPP_ACCESS_TOKEN WHATSAPP_PHONE_NUMBER_ID WEBHOOK_BASE_URL META_APP_ID META_APP_SECRET CRON_SECRET LLM_PROVIDER OPENAI_API_KEY; do
+  test -n "$(printenv "$name")" || { echo "::error::$name ausente ou vazio"; exit 1; }
+done
+if test "$LLM_PROVIDER" = "openrouter"; then
+  test -n "$LLM_API_KEY" || { echo "::error::LLM_API_KEY ausente ou vazio"; exit 1; }
+fi
+```
+
+Como a PR #20 não autoriza migration, o gate de escopo deve comprovar de forma determinística que nenhum SQL de migration entrou no diff contra a base remota:
+
+```bash
+git fetch origin main
+git diff --quiet origin/main...HEAD -- supabase/migrations/
+```
+
+Qualquer saída diferente de zero bloqueia o merge e exige PR/plano de rollout separado, backup e preflight no PostgreSQL self-hosted do VPS; não se deve executar `supabase db push` contra Supabase Cloud. Para esta PR, o resultado esperado é zero e nenhuma migration a aplicar. A aprovação final também exige o SHA correto e todos esses jobs verdes no GitHub/Vercel; evidência local isolada não basta.
 
 ### 20.3 Alternativa completa — idempotência por trabalho, ato e item
 

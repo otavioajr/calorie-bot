@@ -39,6 +39,26 @@ describe('buildAnalyzePrompt', () => {
     expect(prompt).toContain('references_previous')
     expect(prompt).toContain('reference_query')
   })
+
+  it('limits extraction to foods from the current message unless explicitly referenced', () => {
+    const prompt = buildAnalyzePrompt()
+
+    expect(prompt).toContain('APENAS alimentos mencionados na MENSAGEM ATUAL')
+    expect(prompt).toContain('NUNCA repita alimentos que aparecem somente em mensagens anteriores')
+    expect(prompt).toContain('histórico serve apenas de contexto para resolver referências explícitas')
+  })
+
+  it('grounds the pastel de nata example entirely in the current message', () => {
+    const prompt = buildAnalyzePrompt()
+    const exampleStart = prompt.indexOf('Entrada (mensagem atual): "no café da manhã, adicionar 30g de pastel de nata"')
+    const exampleEnd = prompt.indexOf('NOTAS SOBRE CAMPOS:', exampleStart)
+    const example = prompt.slice(exampleStart, exampleEnd)
+
+    expect(exampleStart).toBeGreaterThanOrEqual(0)
+    expect(example).toContain('"food": "Pastel de nata"')
+    expect(example).toContain('"quantity_grams": 30')
+    expect(example).not.toContain('Melão')
+  })
 })
 
 describe('buildAnalyzePrompt portion classification', () => {
