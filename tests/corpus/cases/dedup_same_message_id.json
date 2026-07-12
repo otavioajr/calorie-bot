@@ -16,7 +16,7 @@
     "structural": {
       "intent": "meal_log",
       "authorized_writes": ["processed_messages"],
-      "forbidden_writes": []
+      "forbidden_writes": ["meals", "meal_items"]
     },
     "max_llm_calls": 0,
     "terminal_response_contains": []

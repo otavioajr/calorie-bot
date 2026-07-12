@@ -24,7 +24,13 @@ describe('integration harness', () => {
   it('reset leaves meals and processed_messages empty', async () => {
     const supabase = getIntegrationSupabase()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase as any).from('processed_messages').insert({ message_id: 'wamid.harness-seed' })
+    const seed = await (supabase as any)
+      .from('processed_messages')
+      .insert({ message_id: 'wamid.harness-seed' })
+      .select()
+      .single()
+    expect(seed.error).toBeNull()
+    expect(seed.data?.message_id).toBe('wamid.harness-seed')
     resetIntegrationDb()
     await assertDomainTablesEmpty()
   })

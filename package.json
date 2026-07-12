@@ -7,10 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:unit": "vitest run tests/unit",
-    "test:integration": "vitest run tests/integration",
+    "test": "vitest run --project unit --project corpus",
+    "test:watch": "vitest --project unit --project corpus",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
     "test:e2e": "npx playwright test"
   },
   "dependencies": {

@@ -1,7 +1,7 @@
 # Fase 1 — Fundações de prova (design spec)
 
 **Data:** 12/07/2026  
-**Status:** Aprovado no brainstorming — aguardando implementação  
+**Status:** Implementado na branch `fix/fase1-fundacoes-de-prova` — aguardando PR/merge  
 **Roadmap:** [2026-07-11-roadmap-bot-inteligente-economico.md](../plans/2026-07-11-roadmap-bot-inteligente-economico.md) · **Plano:** [2026-07-12-fase1-fundacoes-de-prova.md](../plans/2026-07-12-fase1-fundacoes-de-prova.md)  
 **Branch prevista:** `fix/fase1-fundacoes-de-prova`
 

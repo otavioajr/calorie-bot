@@ -16,23 +16,40 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO service_role;
 `
 
-function resolveDbContainer(): string {
+/** Matches `project_id` in supabase/config.toml (default: calorie-bot). */
+const DEFAULT_PROJECT_ID = 'calorie-bot'
+
+function expectedDbContainerName(): string {
   const fromEnv = process.env.SUPABASE_DB_CONTAINER?.trim()
   if (fromEnv) return fromEnv
 
+  const projectId =
+    process.env.SUPABASE_PROJECT_ID?.trim() || DEFAULT_PROJECT_ID
+  return `supabase_db_${projectId}`
+}
+
+/**
+ * Resolve the DB container for THIS project only.
+ * Never pick the first `supabase_db_*` — that can truncate another local stack.
+ */
+function resolveDbContainer(): string {
+  const expected = expectedDbContainerName()
   const listed = execFileSync('docker', ['ps', '--format', '{{.Names}}'], {
     encoding: 'utf8',
   })
-  const match = listed
     .split('\n')
     .map((n) => n.trim())
-    .find((n) => n.startsWith('supabase_db_'))
-  if (!match) {
+    .filter(Boolean)
+
+  if (!listed.includes(expected)) {
     throw new Error(
-      '[integration] Could not find supabase_db_* container. Is `supabase start` running?',
+      `[integration] Expected Docker container "${expected}" is not running. ` +
+        `Running supabase_db_* containers: ${listed.filter((n) => n.startsWith('supabase_db_')).join(', ') || '(none)'}. ` +
+        `Start this project's stack with \`supabase start\` (project_id=${DEFAULT_PROJECT_ID}), ` +
+        `or set SUPABASE_DB_CONTAINER / SUPABASE_PROJECT_ID.`,
     )
   }
-  return match
+  return expected
 }
 
 let granted = false

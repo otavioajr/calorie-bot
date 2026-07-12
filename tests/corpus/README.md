@@ -19,6 +19,7 @@ Campos obrigatórios:
 | `inbound` | Evento de entrada (`text` / `audio` / `image`) |
 | `expected.structural` | Intent, escritas permitidas/proibidas |
 | `expected.max_llm_calls` | Teto de chamadas LLM para o caso |
+| `expected.terminal_response_contains` | *(opcional)* Fragmentos de texto que a resposta terminal deve conter |
 
 ## Como adicionar um caso
 

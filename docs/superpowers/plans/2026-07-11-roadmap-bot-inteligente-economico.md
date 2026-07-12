@@ -101,7 +101,7 @@ Uma fase só é **DONE** quando:
 - [ ] Invariantes listados têm prova automatizada ou checklist operacional
 - [ ] `npm test` verde; `npm run lint` 0 erros; `npx tsc --noEmit` 0 erros novos vs `main`
 - [ ] Gates da auditoria §15.8 aplicáveis à fase passam
-- [ ] Gates reproduzíveis da auditoria §20.2 quando a fase tocar env vars ou migrations: job protegido valida presença das env obrigatórias (sem imprimir valores) e `git diff --quiet origin/main...HEAD -- supabase/migrations/` comprova o escopo de migration autorizado
+- [ ] Gates reproduzíveis da auditoria §20.2 quando a fase tocar env vars ou migrations: job protegido valida presença das env obrigatórias (sem imprimir valores). Se a fase **autoriza** migrations, o diff em `supabase/migrations/` deve bater exatamente com o escopo aprovado no plano; se **não** autoriza, `git diff --quiet origin/main...HEAD -- supabase/migrations/` deve passar (diff vazio).
 - [ ] PR mergeado no `main` pelo Otávio
 
 ---
