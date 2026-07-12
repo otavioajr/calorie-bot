@@ -1,0 +1,34 @@
+---
+description: Testes locais de integração exigem Supabase; no macOS ligar/desligar Colima
+alwaysApply: true
+---
+
+# Testes com Supabase local
+
+Os testes de integração usam a stack Supabase local (Postgres + PostgREST via Docker), **não** o banco de produção da VPS.
+
+## Antes de rodar testes que tocam banco
+
+**macOS (local):**
+
+```bash
+colima start          # runtime Docker no macOS
+supabase start        # sobe Postgres + PostgREST locais com as migrations
+```
+
+**CI (GitHub Actions / Ubuntu):** Colima **não** é necessário — o runner já tem Docker. Só `supabase start`.
+
+## Depois de terminar os testes (local)
+
+Sempre desligar para liberar recursos da máquina:
+
+```bash
+supabase stop
+colima stop           # só no macOS local
+```
+
+## Regras
+
+- Nunca apontar testes para o banco de produção (VPS) — fixtures são destrutivas.
+- `npm test` / `npm run test:unit` não precisam da stack; só `npm run test:integration`.
+- Se um teste de integração falhar com erro de conexão, verificar primeiro se Docker/Colima e `supabase status` estão ativos.

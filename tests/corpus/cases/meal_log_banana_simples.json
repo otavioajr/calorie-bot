@@ -1,0 +1,24 @@
+{
+  "id": "meal_log_banana_simples",
+  "description": "Usuário loga banana com quantidade explícita no almoço",
+  "clock": "2026-07-12T12:30:00-03:00",
+  "timezone": "America/Sao_Paulo",
+  "initial_state": {
+    "onboarding_complete": true,
+    "conversation_context": null,
+    "existing_meals": []
+  },
+  "inbound": {
+    "type": "text",
+    "body": "comi uma banana de 120g no almoço"
+  },
+  "expected": {
+    "structural": {
+      "intent": "meal_log",
+      "authorized_writes": ["meals", "meal_items"],
+      "forbidden_writes": []
+    },
+    "max_llm_calls": 1,
+    "terminal_response_contains": []
+  }
+}

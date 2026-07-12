@@ -1,9 +1,10 @@
 # Roadmap: bot inteligente e econômico
 
-- **Data:** 11/07/2026
-- **Status:** Fase 0 implementada na PR #20, branch `fix/fase0-perimetro` (aguardando validação final/merge); próximo plano: Fase 1; Fases 1–8 pendentes
+- **Data:** 11/07/2026 (atualizado 12/07/2026)
+- **Status:** Fase 0 mergeada em `main` (PR #20); **Fase 1 implementada** (branch `fix/fase1-fundacoes-de-prova`); Fases 2–8 pendentes
 - **Fonte de verdade dos achados:** [`docs/superpowers/specs/2026-07-11-auditoria-conversacional-e-registro-alimentos.md`](../specs/2026-07-11-auditoria-conversacional-e-registro-alimentos.md)
 - **Política de produto:** recomendações padrão da seção 18 da auditoria, adotadas como defaults oficiais
+- **Adendo §20 da auditoria:** a seção 20 registra o patch mínimo já entregue (§20.1), os gates reproduzíveis de merge (§20.2) e a arquitetura completa de idempotência (§20.3), que passa a ser a **spec canônica das Fases 2 e 3**
 - **Escopo deste arquivo:** ordenar o trabalho em 9 fases (0–8), com IDs, invariantes, escopo técnico e gates. **Não** detalha tasks TDD nem altera código.
 
 > **Como usar:** cada fase futura deve ganhar um plano de implementação próprio (estilo WS3–WS6) antes de editar código. Este roadmap é o mapa; o plano da fase é o roteiro executável.
@@ -46,15 +47,18 @@ Resumo das políticas oficiais a partir desta data. Detalhes e justificativas pe
 
 ---
 
-## 3. Pendências do worktree local (antes da Fase 3)
+## 3. Mudanças locais antigas — resolvidas pelo patch mínimo (auditoria §20.1)
 
-A auditoria foi feita sobre `main` + mudanças locais não commitadas. Antes de iniciar a **Fase 3**, resolver:
+A auditoria foi feita sobre `main` + mudanças locais não commitadas. Essas pendências foram **corrigidas e mergeadas na PR #20** conforme o patch mínimo aprovado em §20.1:
 
-| Item | Ação |
+| Item | Estado após PR #20 |
 |---|---|
-| Dedup LOCAL `alimento + gramas` (DUP-01) em `meal-log.ts` | Não mergear como está. Substituir por `operation_id` / `incoming_message_id + item_index` na Fase 3. |
-| Demais diffs locais (router, prompts, formatters, testes) | Revisar: preservar intenção útil; reverter o que consagra comportamento incorreto como expectativa de teste. |
-| Branch / commit das mudanças locais | Decisão do Otávio: commit parcial seguro ou stash até a fase correspondente. |
+| Dedup LOCAL `alimento + gramas` (DUP-01) | **Removido**: igualdade de conteúdo não bloqueia mais inserções; repetição legítima conta duas vezes. A identidade persistida por `operation_id + item_index` continua pendente (Fases 2–3, §20.3). |
+| Append com histórico | `appendItemsToMeal` analisa só a instrução atual (histórico vazio) e usa exatamente o `mealId` do contexto `recent_meal`. |
+| Roteamento de edit | Verbos amplos de adição fora das keywords globais de `edit`; baixa confiança bloqueada no executor compartilhado; gatekeeper recebe o tipo atual da refeição. |
+| Recibo | Contém apenas itens realmente persistidos no destino único, com total recalculado desse destino. |
+
+**Limite consciente** (§20.1): o patch não cria identidade por inbound/ato/item. Replay, concorrência e crash entre escritas continuam abertos (WEB-03/04/05, DB-01…04) e pertencem às Fases 2–3.
 
 ---
 
@@ -97,6 +101,7 @@ Uma fase só é **DONE** quando:
 - [ ] Invariantes listados têm prova automatizada ou checklist operacional
 - [ ] `npm test` verde; `npm run lint` 0 erros; `npx tsc --noEmit` 0 erros novos vs `main`
 - [ ] Gates da auditoria §15.8 aplicáveis à fase passam
+- [ ] Gates reproduzíveis da auditoria §20.2 quando a fase tocar env vars ou migrations: job protegido valida presença das env obrigatórias (sem imprimir valores). Se a fase **autoriza** migrations, o diff em `supabase/migrations/` deve bater exatamente com o escopo aprovado no plano; se **não** autoriza, `git diff --quiet origin/main...HEAD -- supabase/migrations/` deve passar (diff vazio).
 - [ ] PR mergeado no `main` pelo Otávio
 
 ---
@@ -107,7 +112,7 @@ Uma fase só é **DONE** quando:
 
 | | |
 |---|---|
-| **Status** | Implementada em `fix/fase0-perimetro` · plano: [2026-07-11-fase0-perimetro.md](2026-07-11-fase0-perimetro.md) |
+| **Status** | ✅ **DONE — mergeada em `main` via PR #20 (produção)** · plano: [2026-07-11-fase0-perimetro.md](2026-07-11-fase0-perimetro.md) · status pós-snapshot: auditoria §20.0 |
 | **Objetivo** | Fechar a porta de entrada: autenticar, enumerar todos os eventos, rejeitar abuso óbvio, sem migrar schema de domínio. |
 | **Tamanho / risco** | Pequeno / baixo — mudanças localizadas em webhook, cron e parsers. |
 | **Pode sair primeiro** | Sim; independente de 2–8. |
@@ -132,15 +137,18 @@ Uma fase só é **DONE** quando:
 - Cron com secret ausente não executa jobs.
 - Tipo não suportado gera resposta terminal; texto vazio não chama classificador.
 
+**Registro pós-merge (auditoria §20.0):** WEB-01, WEB-02 e SEC-02 estão **contidos** pela implementação mergeada. Permanecem fora da Fase 0: persistência/reconciliação dos callbacks de status (REL-26, Fase 2) e o claim antecipado/ACK em falha/fail-open do dedupe (WEB-03/04/05, Fase 2). Verificar operacionalmente que `META_APP_SECRET` e `CRON_SECRET` estão configurados na Vercel.
+
 ---
 
 ### Fase 1 — Fundações de prova
 
 | | |
 |---|---|
+| **Status** | 🔄 **Implementada — aguardando PR/merge** · spec: [2026-07-12-fase1-fundacoes-de-prova-design.md](../specs/2026-07-12-fase1-fundacoes-de-prova-design.md) · plano: [2026-07-12-fase1-fundacoes-de-prova.md](2026-07-12-fase1-fundacoes-de-prova.md) · branch: `fix/fase1-fundacoes-de-prova` |
 | **Objetivo** | Tornar possível provar as fases seguintes com Postgres real, E2E mockado e corpus — não só unit mocks. |
 | **Tamanho / risco** | Médio / baixo em produção (só infra de teste + zerar dívida de TS). |
-| **Paralelo com** | Fase 0. |
+| **Paralelo com** | Fase 0 (✅ mergeada). |
 
 **Achados / lacunas:** ausência de `tests/integration/`, ausência de E2E Playwright apesar do script, COST-18 (esqueleto de eval), 10 erros TypeScript em fixtures/mocks.
 
@@ -148,11 +156,11 @@ Uma fase só é **DONE** quando:
 
 **Escopo técnico resumido:**
 
-- Harness de integração com Postgres (migrations limpas + fixtures).
-- Harness E2E: webhook assinado → handler → DB → Meta mock.
-- Esqueleto do golden corpus conversacional (formato de caso: estado, relógio, escrita permitida/proibida, teto de LLM).
+- Harness de integração com Postgres local via Supabase CLI + Colima (migrations limpas + fixtures; **nunca** banco de produção).
+- Harness E2E in-process: webhook assinado → handler → DB real → Meta mock (MSW); sem Playwright nesta fase.
+- Esqueleto do golden corpus conversacional em `tests/corpus/` (formato de caso: estado, relógio, escrita permitida/proibida, teto de LLM).
 - Zerar os 10 erros `tsc` existentes (fixtures `nutrition_basis_*`, mocks, etc.).
-- Script/CI mínimo para `test:integration` (e preparar `test:e2e`).
+- GitHub Actions em PRs: lint + `tsc` + unit + `test:integration`.
 
 **Gate de aceitação:**
 
@@ -168,7 +176,8 @@ Uma fase só é **DONE** quando:
 |---|---|
 | **Objetivo** | ACK ≠ conclusão; retry retoma trabalho; cada inbound e cada ato têm identidade estável. Absorve e generaliza WS5. |
 | **Tamanho / risco** | Grande / alto — migrations + mudança do contrato do webhook. |
-| **Depende de** | Fase 0 (assinatura/batch) fortemente recomendada; Fase 1 para provar. |
+| **Depende de** | Fase 0 (✅ mergeada); Fase 1 para provar. |
+| **Spec canônica** | Auditoria **§20.3**: identidades (`work_id`, `operation_id`, `item_operation_key`), tabelas `inbound_work` e `outbox_messages`, fluxo transacional, provas obrigatórias em Postgres real. |
 
 **Achados:** WEB-03, WEB-04, WEB-05, STATE-11, REL-01, REL-02, REL-05 (parcial outbox), REL-15, REL-25, REL-26, COST-15, LLM-01 (deadline propagado — início).
 
@@ -178,7 +187,8 @@ Uma fase só é **DONE** quando:
 
 **Escopo técnico resumido:**
 
-- `work_id` = `(provider, WABA/phone_number_id, inbound_message_id)`.
+- `work_id` = `unique(provider, business_account_id, provider_message_id)` — identidade interna do inbound (§20.3); conteúdo/hash semântico nunca é chave de idempotência.
+- Tabela `inbound_work` (§20.3): status, attempt, `lease_owner`/`lease_expires_at`, `plan_json` checkpointado com `plan_schema_version`/`prompt_version`/`model_id`, timestamps de estágio e erro normalizado.
 - Inbox com status (`accepted` / `processing` / `committed` / `failed` / …), lease e attempt.
 - ACK `2xx` só após todos os eventos autenticados estarem duravelmente enfileirados; falha de inbox permite retry da Meta.
 - Claim idempotente é precondição; nunca fail-open (WEB-05).
@@ -187,7 +197,8 @@ Uma fase só é **DONE** quando:
 - Checkpoint de resultado LLM validado por `operation_id + input_hash + versões`.
 - Propagar `event_at` (não só relógio de processamento).
 - Retenção de dedup alinhada ao horizonte do provedor + idempotência de domínio.
-- Esboço de outbox / correlação de status Meta (`sent`/`delivered`/`failed`).
+- Outbox `outbox_messages` (§20.3): status `pending/sending/api_accepted/delivered/read/failed/unknown`, `payload_hash`, attempts, correlação com callbacks da Meta (REL-26).
+- Retry por estágio (§20.3): `accepted/interpreting` retoma lease; `ready` executa comando persistido; `committed` não repete DB/LLM; `failed_terminal` preserva erro para suporte.
 
 **Gate de aceitação:**
 
@@ -195,8 +206,9 @@ Uma fase só é **DONE** quando:
 - Duplicata `message_id` consulta ledger; não “OK e descarta” com trabalho incompleto.
 - Duas mensagens rápidas do mesmo usuário não aplicam duas transições de estado concorrentes cegas.
 - Fault injection: falha de insert de inbox não processa mutação.
+- Provas §20.3 aplicáveis: duas sessões concorrentes para o mesmo `provider_message_id` produzem um `work_id`; retry com checkpoint válido não chama LLM.
 
-**Nota:** o plano WS5 (`processing`/`done`) é o núcleo mínimo; este roadmap exige o modelo completo de ledger da auditoria §13.2.
+**Nota:** o plano WS5 (`processing`/`done`) é o núcleo mínimo; este roadmap exige o modelo completo de ledger da auditoria §13.2 e §20.3. O plano da fase deve fechar as decisões listadas em §20.3 que lhe couberem (retenção de `inbound_work`, reordenação por usuário, janela de reconciliação de delivery `unknown`, rollout por feature flag).
 
 ---
 
@@ -205,8 +217,9 @@ Uma fase só é **DONE** quando:
 | | |
 |---|---|
 | **Objetivo** | Refeição, itens, total e contexto nunca ficam pela metade; dedup deixa de ser semântico. |
-| **Tamanho / risco** | Grande / alto — RPCs, CAS de contexto, corrigir DUP-01 local. |
+| **Tamanho / risco** | Grande / alto — RPCs, CAS de contexto, identidade persistida por item. |
 | **Depende de** | Fase 2 (`operation_id`). |
+| **Spec canônica** | Auditoria **§20.3**: tabela `domain_operations`, `meal_items.source_operation_id + source_item_index` (UNIQUE), transação nutricional, migração aditiva com feature flag/dual-write/shadow. |
 
 **Achados:** DB-01, DB-02, DB-03, DB-04, DUP-01, STATE-02, STATE-03, STATE-06, REL-03, REL-04, REL-07, REL-08, REL-09, REL-19, REL-20, NUTX-01, ONB-03, ONB-04.
 
@@ -217,7 +230,7 @@ Uma fase só é **DONE** quando:
 - RPC/transação única: claim da operação + itens + total + vínculo mensagem.
 - Serialização até commit dos itens (não só advisory lock no find-or-create).
 - Multi-refeição: commit atômico do comando ou recibo parcial explícito e retomável.
-- Dedup por `incoming_message_id + item_index` / `operation_id` — **remover** igualdade alimento+gramas.
+- Dedup por `operation_id + item_index` (§20.3). A igualdade alimento+gramas **já foi removida** na PR #20 (DUP-01, §20.1); esta fase adiciona a identidade persistida que faltava — conteúdo/hash semântico nunca volta a ser chave.
 - `upsertContext` transacional com versão/CAS; schema por `ContextType`.
 - Draft sem efeito nutricional **ou** gravação parcial com undo explícito (STATE-03) — alinhar à política: preferir draft.
 - Find-or-create de usuário com `ON CONFLICT ... RETURNING`.
@@ -227,9 +240,11 @@ Uma fase só é **DONE** quando:
 **Gate de aceitação:**
 
 - Crash após criar meal / após item N / após total: rollback completo ou commit indivisível identificável.
-- “Mais uma banana de 120 g” nunca é descartada por coincidir com banana anterior.
+- “Mais uma banana de 120 g” nunca é descartada por coincidir com banana anterior (já vale desde a PR #20; a regressão permanece).
+- Uma mensagem com duas bananas idênticas produz `item_index` 0 e 1, ambos válidos (§20.3).
 - Dois appends concorrentes não duplicam itens lidos do mesmo snapshot.
 - Contexto: delete+insert separado não deixa usuário sem estado.
+- `meal.total_calories == SUM(meal_items.calories)` após qualquer replay (§20.3).
 
 ---
 
@@ -242,6 +257,8 @@ Uma fase só é **DONE** quando:
 | **Depende de** | Fases 2 e 3. |
 
 **Achados (núcleo P0 + P1 de barreira):** STATE-01, STATE-04, STATE-05, STATE-07, STATE-08, STATE-12, LLM-02, FOOD-01, FOOD-02, FOOD-03, FOOD-04, MULTI-01, EDIT-01, EDIT-02, EDIT-03, EDIT-12, CRON-01, SEC-01, REL-10, PRIV-01, CROSS-01…CROSS-08, QUOTE-01, ROUTE-01…ROUTE-05, ROUTE-10, QUERY-06, CANCEL-01, SET-01, SET-02.
+
+**Já parcialmente contidos pela PR #20** (auditoria §20.1/§20.4, com regressões no repositório): parte de ROUTE-01 (verbos de adição fora das keywords globais de `edit`), STATE-07/09 (append usa o `mealId` exato do contexto; tipo diferente sai da correção), CROSS-03/04 (detector destino vs. alimento; gatekeeper recebe o tipo atual) e EDIT-09 (baixa confiança bloqueada no executor compartilhado). O plano da fase formaliza e completa esses pontos em vez de reimplementá-los.
 
 **Invariantes:** INV-05, INV-06, INV-07, INV-08, INV-09, INV-10, INV-11, INV-20, INV-23.
 
@@ -349,7 +366,7 @@ Uma fase só é **DONE** quando:
 | **Tamanho / risco** | Médio / médio — risco de regressão de qualidade se mal calibrado; gates impedem isso. |
 | **Depende de** | Fase 2 (checkpoint); idealmente 4–5 para não economizar sobre pipeline mutante. |
 
-**Achados:** COST-01…COST-18, LLM-01 (completo), HIST-03.
+**Achados:** COST-01…COST-18, LLM-01 (completo), HIST-03 (parcialmente contido pela PR #20: o append já analisa a instrução atual com histórico vazio — §20.1; resta a memória estruturada geral).
 
 **Invariantes:** INV-25, INV-26, INV-27, INV-28.
 
@@ -464,9 +481,10 @@ Uma redução de tokens só conta como sucesso se os gates de integridade perman
 
 ## 9. Próximo passo operacional
 
-1. Validar os gates da **Fase 0** já implementada na PR #20 e o Otávio decidir o merge em `main`.
-2. Abrir e aprovar o plano detalhado da **Fase 1**, que é o próximo plano ainda não escrito.
-3. Implementar a Fase 1 com TDD e a Definition of Done deste documento.
-4. Resolver a pendência do worktree local (§3) antes da Fase 3 e, após a Fase 1, detalhar a **Fase 2** (inbox) sem pular a identidade de operação.
+1. ✅ Fase 0 + patch mínimo (§20.1) mergeados em `main` via PR #20 (11/07/2026) e deploy de produção `READY` na Vercel; plano das correções: [2026-07-11-correcao-mudancas-antigas.md](2026-07-11-correcao-mudancas-antigas.md). Nenhuma migration entrou na PR.
+2. Verificação operacional pós-merge: confirmar `META_APP_SECRET` e `CRON_SECRET` configurados na Vercel e webhook recebendo mensagens assinadas em produção.
+3. ✅ Spec e plano da **Fase 1** aprovados (12/07/2026): [2026-07-12-fase1-fundacoes-de-prova-design.md](../specs/2026-07-12-fase1-fundacoes-de-prova-design.md) · [2026-07-12-fase1-fundacoes-de-prova.md](2026-07-12-fase1-fundacoes-de-prova.md).
+4. 🔄 Fase 1 implementada na branch `fix/fase1-fundacoes-de-prova` (harness, corpus, CI) — aguardando PR/merge.
+5. Após a Fase 1 mergeada, detalhar a **Fase 2** (inbox) usando §20.3 como spec canônica, sem pular a identidade de operação.
 
 Este arquivo não escolhe cronograma de calendário; escolhe ordem e critérios.

@@ -1,0 +1,24 @@
+{
+  "id": "dedup_same_message_id",
+  "description": "Retry do mesmo message_id não duplica efeito de domínio",
+  "clock": "2026-07-12T12:31:00-03:00",
+  "timezone": "America/Sao_Paulo",
+  "initial_state": {
+    "onboarding_complete": true,
+    "conversation_context": null,
+    "existing_meals": []
+  },
+  "inbound": {
+    "type": "text",
+    "body": "comi uma banana de 120g no almoço"
+  },
+  "expected": {
+    "structural": {
+      "intent": "meal_log",
+      "authorized_writes": ["processed_messages"],
+      "forbidden_writes": ["meals", "meal_items"]
+    },
+    "max_llm_calls": 0,
+    "terminal_response_contains": []
+  }
+}
