@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://caloriebot.local/corpus-case.schema.json",
+  "title": "CalorieBot golden corpus case",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "description",
+    "clock",
+    "timezone",
+    "initial_state",
+    "inbound",
+    "expected"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "description": { "type": "string", "minLength": 1 },
+    "clock": { "type": "string", "minLength": 1 },
+    "timezone": { "type": "string", "minLength": 1 },
+    "initial_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["onboarding_complete", "conversation_context", "existing_meals"],
+      "properties": {
+        "onboarding_complete": { "type": "boolean" },
+        "conversation_context": { "type": ["object", "null"] },
+        "existing_meals": { "type": "array" }
+      }
+    },
+    "inbound": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "type": "string", "enum": ["text", "audio", "image"] },
+        "body": { "type": "string" },
+        "caption": { "type": "string" },
+        "media_id": { "type": "string" }
+      }
+    },
+    "expected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["structural", "max_llm_calls"],
+      "properties": {
+        "structural": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["intent", "authorized_writes", "forbidden_writes"],
+          "properties": {
+            "intent": { "type": "string" },
+            "authorized_writes": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "forbidden_writes": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "max_llm_calls": { "type": "integer", "minimum": 0 },
+        "terminal_response_contains": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "id": "help_menu",
+  "description": "Comando de ajuda não muta dados nutricionais e não chama LLM",
+  "clock": "2026-07-12T09:00:00-03:00",
+  "timezone": "America/Sao_Paulo",
+  "initial_state": {
+    "onboarding_complete": true,
+    "conversation_context": null,
+    "existing_meals": []
+  },
+  "inbound": {
+    "type": "text",
+    "body": "ajuda"
+  },
+  "expected": {
+    "structural": {
+      "intent": "help",
+      "authorized_writes": [],
+      "forbidden_writes": ["meals", "meal_items"]
+    },
+    "max_llm_calls": 0,
+    "terminal_response_contains": ["ajuda"]
+  }
+}

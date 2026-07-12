@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: lint · tsc · unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npx tsc --noEmit
+
+      - run: npm run test:unit
+
+  integration:
+    name: integration · supabase local
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - run: npm ci
+
+      - name: Start Supabase local
+        run: supabase start
+
+      - name: Export local keys and run integration tests
+        run: |
+          set -euo pipefail
+          API_URL=$(supabase status -o env | sed -n 's/^API_URL=//p' | tr -d '"')
+          ANON_KEY=$(supabase status -o env | sed -n 's/^ANON_KEY=//p' | tr -d '"')
+          SERVICE_ROLE_KEY=$(supabase status -o env | sed -n 's/^SERVICE_ROLE_KEY=//p' | tr -d '"')
+
+          export NEXT_PUBLIC_SUPABASE_URL="$API_URL"
+          export NEXT_PUBLIC_SUPABASE_ANON_KEY="$ANON_KEY"
+          export SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY"
+          export META_APP_SECRET=test-meta-app-secret
+          export WHATSAPP_VERIFY_TOKEN=test-verify-token
+          export WHATSAPP_ACCESS_TOKEN=test-access-token
+          export WHATSAPP_PHONE_NUMBER_ID=000000000000000
+          export CRON_SECRET=test-cron-secret
+          export LLM_PROVIDER=openrouter
+          export LLM_API_KEY=test-llm-key
+
+          npm run test:integration
+
+      - name: Stop Supabase
+        if: always()
+        run: supabase stop

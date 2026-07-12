@@ -1,7 +1,7 @@
 # Roadmap: bot inteligente e econômico
 
 - **Data:** 11/07/2026 (atualizado 12/07/2026)
-- **Status:** Fase 0 + patch mínimo (auditoria §20.1) **mergeados em `main` via PR #20 — em produção**; **Fase 1 com spec e plano aprovados** (12/07/2026); Fases 1–8 de implementação pendentes
+- **Status:** Fase 0 mergeada em `main` (PR #20); **Fase 1 implementada** (branch `fix/fase1-fundacoes-de-prova`); Fases 2–8 pendentes
 - **Fonte de verdade dos achados:** [`docs/superpowers/specs/2026-07-11-auditoria-conversacional-e-registro-alimentos.md`](../specs/2026-07-11-auditoria-conversacional-e-registro-alimentos.md)
 - **Política de produto:** recomendações padrão da seção 18 da auditoria, adotadas como defaults oficiais
 - **Adendo §20 da auditoria:** a seção 20 registra o patch mínimo já entregue (§20.1), os gates reproduzíveis de merge (§20.2) e a arquitetura completa de idempotência (§20.3), que passa a ser a **spec canônica das Fases 2 e 3**
@@ -145,7 +145,7 @@ Uma fase só é **DONE** quando:
 
 | | |
 |---|---|
-| **Status** | 📋 **Plano aprovado** (12/07/2026) · spec: [2026-07-12-fase1-fundacoes-de-prova-design.md](../specs/2026-07-12-fase1-fundacoes-de-prova-design.md) · plano: [2026-07-12-fase1-fundacoes-de-prova.md](2026-07-12-fase1-fundacoes-de-prova.md) · branch prevista: `fix/fase1-fundacoes-de-prova` |
+| **Status** | 🔄 **Implementada — aguardando PR/merge** · spec: [2026-07-12-fase1-fundacoes-de-prova-design.md](../specs/2026-07-12-fase1-fundacoes-de-prova-design.md) · plano: [2026-07-12-fase1-fundacoes-de-prova.md](2026-07-12-fase1-fundacoes-de-prova.md) · branch: `fix/fase1-fundacoes-de-prova` |
 | **Objetivo** | Tornar possível provar as fases seguintes com Postgres real, E2E mockado e corpus — não só unit mocks. |
 | **Tamanho / risco** | Médio / baixo em produção (só infra de teste + zerar dívida de TS). |
 | **Paralelo com** | Fase 0 (✅ mergeada). |
@@ -484,7 +484,7 @@ Uma redução de tokens só conta como sucesso se os gates de integridade perman
 1. ✅ Fase 0 + patch mínimo (§20.1) mergeados em `main` via PR #20 (11/07/2026) e deploy de produção `READY` na Vercel; plano das correções: [2026-07-11-correcao-mudancas-antigas.md](2026-07-11-correcao-mudancas-antigas.md). Nenhuma migration entrou na PR.
 2. Verificação operacional pós-merge: confirmar `META_APP_SECRET` e `CRON_SECRET` configurados na Vercel e webhook recebendo mensagens assinadas em produção.
 3. ✅ Spec e plano da **Fase 1** aprovados (12/07/2026): [2026-07-12-fase1-fundacoes-de-prova-design.md](../specs/2026-07-12-fase1-fundacoes-de-prova-design.md) · [2026-07-12-fase1-fundacoes-de-prova.md](2026-07-12-fase1-fundacoes-de-prova.md).
-4. Implementar a Fase 1 com TDD e a Definition of Done deste documento (branch `fix/fase1-fundacoes-de-prova`).
+4. 🔄 Fase 1 implementada na branch `fix/fase1-fundacoes-de-prova` (harness, corpus, CI) — aguardando PR/merge.
 5. Após a Fase 1 mergeada, detalhar a **Fase 2** (inbox) usando §20.3 como spec canônica, sem pular a identidade de operação.
 
 Este arquivo não escolhe cronograma de calendário; escolhe ordem e critérios.
