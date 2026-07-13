@@ -4,6 +4,15 @@ O plano Hobby da Vercel só permite cron **diário**. Para retomar trabalhos ór
 
 Tudo do Calorie Bot nesta máquina: banco (Supabase self-hosted) + crontab do sweeper. Não usar uma segunda VPS só para o cron.
 
+## 0. Pré-requisito: pacote `cron`
+
+Na VPS Ubuntu mínima o pacote pode não estar instalado:
+
+```bash
+sudo apt-get install -y cron
+sudo systemctl enable --now cron
+```
+
 ## 1. Arquivo de env na VPS
 
 ```bash
