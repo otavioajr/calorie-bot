@@ -39,6 +39,14 @@ function supabaseWithMeta(meta: {
   return { supabase: { from } as never, from, select, eq, single }
 }
 
+function supabaseWithMetaError(errorMessage = 'db_error') {
+  const single = vi.fn().mockResolvedValue({ data: null, error: { message: errorMessage } })
+  const eq = vi.fn(() => ({ single }))
+  const select = vi.fn(() => ({ eq }))
+  const from = vi.fn(() => ({ select }))
+  return { supabase: { from } as never, from, select, eq, single }
+}
+
 describe('processInboundWork', () => {
   const payload = {
     type: 'text' as const,
@@ -122,6 +130,7 @@ describe('processInboundWork', () => {
 
     expect(outcome).toBe('failed_terminal')
     expect(mockHandleIncomingMessage).not.toHaveBeenCalled()
+    expect(mockHasNewer).not.toHaveBeenCalled()
     expect(mockComplete).toHaveBeenCalledWith(
       supabase,
       'work-1',
@@ -129,6 +138,29 @@ describe('processInboundWork', () => {
       'failed_terminal',
       'stale_expired',
       expect.any(String),
+    )
+  })
+
+  it('with freshnessGate marks freshness_meta_error when meta load fails', async () => {
+    const { supabase } = supabaseWithMetaError('connection lost')
+
+    const outcome = await processInboundWork(
+      supabase,
+      { workId: 'work-1', payload },
+      'owner-1',
+      { freshnessGate: true },
+    )
+
+    expect(outcome).toBe('failed_retryable')
+    expect(mockHandleIncomingMessage).not.toHaveBeenCalled()
+    expect(mockHasNewer).not.toHaveBeenCalled()
+    expect(mockComplete).toHaveBeenCalledWith(
+      supabase,
+      'work-1',
+      'owner-1',
+      'failed_retryable',
+      'freshness_meta_error',
+      'connection lost',
     )
   })
 

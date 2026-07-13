@@ -90,7 +90,7 @@ export async function processInboundWork(
 
     if (metaError || !meta) {
       console.error('[inbound-processor] freshness meta load failed for', work.workId, metaError?.message)
-      await completeInboundWork(
+      const completed = await completeInboundWork(
         supabase,
         work.workId,
         leaseOwner,
@@ -98,12 +98,16 @@ export async function processInboundWork(
         'freshness_meta_error',
         metaError?.message ?? 'missing_meta',
       )
+      if (!completed.completed) {
+        console.error('[inbound-processor] complete freshness_meta_error failed for', work.workId)
+        return 'failed_retryable'
+      }
       return 'failed_retryable'
     }
 
     const ttl = evaluateInboundTtl(new Date(meta.received_at))
     if (!ttl.ok) {
-      await completeInboundWork(
+      const completed = await completeInboundWork(
         supabase,
         work.workId,
         leaseOwner,
@@ -111,6 +115,10 @@ export async function processInboundWork(
         ttl.errorCode,
         `received_at ${meta.received_at} exceeded TTL`,
       )
+      if (!completed.completed) {
+        console.error('[inbound-processor] complete stale_expired failed for', work.workId)
+        return 'failed_retryable'
+      }
       return 'failed_terminal'
     }
 
@@ -121,7 +129,7 @@ export async function processInboundWork(
       createdAt: meta.created_at,
     })
     if (superseded) {
-      await completeInboundWork(
+      const completed = await completeInboundWork(
         supabase,
         work.workId,
         leaseOwner,
@@ -129,6 +137,10 @@ export async function processInboundWork(
         'superseded',
         'newer inbound_work exists for same phone',
       )
+      if (!completed.completed) {
+        console.error('[inbound-processor] complete superseded failed for', work.workId)
+        return 'failed_retryable'
+      }
       return 'failed_terminal'
     }
   }
