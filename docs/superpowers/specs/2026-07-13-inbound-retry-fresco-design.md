@@ -69,7 +69,7 @@ Implementação sugerida: parâmetro `options: { freshnessGate?: boolean }` (def
 Para `user_phone` P e work W:
 
 - Existe outra row W2 com mesmo `user_phone = P` e `received_at > W.received_at` → W está **superseded**.
-- Empate de `received_at`: desempate por `created_at` / `id` (ordem estável); só a mais nova processa.
+- Empate de `received_at`: desempate por `created_at` / `id` (ordem estável); só a mais nova processa. A query `hasNewerInboundWork` usa `id.gt` como desempate final quando `received_at` e `created_at` coincidem.
 - `user_phone` NULL: tratar como não supersedível por telefone; aplicar **somente** TTL (caso raro / status events sem from).
 
 Não comparar com `bot_messages` nesta fase — só `inbound_work`.

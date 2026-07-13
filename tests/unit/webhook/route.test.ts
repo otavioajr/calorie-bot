@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createHmac } from 'crypto'
 import { signWebhookBody } from '@/lib/whatsapp/webhook'
 import { MAX_WEBHOOK_BODY_BYTES } from '@/lib/whatsapp/limits'
@@ -10,16 +10,40 @@ import { MAX_WEBHOOK_BODY_BYTES } from '@/lib/whatsapp/limits'
 const mockInsert = vi.fn()
 const mockSelect = vi.fn()
 const mockSingle = vi.fn()
+const mockInboundWorkSingle = vi.fn()
+
+const {
+  mockProcessInboundWork,
+  mockEnqueueInboundWork,
+  mockListStaleInboundWork,
+  mockIsInboundWorkEnabled,
+} = vi.hoisted(() => ({
+  mockProcessInboundWork: vi.fn().mockResolvedValue('committed'),
+  mockEnqueueInboundWork: vi.fn(),
+  mockListStaleInboundWork: vi.fn().mockResolvedValue([]),
+  mockIsInboundWorkEnabled: vi.fn().mockReturnValue(false),
+}))
 
 vi.mock('@/lib/db/supabase', () => ({
   createServiceRoleClient: () => ({
-    from: () => ({
-      insert: mockInsert.mockReturnValue({
-        select: mockSelect.mockReturnValue({
-          single: mockSingle,
+    from: (table: string) => {
+      if (table === 'inbound_work') {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              single: mockInboundWorkSingle,
+            })),
+          })),
+        }
+      }
+      return {
+        insert: mockInsert.mockReturnValue({
+          select: mockSelect.mockReturnValue({
+            single: mockSingle,
+          }),
         }),
-      }),
-    }),
+      }
+    },
   }),
 }))
 
@@ -45,6 +69,20 @@ vi.mock('@/lib/bot/handler', () => ({
   handleIncomingAudio: mockHandleIncomingAudio,
   handleIncomingImage: mockHandleIncomingImage,
   handleUnsupportedMessage: mockHandleUnsupportedMessage,
+}))
+
+vi.mock('@/lib/db/queries/inbound-work', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/db/queries/inbound-work')>()
+  return {
+    ...actual,
+    isInboundWorkEnabled: () => mockIsInboundWorkEnabled(),
+    enqueueInboundWork: (...args: unknown[]) => mockEnqueueInboundWork(...args),
+    listStaleInboundWork: (...args: unknown[]) => mockListStaleInboundWork(...args),
+  }
+})
+
+vi.mock('@/lib/bot/inbound-processor', () => ({
+  processInboundWork: (...args: unknown[]) => mockProcessInboundWork(...args),
 }))
 
 import { GET, POST } from '@/app/api/webhook/whatsapp/route'
@@ -566,5 +604,67 @@ describe('POST — unsupported messages', () => {
     await POST(makeSignedPostRequest(makeVideoPayload()))
 
     expect(mockHandleUnsupportedMessage).toHaveBeenCalledWith('5511999887766', 'video')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POST — inbound work mode (piggyback order)
+// ---------------------------------------------------------------------------
+
+describe('POST — inbound work mode', () => {
+  const processCallOrder: Array<'current' | 'piggyback'> = []
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    process.env.META_APP_SECRET = TEST_APP_SECRET
+    process.env.WHATSAPP_PHONE_NUMBER_ID = 'PHONE_NUMBER_ID'
+    process.env.INBOUND_WORK_ENABLED = 'true'
+    mockIsInboundWorkEnabled.mockReturnValue(true)
+    processCallOrder.length = 0
+
+    mockEnqueueInboundWork.mockResolvedValue({
+      ok: true,
+      workId: 'current-work-id',
+      status: 'accepted',
+      wasInserted: true,
+    })
+    mockListStaleInboundWork.mockResolvedValue([
+      { workId: 'stale-work-id', status: 'processing', attempt: 1 },
+    ])
+    mockInboundWorkSingle.mockResolvedValue({
+      data: {
+        payload_json: {
+          type: 'text',
+          from: '5511999887766',
+          messageId: 'wamid.stale',
+          text: 'stale',
+        },
+      },
+      error: null,
+    })
+    mockProcessInboundWork.mockImplementation(async (_supabase, _work, _owner, options) => {
+      if (options?.freshnessGate === false) {
+        processCallOrder.push('current')
+      } else {
+        processCallOrder.push('piggyback')
+      }
+      return 'committed'
+    })
+  })
+
+  afterEach(() => {
+    delete process.env.INBOUND_WORK_ENABLED
+    mockIsInboundWorkEnabled.mockReturnValue(false)
+  })
+
+  it('processes current webhook events before piggyback stale work', async () => {
+    const response = await POST(makeSignedPostRequest(makeTextPayload()))
+
+    expect(response.status).toBe(200)
+    expect(mockEnqueueInboundWork).toHaveBeenCalled()
+    expect(mockListStaleInboundWork).toHaveBeenCalled()
+    expect(mockProcessInboundWork).toHaveBeenCalledTimes(2)
+    expect(processCallOrder).toEqual(['current', 'piggyback'])
+    expect(mockHandleIncomingMessage).not.toHaveBeenCalled()
   })
 })

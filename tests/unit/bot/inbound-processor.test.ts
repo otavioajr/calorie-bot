@@ -59,7 +59,7 @@ describe('processInboundWork', () => {
     vi.clearAllMocks()
     mockClaim.mockResolvedValue({ claimed: true, status: 'processing', attempt: 1 })
     mockComplete.mockResolvedValue({ completed: true, status: 'committed' })
-    mockHasNewer.mockResolvedValue(false)
+    mockHasNewer.mockResolvedValue({ status: 'none' })
   })
 
   afterEach(() => {
@@ -112,7 +112,7 @@ describe('processInboundWork', () => {
   })
 
   it('with freshnessGate marks stale_expired without calling handler', async () => {
-    mockHasNewer.mockResolvedValue(false)
+    mockHasNewer.mockResolvedValue({ status: 'none' })
     const { supabase } = supabaseWithMeta({
       received_at: '2026-07-13T11:00:00.000Z',
       created_at: '2026-07-13T11:00:00.000Z',
@@ -165,7 +165,7 @@ describe('processInboundWork', () => {
   })
 
   it('with freshnessGate marks superseded when newer work exists', async () => {
-    mockHasNewer.mockResolvedValue(true)
+    mockHasNewer.mockResolvedValue({ status: 'newer' })
     const { supabase } = supabaseWithMeta({
       received_at: '2026-07-13T11:59:00.000Z',
       created_at: '2026-07-13T11:59:00.000Z',
@@ -197,6 +197,35 @@ describe('processInboundWork', () => {
       receivedAt: '2026-07-13T11:59:00.000Z',
       createdAt: '2026-07-13T11:59:00.000Z',
     })
+  })
+
+  it('with freshnessGate marks has_newer_lookup_error when newer lookup fails', async () => {
+    mockHasNewer.mockResolvedValue({ status: 'error', message: 'down' })
+    const { supabase } = supabaseWithMeta({
+      received_at: '2026-07-13T11:59:00.000Z',
+      created_at: '2026-07-13T11:59:00.000Z',
+      user_phone: '5511999999999',
+    })
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-13T12:00:00.000Z'))
+
+    const outcome = await processInboundWork(
+      supabase,
+      { workId: 'work-1', payload },
+      'owner-1',
+      { freshnessGate: true },
+    )
+
+    expect(outcome).toBe('failed_retryable')
+    expect(mockHandleIncomingMessage).not.toHaveBeenCalled()
+    expect(mockComplete).toHaveBeenCalledWith(
+      supabase,
+      'work-1',
+      'owner-1',
+      'failed_retryable',
+      'has_newer_lookup_error',
+      'down',
+    )
   })
 
   it('with freshnessGate false skips meta load and runs handler', async () => {

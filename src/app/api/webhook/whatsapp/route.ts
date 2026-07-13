@@ -282,10 +282,6 @@ export async function POST(request: Request) {
     const leaseOwner = randomUUID()
     let inboxDirty = false
 
-    if (isInboundWorkEnabled()) {
-      await piggybackStaleInboundWork(supabase, leaseOwner, 2)
-    }
-
     for (const event of events) {
       if (!isExpectedPhoneNumberId(event.phoneNumberId)) {
         continue
@@ -314,6 +310,10 @@ export async function POST(request: Request) {
         console.error('[webhook] Error processing message', event.messageId, err)
         inboxDirty = true
       }
+    }
+
+    if (isInboundWorkEnabled()) {
+      await piggybackStaleInboundWork(supabase, leaseOwner, 2)
     }
 
     if (inboxDirty) {

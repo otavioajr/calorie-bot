@@ -129,13 +129,13 @@ describe('hasNewerInboundWork', () => {
 
     const newer = await hasNewerInboundWork(supabase, HAS_NEWER_INPUT)
 
-    expect(newer).toBe(true)
+    expect(newer).toEqual({ status: 'newer' })
     expect(from).toHaveBeenCalledWith('inbound_work')
     expect(select).toHaveBeenCalledWith('id')
     expect(eq).toHaveBeenCalledWith('user_phone', '5511999999999')
     expect(neq).toHaveBeenCalledWith('id', 'work-old')
     expect(or).toHaveBeenCalledWith(
-      'received_at.gt."2026-07-13T12:00:00.000Z",and(received_at.eq."2026-07-13T12:00:00.000Z",created_at.gt."2026-07-13T12:00:00.000Z")',
+      'received_at.gt."2026-07-13T12:00:00.000Z",and(received_at.eq."2026-07-13T12:00:00.000Z",created_at.gt."2026-07-13T12:00:00.000Z"),and(received_at.eq."2026-07-13T12:00:00.000Z",created_at.eq."2026-07-13T12:00:00.000Z",id.gt."work-old")',
     )
     expect(limit).toHaveBeenCalledWith(1)
   })
@@ -147,7 +147,7 @@ describe('hasNewerInboundWork', () => {
       ...HAS_NEWER_INPUT,
       userPhone: null,
     })
-    expect(newer).toBe(false)
+    expect(newer).toEqual({ status: 'none' })
     expect(from).not.toHaveBeenCalled()
   })
 
@@ -155,10 +155,10 @@ describe('hasNewerInboundWork', () => {
     const { hasNewerInboundWork } = await import('@/lib/db/queries/inbound-work')
     const { supabase } = makeHasNewerInboundWorkSupabase({ data: null, error: null })
     const newer = await hasNewerInboundWork(supabase, HAS_NEWER_INPUT)
-    expect(newer).toBe(false)
+    expect(newer).toEqual({ status: 'none' })
   })
 
-  it('returns true on error (fail-closed)', async () => {
+  it('returns error status on query failure (not newer)', async () => {
     const { hasNewerInboundWork } = await import('@/lib/db/queries/inbound-work')
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const { supabase } = makeHasNewerInboundWorkSupabase({
@@ -166,7 +166,7 @@ describe('hasNewerInboundWork', () => {
       error: { message: 'down' },
     })
     const newer = await hasNewerInboundWork(supabase, HAS_NEWER_INPUT)
-    expect(newer).toBe(true)
+    expect(newer).toEqual({ status: 'error', message: 'down' })
     expect(consoleSpy).toHaveBeenCalledWith(
       '[inbound-work] hasNewerInboundWork failed:',
       'down',

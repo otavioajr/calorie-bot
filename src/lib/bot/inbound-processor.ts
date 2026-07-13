@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { evaluateInboundTtl } from '@/lib/bot/inbound-freshness'
+import { fromDB } from '@/lib/db/utils'
 import {
   handleIncomingMessage,
   handleIncomingAudio,
@@ -105,7 +106,9 @@ export async function processInboundWork(
       return 'failed_retryable'
     }
 
-    const ttl = evaluateInboundTtl(new Date(meta.received_at))
+    const metaRow = fromDB<{ receivedAt: string; createdAt: string; userPhone: string | null }>(meta)
+
+    const ttl = evaluateInboundTtl(new Date(metaRow.receivedAt))
     if (!ttl.ok) {
       const completed = await completeInboundWork(
         supabase,
@@ -113,7 +116,7 @@ export async function processInboundWork(
         leaseOwner,
         'failed_terminal',
         ttl.errorCode,
-        `received_at ${meta.received_at} exceeded TTL`,
+        `received_at ${metaRow.receivedAt} exceeded TTL`,
       )
       if (!completed.completed) {
         console.error('[inbound-processor] complete stale_expired failed for', work.workId)
@@ -122,13 +125,13 @@ export async function processInboundWork(
       return 'failed_terminal'
     }
 
-    const superseded = await hasNewerInboundWork(supabase, {
+    const newerResult = await hasNewerInboundWork(supabase, {
       workId: work.workId,
-      userPhone: meta.user_phone,
-      receivedAt: meta.received_at,
-      createdAt: meta.created_at,
+      userPhone: metaRow.userPhone,
+      receivedAt: metaRow.receivedAt,
+      createdAt: metaRow.createdAt,
     })
-    if (superseded) {
+    if (newerResult.status === 'newer') {
       const completed = await completeInboundWork(
         supabase,
         work.workId,
@@ -142,6 +145,21 @@ export async function processInboundWork(
         return 'failed_retryable'
       }
       return 'failed_terminal'
+    }
+    if (newerResult.status === 'error') {
+      const completed = await completeInboundWork(
+        supabase,
+        work.workId,
+        leaseOwner,
+        'failed_retryable',
+        'has_newer_lookup_error',
+        newerResult.message,
+      )
+      if (!completed.completed) {
+        console.error('[inbound-processor] complete has_newer_lookup_error failed for', work.workId)
+        return 'failed_retryable'
+      }
+      return 'failed_retryable'
     }
   }
 
