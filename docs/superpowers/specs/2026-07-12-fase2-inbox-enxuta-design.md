@@ -1,7 +1,7 @@
 # Fase 2 — Inbox enxuta e identidade de trabalho (design spec)
 
 **Data:** 12/07/2026  
-**Status:** Spec + plano de implementação prontos — aguardando implementação na branch `fix/fase2-inbox-enxuta`  
+**Status:** Implementada na branch `fix/fase2-inbox-enxuta` — aguardando PR/merge  
 **Roadmap:** [2026-07-11-roadmap-bot-inteligente-economico.md](../plans/2026-07-11-roadmap-bot-inteligente-economico.md)  
 **Plano:** [2026-07-12-fase2-inbox-enxuta.md](../plans/2026-07-12-fase2-inbox-enxuta.md)  
 **Branch prevista:** `fix/fase2-inbox-enxuta`  
@@ -47,8 +47,8 @@ Não prometemos nesta fase: outbox de saída, reconciliação de delivery Meta, 
 | Onde processa | Inline no webhook Vercel, como hoje (`maxDuration = 60`). |
 | Onde persiste estado | Postgres do Calorie Bot (mesmo host que produção; migrations em `supabase/migrations/`). |
 | Retry antes do ACK | Resposta **não-2xx** se a inbox não gravar → Meta reenvia. |
-| Retry após crash | Piggyback (até 1–2 órfãos no início de cada POST) + **cron na VPS** (`ubuntu@137.131.168.96`, host `abigail`) a cada 2 min + cron diário Vercel como rede de segurança. |
-| O que a VPS faz | Apenas `curl` autenticado com `CRON_SECRET` para `/api/cron/inbox-sweeper`. Sem lógica de bot, sem worker Node, sem Docker. |
+| Retry após crash | Piggyback (até 1–2 órfãos no início de cada POST) + **cron na mesma VPS do Postgres** (`ubuntu@147.15.89.175`) a cada 2 min + cron diário Vercel como rede de segurança. |
+| O que a VPS faz | Postgres + `curl` autenticado com `CRON_SECRET` para `/api/cron/inbox-sweeper`. Sem worker Node extra; não usar segunda VPS só para o cron. |
 | Custo | Zero: Hobby Vercel + VPS já paga + sem QStash/filas. |
 | `processed_messages` | Mantida durante dual-write / feature flag; claim canônico passa a ser `inbound_work`. Remoção definitiva só após gates verdes (pode ficar para PR de limpeza). |
 | Outbox / REL-26 | **Fora** — Fase 2b futura. |
@@ -192,7 +192,7 @@ Novo: `src/app/api/cron/inbox-sweeper/route.ts`
 
 ### 4.7 Cron na VPS
 
-Host: `ubuntu@137.131.168.96` (`abigail`).
+Host: `ubuntu@147.15.89.175` (mesma VPS do Postgres / Supabase self-hosted). Não usar segunda VPS só para o cron.
 
 - Arquivo env restrito: `~/.caloriebot-cron.env` (`chmod 600`) com `CRON_SECRET` e `SWEEPER_URL`.
 - Crontab (exemplo):
@@ -204,7 +204,7 @@ Host: `ubuntu@137.131.168.96` (`abigail`).
 - **Não** adicionar schedule frequente em `vercel.json` (Hobby = 1×/dia).
 - Rede de segurança: adicionar cron **diário** em `vercel.json` apontando ao mesmo path (ex. `15 4 * * *`), além do sweeper da VPS.
 
-Documentação operacional: snippet no plano de implementação + comentário em `.env.example` (`SWEEPER` / nota VPS). Sem commit de secrets.
+Documentação operacional: [`docs/ops/vps-inbox-sweeper.md`](../../ops/vps-inbox-sweeper.md) + comentário em `.env.example`. Sem commit de secrets.
 
 ### 4.8 Dual-write / feature flag
 

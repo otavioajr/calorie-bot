@@ -21,7 +21,7 @@
 | Decisão | Default |
 |---|---|
 | Processamento | Inline no webhook (`maxDuration=60`) |
-| Retry órfãos | Piggyback (2) + sweeper VPS (`*/2`) + cron diário Vercel |
+| Retry órfãos | Piggyback (2) + sweeper na VPS do Postgres `147.15.89.175` (`*/2`) + cron diário Vercel |
 | Fail-open | Proibido (flag on e off) |
 | Flag | `INBOUND_WORK_ENABLED` |
 | Lease / max attempts | 90s / 5 |

@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/products-consensus",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/inbox-sweeper",
+      "schedule": "15 4 * * *"
     }
   ]
 }
