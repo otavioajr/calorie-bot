@@ -470,7 +470,7 @@ describe('POST /api/webhook/whatsapp', () => {
     expect(mockInsert).not.toHaveBeenCalled()
   })
 
-  it('continues processing other messages when one handler throws', async () => {
+  it('returns 503 when a handler throws so Meta can retry (fail-closed)', async () => {
     mockSingle.mockResolvedValue({ data: {}, error: null })
     mockHandleIncomingMessage
       .mockRejectedValueOnce(new Error('first failed'))
@@ -478,7 +478,7 @@ describe('POST /api/webhook/whatsapp', () => {
 
     const response = await POST(makeSignedPostRequest(makeMultiMessagePayload()))
 
-    expect(response.status).toBe(200)
+    expect(response.status).toBe(503)
     expect(mockHandleIncomingMessage).toHaveBeenCalledTimes(2)
   })
 

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { fromDB } from '@/lib/db/utils'
 
 export const INBOUND_WORK_PROVIDER = 'whatsapp_cloud'
 export const DEFAULT_LEASE_SECONDS = 90
@@ -54,13 +55,40 @@ export type StaleInboundWorkRow = {
   attempt: number
 }
 
+type EnqueueRpcRow = {
+  workId: string
+  status: InboundWorkStatus
+  wasInserted: boolean
+}
+
+type ClaimRpcRow = {
+  claimed: boolean
+  status: InboundWorkStatus | null
+  attempt: number | null
+}
+
+type CompleteRpcRow = {
+  completed: boolean
+  status: InboundWorkStatus | null
+}
+
+type StaleRpcRow = {
+  workId: string
+  status: InboundWorkStatus
+  attempt: number
+}
+
 export function isInboundWorkEnabled(): boolean {
   return process.env.INBOUND_WORK_ENABLED === 'true'
 }
 
-function firstRpcRow<T>(data: unknown): T | undefined {
-  if (Array.isArray(data)) return data[0] as T | undefined
-  if (data && typeof data === 'object') return data as T
+function firstRpcRow(data: unknown): Record<string, unknown> | undefined {
+  if (Array.isArray(data)) {
+    const row = data[0]
+    if (row && typeof row === 'object') return row as Record<string, unknown>
+    return undefined
+  }
+  if (data && typeof data === 'object') return data as Record<string, unknown>
   return undefined
 }
 
@@ -83,22 +111,23 @@ export async function enqueueInboundWork(
     return { ok: false }
   }
 
-  const row = firstRpcRow<{
-    work_id: string
-    status: InboundWorkStatus
-    was_inserted: boolean
-  }>(data)
+  const raw = firstRpcRow(data)
+  if (!raw) {
+    console.error('[inbound-work] enqueue_inbound_work returned no row')
+    return { ok: false }
+  }
 
-  if (!row?.work_id) {
+  const row = fromDB<EnqueueRpcRow>(raw)
+  if (!row.workId) {
     console.error('[inbound-work] enqueue_inbound_work returned no row')
     return { ok: false }
   }
 
   return {
     ok: true,
-    workId: row.work_id,
+    workId: row.workId,
     status: row.status,
-    wasInserted: row.was_inserted,
+    wasInserted: row.wasInserted,
   }
 }
 
@@ -120,16 +149,16 @@ export async function claimInboundWork(
     return { claimed: false, status: null, attempt: null }
   }
 
-  const row = firstRpcRow<{
-    claimed: boolean
-    status: InboundWorkStatus | null
-    attempt: number | null
-  }>(data)
+  const raw = firstRpcRow(data)
+  if (!raw) {
+    return { claimed: false, status: null, attempt: null }
+  }
 
+  const row = fromDB<ClaimRpcRow>(raw)
   return {
-    claimed: row?.claimed ?? false,
-    status: row?.status ?? null,
-    attempt: row?.attempt ?? null,
+    claimed: row.claimed ?? false,
+    status: row.status ?? null,
+    attempt: row.attempt ?? null,
   }
 }
 
@@ -155,14 +184,15 @@ export async function completeInboundWork(
     return { completed: false, status: null }
   }
 
-  const row = firstRpcRow<{
-    completed: boolean
-    status: InboundWorkStatus | null
-  }>(data)
+  const raw = firstRpcRow(data)
+  if (!raw) {
+    return { completed: false, status: null }
+  }
 
+  const row = fromDB<CompleteRpcRow>(raw)
   return {
-    completed: row?.completed ?? false,
-    status: row?.status ?? null,
+    completed: row.completed ?? false,
+    status: row.status ?? null,
   }
 }
 
@@ -182,11 +212,7 @@ export async function listStaleInboundWork(
 
   if (!Array.isArray(data)) return []
 
-  return data.map((row: { work_id: string; status: InboundWorkStatus; attempt: number }) => ({
-    workId: row.work_id,
-    status: row.status,
-    attempt: row.attempt,
-  }))
+  return data.map((row) => fromDB<StaleRpcRow>(row as Record<string, unknown>))
 }
 
 export function isTerminalInboundStatus(status: InboundWorkStatus): boolean {

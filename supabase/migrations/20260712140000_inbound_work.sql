@@ -219,7 +219,10 @@ BEGIN
     lease_expires_at = NULL,
     error_code = p_error_code,
     error_message = LEFT(p_error_message, 500),
-    terminal_at = v_now,
+    terminal_at = CASE
+      WHEN p_status IN ('committed', 'failed_terminal') THEN v_now
+      ELSE terminal_at
+    END,
     updated_at = v_now
   WHERE id = p_work_id
   RETURNING * INTO v_row;

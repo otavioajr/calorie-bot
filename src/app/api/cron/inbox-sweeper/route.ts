@@ -22,8 +22,16 @@ export async function GET(request: Request) {
   let processed = 0
   let skipped = 0
   let errors = 0
+  let stoppedEarly = false
+  const startedAt = Date.now()
+  const BUDGET_MS = 50_000
 
   for (const row of staleRows) {
+    if (Date.now() - startedAt > BUDGET_MS) {
+      stoppedEarly = true
+      break
+    }
+
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data, error } = await (supabase as any)
@@ -62,5 +70,6 @@ export async function GET(request: Request) {
     skipped,
     errors,
     candidates: staleRows.length,
+    stoppedEarly,
   })
 }

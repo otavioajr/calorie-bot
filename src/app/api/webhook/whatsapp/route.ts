@@ -311,6 +311,7 @@ export async function POST(request: Request) {
         await processLegacyMessage(event)
       } catch (err) {
         console.error('[webhook] Error processing message', event.messageId, err)
+        inboxDirty = true
       }
     }
 
