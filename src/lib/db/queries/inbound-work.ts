@@ -257,7 +257,7 @@ export async function hasNewerInboundWork(
     .eq('user_phone', input.userPhone)
     .neq('id', input.workId)
     .or(
-      `received_at.gt.${receivedAt},and(received_at.eq.${receivedAt},created_at.gt.${createdAt})`,
+      `received_at.gt."${receivedAt}",and(received_at.eq."${receivedAt}",created_at.gt."${createdAt}")`,
     )
     .limit(1)
     .maybeSingle()

@@ -135,7 +135,7 @@ describe('hasNewerInboundWork', () => {
     expect(eq).toHaveBeenCalledWith('user_phone', '5511999999999')
     expect(neq).toHaveBeenCalledWith('id', 'work-old')
     expect(or).toHaveBeenCalledWith(
-      'received_at.gt.2026-07-13T12:00:00.000Z,and(received_at.eq.2026-07-13T12:00:00.000Z,created_at.gt.2026-07-13T12:00:00.000Z)',
+      'received_at.gt."2026-07-13T12:00:00.000Z",and(received_at.eq."2026-07-13T12:00:00.000Z",created_at.gt."2026-07-13T12:00:00.000Z")',
     )
     expect(limit).toHaveBeenCalledWith(1)
   })
