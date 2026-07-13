@@ -1,4 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { evaluateInboundTtl } from '@/lib/bot/inbound-freshness'
+import { fromDB } from '@/lib/db/utils'
 import {
   handleIncomingMessage,
   handleIncomingAudio,
@@ -10,6 +12,7 @@ import {
   claimInboundWork,
   completeInboundWork,
   failureStatusForAttempt,
+  hasNewerInboundWork,
   type InboundWorkStatus,
 } from '@/lib/db/queries/inbound-work'
 
@@ -62,14 +65,102 @@ async function dispatchInboundPayload(payload: InboundPayload): Promise<void> {
   await handleUnsupportedMessage(payload.from, payload.rawType ?? 'unknown')
 }
 
+export type ProcessInboundWorkOptions = {
+  /** Default true. Webhook inline must pass false (Task 4). */
+  freshnessGate?: boolean
+}
+
 export async function processInboundWork(
   supabase: SupabaseClient,
   work: { workId: string; payload: InboundPayload; status?: InboundWorkStatus },
   leaseOwner: string,
+  options: ProcessInboundWorkOptions = {},
 ): Promise<InboundProcessOutcome> {
   const claim = await claimInboundWork(supabase, work.workId, leaseOwner)
   if (!claim.claimed) {
     return 'skipped'
+  }
+
+  if (options.freshnessGate ?? true) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: meta, error: metaError } = await (supabase as any)
+      .from('inbound_work')
+      .select('received_at, created_at, user_phone')
+      .eq('id', work.workId)
+      .single()
+
+    if (metaError || !meta) {
+      console.error('[inbound-processor] freshness meta load failed for', work.workId, metaError?.message)
+      const completed = await completeInboundWork(
+        supabase,
+        work.workId,
+        leaseOwner,
+        'failed_retryable',
+        'freshness_meta_error',
+        metaError?.message ?? 'missing_meta',
+      )
+      if (!completed.completed) {
+        console.error('[inbound-processor] complete freshness_meta_error failed for', work.workId)
+        return 'failed_retryable'
+      }
+      return 'failed_retryable'
+    }
+
+    const metaRow = fromDB<{ receivedAt: string; createdAt: string; userPhone: string | null }>(meta)
+
+    const ttl = evaluateInboundTtl(new Date(metaRow.receivedAt))
+    if (!ttl.ok) {
+      const completed = await completeInboundWork(
+        supabase,
+        work.workId,
+        leaseOwner,
+        'failed_terminal',
+        ttl.errorCode,
+        `received_at ${metaRow.receivedAt} exceeded TTL`,
+      )
+      if (!completed.completed) {
+        console.error('[inbound-processor] complete stale_expired failed for', work.workId)
+        return 'failed_retryable'
+      }
+      return 'failed_terminal'
+    }
+
+    const newerResult = await hasNewerInboundWork(supabase, {
+      workId: work.workId,
+      userPhone: metaRow.userPhone,
+      receivedAt: metaRow.receivedAt,
+      createdAt: metaRow.createdAt,
+    })
+    if (newerResult.status === 'newer') {
+      const completed = await completeInboundWork(
+        supabase,
+        work.workId,
+        leaseOwner,
+        'failed_terminal',
+        'superseded',
+        'newer inbound_work exists for same phone',
+      )
+      if (!completed.completed) {
+        console.error('[inbound-processor] complete superseded failed for', work.workId)
+        return 'failed_retryable'
+      }
+      return 'failed_terminal'
+    }
+    if (newerResult.status === 'error') {
+      const completed = await completeInboundWork(
+        supabase,
+        work.workId,
+        leaseOwner,
+        'failed_retryable',
+        'has_newer_lookup_error',
+        newerResult.message,
+      )
+      if (!completed.completed) {
+        console.error('[inbound-processor] complete has_newer_lookup_error failed for', work.workId)
+        return 'failed_retryable'
+      }
+      return 'failed_retryable'
+    }
   }
 
   try {
