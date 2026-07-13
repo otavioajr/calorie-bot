@@ -10,6 +10,7 @@ const TRUNCATE_SQL = `
 TRUNCATE TABLE
   meal_items,
   meals,
+  inbound_work,
   processed_messages,
   conversation_context,
   weight_log,

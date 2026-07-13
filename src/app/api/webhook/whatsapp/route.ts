@@ -1,14 +1,24 @@
 export const maxDuration = 60
 
+import { randomUUID } from 'crypto'
 import { verifyWebhook, parseWebhookEvents, verifyWebhookSignature } from '@/lib/whatsapp/webhook'
 import { MAX_WEBHOOK_BODY_BYTES } from '@/lib/whatsapp/limits'
 import { createServiceRoleClient } from '@/lib/db/supabase'
+import { processInboundWork } from '@/lib/bot/inbound-processor'
 import {
   handleIncomingMessage,
   handleIncomingAudio,
   handleIncomingImage,
   handleUnsupportedMessage,
 } from '@/lib/bot/handler'
+import {
+  enqueueInboundWork,
+  INBOUND_WORK_PROVIDER,
+  isInboundWorkEnabled,
+  listStaleInboundWork,
+  shouldSkipInboundProcessing,
+  type InboundPayload,
+} from '@/lib/db/queries/inbound-work'
 import type { WhatsAppMessage } from '@/lib/whatsapp/webhook'
 
 export async function GET(request: Request) {
@@ -40,7 +50,25 @@ function isExpectedPhoneNumberId(phoneNumberId: string | undefined): boolean {
   return true
 }
 
-async function claimMessage(supabase: ReturnType<typeof createServiceRoleClient>, messageId: string): Promise<boolean> {
+function toInboundPayload(event: WhatsAppMessage): InboundPayload {
+  return {
+    type: event.type,
+    from: event.from,
+    messageId: event.messageId,
+    phoneNumberId: event.phoneNumberId,
+    text: event.text,
+    audioId: event.audioId,
+    imageId: event.imageId,
+    caption: event.caption,
+    quotedMessageId: event.quotedMessageId,
+    rawType: event.rawType,
+  }
+}
+
+async function claimLegacyMessage(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  messageId: string,
+): Promise<'claimed' | 'duplicate' | 'failed'> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { error: dedupError } = await (supabase as any)
     .from('processed_messages')
@@ -49,17 +77,18 @@ async function claimMessage(supabase: ReturnType<typeof createServiceRoleClient>
     .single()
 
   if (dedupError?.code === '23505') {
-    return false
+    return 'duplicate'
   }
 
   if (dedupError) {
-    console.error('[webhook] Dedup insert failed (processing anyway):', dedupError.message)
+    console.error('[webhook] Dedup insert failed (fail-closed):', dedupError.message)
+    return 'failed'
   }
 
-  return true
+  return 'claimed'
 }
 
-async function processMessage(event: WhatsAppMessage): Promise<void> {
+async function dispatchMessage(event: WhatsAppMessage): Promise<void> {
   if (event.type === 'text') {
     await handleIncomingMessage(event.from, event.messageId, event.text ?? '', event.quotedMessageId)
     return
@@ -92,6 +121,77 @@ async function processMessage(event: WhatsAppMessage): Promise<void> {
   if (event.type === 'unsupported') {
     await handleUnsupportedMessage(event.from, event.rawType ?? 'unknown')
   }
+}
+
+async function processLegacyMessage(event: WhatsAppMessage): Promise<void> {
+  await dispatchMessage(event)
+}
+
+async function piggybackStaleInboundWork(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  leaseOwner: string,
+  limit: number = 2,
+): Promise<void> {
+  const staleRows = await listStaleInboundWork(supabase, limit)
+  for (const row of staleRows) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any)
+        .from('inbound_work')
+        .select('payload_json')
+        .eq('id', row.workId)
+        .single()
+
+      if (error || !data?.payload_json) {
+        console.error('[webhook] piggyback missing payload for', row.workId, error?.message)
+        continue
+      }
+
+      await processInboundWork(
+        supabase,
+        { workId: row.workId, payload: data.payload_json as InboundPayload, status: row.status },
+        leaseOwner,
+      )
+    } catch (err) {
+      console.error('[webhook] piggyback failed for', row.workId, err)
+    }
+  }
+}
+
+async function processInboundEvent(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  event: WhatsAppMessage,
+  leaseOwner: string,
+): Promise<'ok' | 'enqueue_failed' | 'skipped'> {
+  const businessAccountId = event.phoneNumberId ?? process.env.WHATSAPP_PHONE_NUMBER_ID ?? 'unknown'
+  const enqueued = await enqueueInboundWork(supabase, {
+    provider: INBOUND_WORK_PROVIDER,
+    businessAccountId,
+    providerMessageId: event.messageId,
+    userPhone: event.from,
+    eventAt: new Date(event.timestamp * 1000).toISOString(),
+    payload: toInboundPayload(event),
+  })
+
+  if (!enqueued.ok) {
+    return 'enqueue_failed'
+  }
+
+  if (shouldSkipInboundProcessing(enqueued.status)) {
+    return 'skipped'
+  }
+
+  await processInboundWork(
+    supabase,
+    {
+      workId: enqueued.workId,
+      payload: toInboundPayload(event),
+      status: enqueued.status,
+    },
+    leaseOwner,
+  )
+
+  return 'ok'
 }
 
 type WebhookBodyReadResult =
@@ -178,6 +278,12 @@ export async function POST(request: Request) {
     }
 
     const supabase = createServiceRoleClient()
+    const leaseOwner = randomUUID()
+    let inboxDirty = false
+
+    if (isInboundWorkEnabled()) {
+      await piggybackStaleInboundWork(supabase, leaseOwner, 2)
+    }
 
     for (const event of events) {
       if (!isExpectedPhoneNumberId(event.phoneNumberId)) {
@@ -185,18 +291,37 @@ export async function POST(request: Request) {
       }
 
       try {
-        const claimed = await claimMessage(supabase, event.messageId)
-        if (!claimed) continue
+        if (isInboundWorkEnabled()) {
+          const result = await processInboundEvent(supabase, event, leaseOwner)
+          if (result === 'enqueue_failed') {
+            inboxDirty = true
+          }
+          continue
+        }
 
-        await processMessage(event)
+        const claimResult = await claimLegacyMessage(supabase, event.messageId)
+        if (claimResult === 'duplicate') {
+          continue
+        }
+        if (claimResult === 'failed') {
+          inboxDirty = true
+          continue
+        }
+
+        await processLegacyMessage(event)
       } catch (err) {
         console.error('[webhook] Error processing message', event.messageId, err)
+        inboxDirty = true
       }
+    }
+
+    if (inboxDirty) {
+      return new Response('Service Unavailable', { status: 503 })
     }
 
     return new Response('OK', { status: 200 })
   } catch (err) {
     console.error('[webhook] Error processing webhook:', err)
-    return new Response('OK', { status: 200 })
+    return new Response('Service Unavailable', { status: 503 })
   }
 }

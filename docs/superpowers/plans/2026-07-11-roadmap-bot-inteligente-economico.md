@@ -1,7 +1,7 @@
 # Roadmap: bot inteligente e econômico
 
 - **Data:** 11/07/2026 (atualizado 12/07/2026)
-- **Status:** Fase 0 mergeada em `main` (PR #20); **Fase 1 implementada** (branch `fix/fase1-fundacoes-de-prova`); Fases 2–8 pendentes
+- **Status:** Fases 0 e 1 mergeadas em `main`; **Fase 2 implementada** na branch `fix/fase2-inbox-enxuta`; Fases 3–8 pendentes
 - **Fonte de verdade dos achados:** [`docs/superpowers/specs/2026-07-11-auditoria-conversacional-e-registro-alimentos.md`](../specs/2026-07-11-auditoria-conversacional-e-registro-alimentos.md)
 - **Política de produto:** recomendações padrão da seção 18 da auditoria, adotadas como defaults oficiais
 - **Adendo §20 da auditoria:** a seção 20 registra o patch mínimo já entregue (§20.1), os gates reproduzíveis de merge (§20.2) e a arquitetura completa de idempotência (§20.3), que passa a ser a **spec canônica das Fases 2 e 3**
@@ -145,7 +145,7 @@ Uma fase só é **DONE** quando:
 
 | | |
 |---|---|
-| **Status** | 🔄 **Implementada — aguardando PR/merge** · spec: [2026-07-12-fase1-fundacoes-de-prova-design.md](../specs/2026-07-12-fase1-fundacoes-de-prova-design.md) · plano: [2026-07-12-fase1-fundacoes-de-prova.md](2026-07-12-fase1-fundacoes-de-prova.md) · branch: `fix/fase1-fundacoes-de-prova` |
+| **Status** | ✅ **DONE — mergeada em `main` via PR #21 (12/07/2026)** · spec: [2026-07-12-fase1-fundacoes-de-prova-design.md](../specs/2026-07-12-fase1-fundacoes-de-prova-design.md) · plano: [2026-07-12-fase1-fundacoes-de-prova.md](2026-07-12-fase1-fundacoes-de-prova.md) |
 | **Objetivo** | Tornar possível provar as fases seguintes com Postgres real, E2E mockado e corpus — não só unit mocks. |
 | **Tamanho / risco** | Médio / baixo em produção (só infra de teste + zerar dívida de TS). |
 | **Paralelo com** | Fase 0 (✅ mergeada). |
@@ -174,10 +174,11 @@ Uma fase só é **DONE** quando:
 
 | | |
 |---|---|
+| **Status** | 🔄 **Implementada — aguardando PR/merge** · spec: [2026-07-12-fase2-inbox-enxuta-design.md](../specs/2026-07-12-fase2-inbox-enxuta-design.md) · plano: [2026-07-12-fase2-inbox-enxuta.md](2026-07-12-fase2-inbox-enxuta.md) · branch: `fix/fase2-inbox-enxuta` |
 | **Objetivo** | ACK ≠ conclusão; retry retoma trabalho; cada inbound e cada ato têm identidade estável. Absorve e generaliza WS5. |
 | **Tamanho / risco** | Grande / alto — migrations + mudança do contrato do webhook. |
 | **Depende de** | Fase 0 (✅ mergeada); Fase 1 para provar. |
-| **Spec canônica** | Auditoria **§20.3**: identidades (`work_id`, `operation_id`, `item_operation_key`), tabelas `inbound_work` e `outbox_messages`, fluxo transacional, provas obrigatórias em Postgres real. |
+| **Spec canônica** | Fatia enxuta de §20.3: [2026-07-12-fase2-inbox-enxuta-design.md](../specs/2026-07-12-fase2-inbox-enxuta-design.md). Outbox e `domain_operations` ficam para 2b/Fase 3. |
 
 **Achados:** WEB-03, WEB-04, WEB-05, STATE-11, REL-01, REL-02, REL-05 (parcial outbox), REL-15, REL-25, REL-26, COST-15, LLM-01 (deadline propagado — início).
 
@@ -484,7 +485,8 @@ Uma redução de tokens só conta como sucesso se os gates de integridade perman
 1. ✅ Fase 0 + patch mínimo (§20.1) mergeados em `main` via PR #20 (11/07/2026) e deploy de produção `READY` na Vercel; plano das correções: [2026-07-11-correcao-mudancas-antigas.md](2026-07-11-correcao-mudancas-antigas.md). Nenhuma migration entrou na PR.
 2. Verificação operacional pós-merge: confirmar `META_APP_SECRET` e `CRON_SECRET` configurados na Vercel e webhook recebendo mensagens assinadas em produção.
 3. ✅ Spec e plano da **Fase 1** aprovados (12/07/2026): [2026-07-12-fase1-fundacoes-de-prova-design.md](../specs/2026-07-12-fase1-fundacoes-de-prova-design.md) · [2026-07-12-fase1-fundacoes-de-prova.md](2026-07-12-fase1-fundacoes-de-prova.md).
-4. 🔄 Fase 1 implementada na branch `fix/fase1-fundacoes-de-prova` (harness, corpus, CI) — aguardando PR/merge.
-5. Após a Fase 1 mergeada, detalhar a **Fase 2** (inbox) usando §20.3 como spec canônica, sem pular a identidade de operação.
+4. ✅ Fase 1 mergeada em `main` via PR #21 (12/07/2026): harness de integração, E2E in-process, corpus e CI.
+5. ✅ Spec e plano enxutos da **Fase 2** (12/07/2026): [2026-07-12-fase2-inbox-enxuta-design.md](../specs/2026-07-12-fase2-inbox-enxuta-design.md) · [2026-07-12-fase2-inbox-enxuta.md](2026-07-12-fase2-inbox-enxuta.md).
+6. 🔄 Fase 2 implementada na branch `fix/fase2-inbox-enxuta` — aguardando PR/merge e rollout (migration VPS + flag).
 
 Este arquivo não escolhe cronograma de calendário; escolhe ordem e critérios.
