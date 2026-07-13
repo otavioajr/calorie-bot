@@ -229,3 +229,44 @@ export function failureStatusForAttempt(attempt: number | null): 'failed_retryab
   }
   return 'failed_retryable'
 }
+
+export type HasNewerInboundWorkInput = {
+  workId: string
+  userPhone: string | null
+  receivedAt: string
+  createdAt: string
+}
+
+/**
+ * True if another inbound_work for the same phone is strictly newer
+ * by (received_at, created_at) lexicographic order.
+ */
+export async function hasNewerInboundWork(
+  supabase: SupabaseClient,
+  input: HasNewerInboundWorkInput,
+): Promise<boolean> {
+  if (!input.userPhone) return false
+
+  const receivedAt = input.receivedAt
+  const createdAt = input.createdAt
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase as any)
+    .from('inbound_work')
+    .select('id')
+    .eq('user_phone', input.userPhone)
+    .neq('id', input.workId)
+    .or(
+      `received_at.gt.${receivedAt},and(received_at.eq.${receivedAt},created_at.gt.${createdAt})`,
+    )
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    console.error('[inbound-work] hasNewerInboundWork failed:', error.message)
+    // Fail closed for reply: treat as superseded so we do not send a late WhatsApp
+    return true
+  }
+
+  return data != null
+}

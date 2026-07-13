@@ -98,3 +98,79 @@ describe('isInboundWorkEnabled', () => {
     process.env.INBOUND_WORK_ENABLED = prev
   })
 })
+
+function makeHasNewerInboundWorkSupabase(
+  maybeSingleResult: { data: unknown; error: { message?: string } | null },
+) {
+  const maybeSingle = vi.fn().mockResolvedValue(maybeSingleResult)
+  const limit = vi.fn(() => ({ maybeSingle }))
+  const or = vi.fn(() => ({ limit }))
+  const neq = vi.fn(() => ({ or }))
+  const eq = vi.fn(() => ({ neq }))
+  const select = vi.fn(() => ({ eq }))
+  const from = vi.fn(() => ({ select }))
+  return { supabase: { from } as never, from, select, eq, neq, or, limit, maybeSingle }
+}
+
+const HAS_NEWER_INPUT = {
+  workId: 'work-old',
+  userPhone: '5511999999999',
+  receivedAt: '2026-07-13T12:00:00.000Z',
+  createdAt: '2026-07-13T12:00:00.000Z',
+}
+
+describe('hasNewerInboundWork', () => {
+  it('returns true when maybeSingle returns a row', async () => {
+    const { hasNewerInboundWork } = await import('@/lib/db/queries/inbound-work')
+    const { supabase, from, select, eq, neq, or, limit } = makeHasNewerInboundWorkSupabase({
+      data: { id: 'newer-id' },
+      error: null,
+    })
+
+    const newer = await hasNewerInboundWork(supabase, HAS_NEWER_INPUT)
+
+    expect(newer).toBe(true)
+    expect(from).toHaveBeenCalledWith('inbound_work')
+    expect(select).toHaveBeenCalledWith('id')
+    expect(eq).toHaveBeenCalledWith('user_phone', '5511999999999')
+    expect(neq).toHaveBeenCalledWith('id', 'work-old')
+    expect(or).toHaveBeenCalledWith(
+      'received_at.gt.2026-07-13T12:00:00.000Z,and(received_at.eq.2026-07-13T12:00:00.000Z,created_at.gt.2026-07-13T12:00:00.000Z)',
+    )
+    expect(limit).toHaveBeenCalledWith(1)
+  })
+
+  it('returns false when userPhone is null (no DB call)', async () => {
+    const { hasNewerInboundWork } = await import('@/lib/db/queries/inbound-work')
+    const from = vi.fn()
+    const newer = await hasNewerInboundWork({ from } as never, {
+      ...HAS_NEWER_INPUT,
+      userPhone: null,
+    })
+    expect(newer).toBe(false)
+    expect(from).not.toHaveBeenCalled()
+  })
+
+  it('returns false when data is null', async () => {
+    const { hasNewerInboundWork } = await import('@/lib/db/queries/inbound-work')
+    const { supabase } = makeHasNewerInboundWorkSupabase({ data: null, error: null })
+    const newer = await hasNewerInboundWork(supabase, HAS_NEWER_INPUT)
+    expect(newer).toBe(false)
+  })
+
+  it('returns true on error (fail-closed)', async () => {
+    const { hasNewerInboundWork } = await import('@/lib/db/queries/inbound-work')
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { supabase } = makeHasNewerInboundWorkSupabase({
+      data: null,
+      error: { message: 'down' },
+    })
+    const newer = await hasNewerInboundWork(supabase, HAS_NEWER_INPUT)
+    expect(newer).toBe(true)
+    expect(consoleSpy).toHaveBeenCalledWith(
+      '[inbound-work] hasNewerInboundWork failed:',
+      'down',
+    )
+    consoleSpy.mockRestore()
+  })
+})
