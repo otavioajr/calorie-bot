@@ -189,6 +189,7 @@ async function processInboundEvent(
       status: enqueued.status,
     },
     leaseOwner,
+    { freshnessGate: false },
   )
 
   return 'ok'

@@ -71,5 +71,6 @@ describe('GET /api/cron/inbox-sweeper', () => {
     const body = await response.json()
     expect(body.candidates).toBe(1)
     expect(mockProcessInboundWork).toHaveBeenCalledTimes(1)
+    expect(mockProcessInboundWork.mock.calls[0]).toHaveLength(3)
   })
 })
