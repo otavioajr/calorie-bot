@@ -10,6 +10,7 @@ import { getRecentMessages } from '@/lib/db/queries/message-history'
 import { fuzzyMatchTacoMultiple, calculateMacros, matchTacoByBase, getLearnedDefault, recordTacoUsage } from '@/lib/db/queries/taco'
 import type { TacoFood } from '@/lib/db/queries/taco'
 import { sendTextMessage } from '@/lib/whatsapp/client'
+import { withOutboxMessageKind } from '@/lib/outbox/scope'
 import { searchMealHistory, HistoryMatch } from '@/lib/db/queries/meal-history-search'
 import { normalizeFoodNameForTaco, applySynonyms, tokenMatchScore } from '@/lib/utils/food-normalize'
 import { getUserLocalTime, detectExplicitMealDestination, detectExplicitMealType } from '@/lib/utils/meal-time'
@@ -1366,7 +1367,10 @@ async function analyzeAndRegister(
 
   // Send feedback once before enrichment loop
   if (user.phone) {
-    await sendTextMessage(user.phone, formatSearchFeedback())
+    await withOutboxMessageKind(
+      'progress',
+      () => sendTextMessage(user.phone!, formatSearchFeedback()),
+    )
   }
 
   // TRIAGE: separate resolved items from items needing quantity

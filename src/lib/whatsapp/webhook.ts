@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from 'crypto'
+import type { MetaCallbackStatus } from '@/lib/outbox/types'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -19,13 +20,38 @@ export interface WhatsAppMessage {
   timestamp: number
   quotedMessageId?: string
   phoneNumberId?: string
+  businessAccountId?: string
 }
 
-/** @deprecated Status events are not returned by parseWebhookEvents (Fase 2). */
+export interface WhatsAppStatusError {
+  code?: number
+  subcode?: number
+  title?: string
+  message?: string
+  details?: string
+}
+
+export interface WhatsAppStatusEvent {
+  type: 'status'
+  providerMessageId: string
+  status: MetaCallbackStatus
+  rawStatus: string
+  timestamp: number
+  recipientId?: string
+  phoneNumberId?: string
+  businessAccountId?: string
+  opaqueCallbackData?: string
+  errors: WhatsAppStatusError[]
+  payload: Record<string, unknown>
+}
+
+/** @deprecated Use WhatsAppStatusEvent from parseWhatsAppWebhookEvents. */
 export interface WhatsAppStatus {
   type: 'status'
   status: string
 }
+
+export type WhatsAppWebhookEvent = WhatsAppMessage | WhatsAppStatusEvent
 
 /** @deprecated Use parseWebhookEvents instead. */
 export type WebhookEvent = WhatsAppMessage | WhatsAppStatus | null
@@ -71,6 +97,15 @@ interface RawPayload {
 
 interface RawMetadata {
   phone_number_id?: unknown
+}
+
+interface RawStatus {
+  id?: unknown
+  status?: unknown
+  timestamp?: unknown
+  recipient_id?: unknown
+  biz_opaque_callback_data?: unknown
+  errors?: unknown
 }
 
 // ---------------------------------------------------------------------------
@@ -119,6 +154,11 @@ function asRawMetadata(value: unknown): RawMetadata | null {
   return value as RawMetadata
 }
 
+function asRawStatus(value: unknown): RawStatus | null {
+  if (!isObject(value)) return null
+  return value as RawStatus
+}
+
 // ---------------------------------------------------------------------------
 // verifyWebhookSignature (WEB-01)
 // ---------------------------------------------------------------------------
@@ -158,7 +198,11 @@ export function signWebhookBody(rawBody: string, appSecret: string): string {
 // parseWebhookEvents (WEB-02)
 // ---------------------------------------------------------------------------
 
-function parseRawMessage(rawMsg: RawMessage, phoneNumberId?: string): WhatsAppMessage | null {
+function parseRawMessage(
+  rawMsg: RawMessage,
+  phoneNumberId?: string,
+  businessAccountId?: string,
+): WhatsAppMessage | null {
   const from = asString(rawMsg.from)
   const messageId = asString(rawMsg.id)
   const timestampStr = asString(rawMsg.timestamp)
@@ -166,14 +210,21 @@ function parseRawMessage(rawMsg: RawMessage, phoneNumberId?: string): WhatsAppMe
 
   if (!from || !messageId || !timestampStr || !msgType) return null
 
-  const timestamp = parseInt(timestampStr, 10)
-  if (isNaN(timestamp)) return null
+  const timestamp = asInteger(timestampStr)
+  if (timestamp === undefined || !isValidEpochSeconds(timestamp)) return null
 
   const quotedMessageId = isObject(rawMsg.context)
     ? asString((rawMsg.context as { id?: unknown }).id)
     : undefined
 
-  const base = { from, messageId, timestamp, quotedMessageId, phoneNumberId }
+  const base = {
+    from,
+    messageId,
+    timestamp,
+    quotedMessageId,
+    phoneNumberId,
+    businessAccountId,
+  }
 
   if (msgType === 'text') {
     const textBody =
@@ -219,8 +270,88 @@ function parseRawMessage(rawMsg: RawMessage, phoneNumberId?: string): WhatsAppMe
   return null
 }
 
-export function parseWebhookEvents(body: unknown): WhatsAppMessage[] {
-  const events: WhatsAppMessage[] = []
+function asInteger(value: unknown): number | undefined {
+  if (
+    typeof value === 'number' &&
+    Number.isSafeInteger(value) &&
+    value >= 0
+  ) return value
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) return undefined
+  const parsed = Number(value)
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined
+}
+
+function isValidEpochSeconds(value: number): boolean {
+  return Number.isFinite(new Date(value * 1000).getTime())
+}
+
+function parseStatusErrors(value: unknown): WhatsAppStatusError[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((candidate) => {
+    if (!isObject(candidate)) return []
+    const code = asInteger(candidate.code)
+    const subcode = asInteger(candidate.error_subcode)
+    const title = asString(candidate.title)
+    const message = asString(candidate.message)
+    const errorData = isObject(candidate.error_data)
+      ? candidate.error_data
+      : null
+    const details = errorData ? asString(errorData.details) : undefined
+    const normalized = {
+      ...(code === undefined ? {} : { code }),
+      ...(subcode === undefined ? {} : { subcode }),
+      ...(title === undefined ? {} : { title }),
+      ...(message === undefined ? {} : { message }),
+      ...(details === undefined ? {} : { details }),
+    }
+    return Object.keys(normalized).length === 0 ? [] : [normalized]
+  })
+}
+
+function normalizeCallbackStatus(status: string): MetaCallbackStatus {
+  return status === 'sent' ||
+    status === 'delivered' ||
+    status === 'read' ||
+    status === 'failed'
+    ? status
+    : 'unknown'
+}
+
+function parseRawStatus(
+  rawStatus: RawStatus,
+  payload: Record<string, unknown>,
+  phoneNumberId?: string,
+  businessAccountId?: string,
+): WhatsAppStatusEvent | null {
+  const providerMessageId = asString(rawStatus.id)
+  const status = asString(rawStatus.status)
+  const timestamp = asInteger(rawStatus.timestamp)
+  if (
+    !providerMessageId ||
+    !status ||
+    timestamp === undefined ||
+    !isValidEpochSeconds(timestamp)
+  ) return null
+
+  return {
+    type: 'status',
+    providerMessageId,
+    status: normalizeCallbackStatus(status),
+    rawStatus: status,
+    timestamp,
+    recipientId: asString(rawStatus.recipient_id),
+    phoneNumberId,
+    businessAccountId,
+    opaqueCallbackData: asString(rawStatus.biz_opaque_callback_data),
+    errors: parseStatusErrors(rawStatus.errors),
+    payload,
+  }
+}
+
+export function parseWhatsAppWebhookEvents(
+  body: unknown,
+): WhatsAppWebhookEvent[] {
+  const events: WhatsAppWebhookEvent[] = []
 
   try {
     const payload = asRawPayload(body)
@@ -229,23 +360,44 @@ export function parseWebhookEvents(body: unknown): WhatsAppMessage[] {
     for (const entryValue of payload.entry) {
       const entry = asRawEntry(entryValue)
       if (!entry || !isNonEmptyArray(entry.changes)) continue
+      const businessAccountId = asString(entry.id)
 
       for (const changeValue of entry.changes) {
         const change = asRawChange(changeValue)
         if (!change) continue
 
         const value = asRawChangeValue(change.value)
-        if (!value || !isNonEmptyArray(value.messages)) continue
+        if (!value) continue
 
         const metadata = asRawMetadata(value.metadata)
         const phoneNumberId = metadata ? asString(metadata.phone_number_id) : undefined
 
-        for (const messageValue of value.messages) {
-          const rawMsg = asRawMessage(messageValue)
-          if (!rawMsg) continue
+        if (Array.isArray(value.messages)) {
+          for (const messageValue of value.messages) {
+            const rawMsg = asRawMessage(messageValue)
+            if (!rawMsg) continue
 
-          const parsed = parseRawMessage(rawMsg, phoneNumberId)
-          if (parsed) events.push(parsed)
+            const parsed = parseRawMessage(
+              rawMsg,
+              phoneNumberId,
+              businessAccountId,
+            )
+            if (parsed) events.push(parsed)
+          }
+        }
+
+        if (Array.isArray(value.statuses)) {
+          for (const statusValue of value.statuses) {
+            const rawStatus = asRawStatus(statusValue)
+            if (!rawStatus || !isObject(statusValue)) continue
+            const parsed = parseRawStatus(
+              rawStatus,
+              statusValue,
+              phoneNumberId,
+              businessAccountId,
+            )
+            if (parsed) events.push(parsed)
+          }
         }
       }
     }
@@ -257,37 +409,25 @@ export function parseWebhookEvents(body: unknown): WhatsAppMessage[] {
   return events
 }
 
+export function parseWebhookEvents(body: unknown): WhatsAppMessage[] {
+  return parseWhatsAppWebhookEvents(body).filter(
+    (event): event is WhatsAppMessage => event.type !== 'status',
+  )
+}
+
 /**
  * @deprecated Use parseWebhookEvents. Returns the first message only.
  */
 export function parseWebhookPayload(body: unknown): WebhookEvent {
-  const events = parseWebhookEvents(body)
-  if (events.length > 0) return events[0]
-
-  // Legacy: status-only payloads (no messages)
-  try {
-    const payload = asRawPayload(body)
-    if (!payload || !isNonEmptyArray(payload.entry)) return null
-
-    const entry = asRawEntry(payload.entry[0])
-    if (!entry || !isNonEmptyArray(entry.changes)) return null
-
-    const change = asRawChange(entry.changes[0])
-    if (!change) return null
-
-    const value = asRawChangeValue(change.value)
-    if (!value || !isNonEmptyArray(value.statuses)) return null
-
-    const rawStatus = value.statuses[0]
-    if (!isObject(rawStatus)) return null
-
-    const status = asString(rawStatus.status)
-    if (!status) return null
-
-    return { type: 'status', status }
-  } catch {
-    return null
-  }
+  const events = parseWhatsAppWebhookEvents(body)
+  const message = events.find(
+    (event): event is WhatsAppMessage => event.type !== 'status',
+  )
+  if (message) return message
+  const status = events.find(
+    (event): event is WhatsAppStatusEvent => event.type === 'status',
+  )
+  return status ? { type: 'status', status: status.rawStatus } : null
 }
 
 // ---------------------------------------------------------------------------

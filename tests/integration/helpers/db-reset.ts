@@ -8,6 +8,10 @@ import { getDbContainerName } from './ensure-grants'
  */
 const TRUNCATE_SQL = `
 TRUNCATE TABLE
+  outbox_status_events,
+  outbox_messages,
+  private.outbox_fallback_fences,
+  private.outbox_suspended_generations,
   meal_items,
   meals,
   inbound_work,

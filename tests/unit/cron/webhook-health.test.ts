@@ -19,53 +19,103 @@ beforeAll(() => {
   vi.stubEnv('CRON_SECRET', CRON_SECRET)
   vi.stubEnv('WHATSAPP_PHONE_NUMBER_ID', '123456789')
   vi.stubEnv('WHATSAPP_ACCESS_TOKEN', 'wa-token')
+  // A health alert must bypass durable routing even when outbox configuration
+  // is intentionally incomplete during rollback/recovery.
+  vi.stubEnv('OUTBOX_MODE', 'active')
+  vi.stubEnv('OUTBOX_GENERATION', '')
 })
 afterEach(() => server.resetHandlers())
-afterAll(() => server.close())
+afterAll(() => {
+  server.close()
+  vi.unstubAllEnvs()
+})
 
-async function callWebhookHealth(authHeader?: string) {
-  const { POST } = await import('@/app/api/cron/webhook-health/route')
-  const request = new Request('http://localhost/api/cron/webhook-health', {
-    method: 'POST',
-    headers: authHeader ? { authorization: authHeader } : {},
+type CronMethod = 'GET' | 'POST'
+
+function request(
+  method: CronMethod,
+  secret: string = CRON_SECRET,
+) {
+  return new Request('http://localhost/api/cron/webhook-health', {
+    method,
+    headers: { authorization: `Bearer ${secret}` },
   })
-  return POST(request)
 }
 
-describe('POST /api/cron/webhook-health', () => {
-  it('returns 401 without valid CRON_SECRET', async () => {
-    const response = await callWebhookHealth('Bearer wrong-secret')
-    expect(response.status).toBe(401)
+async function callWebhookHealth(method: CronMethod, secret?: string) {
+  const { GET, POST } = await import('@/app/api/cron/webhook-health/route')
+  const handler = method === 'GET' ? GET : POST
+  return handler(request(method, secret))
+}
+
+describe('GET and POST /api/cron/webhook-health', () => {
+  it('exports GET and POST as the same handler', async () => {
+    const { GET, POST } = await import('@/app/api/cron/webhook-health/route')
+
+    expect(GET).toBe(POST)
   })
 
-  it('returns 401 when CRON_SECRET env is unset', async () => {
-    vi.stubEnv('CRON_SECRET', '')
-    const response = await callWebhookHealth('Bearer undefined')
-    expect(response.status).toBe(401)
-    vi.stubEnv('CRON_SECRET', CRON_SECRET)
-  })
+  it.each<CronMethod>(['GET', 'POST'])(
+    'returns 401 for %s without valid CRON_SECRET and skips effects',
+    async (method) => {
+      let subscriptionChecks = 0
+      server.use(
+        http.get(`https://graph.facebook.com/v21.0/${APP_ID}/subscriptions`, () => {
+          subscriptionChecks++
+          return HttpResponse.json({ data: [] })
+        }),
+      )
 
-  it('reports OK when subscription is active with messages field', async () => {
-    server.use(
-      http.get(`https://graph.facebook.com/v21.0/${APP_ID}/subscriptions`, () => {
-        return HttpResponse.json({
-          data: [
-            {
-              object: 'whatsapp_business_account',
-              active: true,
-              fields: [{ name: 'messages', version: 'v21.0' }],
-            },
-          ],
-        })
-      }),
-    )
+      const response = await callWebhookHealth(method, 'wrong-secret')
 
-    const response = await callWebhookHealth(`Bearer ${CRON_SECRET}`)
-    const body = await response.json()
+      expect(response.status).toBe(401)
+      await expect(response.json()).resolves.toEqual({ error: 'Unauthorized' })
+      expect(subscriptionChecks).toBe(0)
+    },
+  )
 
-    expect(response.status).toBe(200)
-    expect(body.status).toBe('ok')
-  })
+  it.each<CronMethod>(['GET', 'POST'])(
+    'returns 401 for %s when CRON_SECRET env is unset',
+    async (method) => {
+      delete process.env.CRON_SECRET
+
+      try {
+        const response = await callWebhookHealth(method)
+
+        expect(response.status).toBe(401)
+      } finally {
+        process.env.CRON_SECRET = CRON_SECRET
+      }
+    },
+  )
+
+  it.each<CronMethod>(['GET', 'POST'])(
+    'reports OK for %s when subscription is active with messages field',
+    async (method) => {
+      let subscriptionChecks = 0
+      server.use(
+        http.get(`https://graph.facebook.com/v21.0/${APP_ID}/subscriptions`, () => {
+          subscriptionChecks++
+          return HttpResponse.json({
+            data: [
+              {
+                object: 'whatsapp_business_account',
+                active: true,
+                fields: [{ name: 'messages', version: 'v21.0' }],
+              },
+            ],
+          })
+        }),
+      )
+
+      const response = await callWebhookHealth(method)
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(body).toEqual({ status: 'ok' })
+      expect(subscriptionChecks).toBe(1)
+    },
+  )
 
   it('re-registers and alerts admin when subscription is inactive', async () => {
     let reRegistered = false
@@ -88,7 +138,7 @@ describe('POST /api/cron/webhook-health', () => {
       }),
     )
 
-    const response = await callWebhookHealth(`Bearer ${CRON_SECRET}`)
+    const response = await callWebhookHealth('POST')
     const body = await response.json()
 
     expect(response.status).toBe(200)
@@ -117,7 +167,7 @@ describe('POST /api/cron/webhook-health', () => {
       }),
     )
 
-    const response = await callWebhookHealth(`Bearer ${CRON_SECRET}`)
+    const response = await callWebhookHealth('POST')
     const body = await response.json()
 
     expect(response.status).toBe(200)
@@ -150,7 +200,7 @@ describe('POST /api/cron/webhook-health', () => {
       }),
     )
 
-    const response = await callWebhookHealth(`Bearer ${CRON_SECRET}`)
+    const response = await callWebhookHealth('POST')
     const body = await response.json()
 
     expect(body.status).toBe('re-registered')

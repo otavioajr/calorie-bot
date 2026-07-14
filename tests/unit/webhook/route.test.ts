@@ -17,11 +17,13 @@ const {
   mockEnqueueInboundWork,
   mockListStaleInboundWork,
   mockIsInboundWorkEnabled,
+  mockProjectOutboxCallback,
 } = vi.hoisted(() => ({
   mockProcessInboundWork: vi.fn().mockResolvedValue('committed'),
   mockEnqueueInboundWork: vi.fn(),
   mockListStaleInboundWork: vi.fn().mockResolvedValue([]),
   mockIsInboundWorkEnabled: vi.fn().mockReturnValue(false),
+  mockProjectOutboxCallback: vi.fn(),
 }))
 
 vi.mock('@/lib/db/supabase', () => ({
@@ -83,6 +85,10 @@ vi.mock('@/lib/db/queries/inbound-work', async (importOriginal) => {
 
 vi.mock('@/lib/bot/inbound-processor', () => ({
   processInboundWork: (...args: unknown[]) => mockProcessInboundWork(...args),
+}))
+
+vi.mock('@/lib/outbox/callbacks', () => ({
+  projectOutboxCallback: (...args: unknown[]) => mockProjectOutboxCallback(...args),
 }))
 
 import { GET, POST } from '@/app/api/webhook/whatsapp/route'
@@ -240,6 +246,72 @@ function makeMultiMessagePayload() {
           ],
         },
         field: 'messages',
+      }],
+    }],
+  }
+}
+
+type StatusFixture = {
+  id: string
+  status: string
+  timestamp: string
+  recipient_id: string
+  biz_opaque_callback_data?: string
+  errors?: Array<{
+    code: number
+    title?: string
+    message?: string
+    error_data?: { details?: string }
+  }>
+}
+
+function makeStatus(
+  id: string,
+  status: string,
+  opaqueCallbackData?: string,
+): StatusFixture {
+  return {
+    id,
+    status,
+    timestamp: '1710000100',
+    recipient_id: '5511999887766',
+    ...(opaqueCallbackData
+      ? { biz_opaque_callback_data: opaqueCallbackData }
+      : {}),
+  }
+}
+
+function makeStatusPayload(statuses: StatusFixture[]) {
+  return {
+    object: 'whatsapp_business_account',
+    entry: [{
+      id: 'BIZ_ACCOUNT_ID',
+      changes: [{
+        value: {
+          messaging_product: 'whatsapp',
+          metadata: { phone_number_id: 'PHONE_NUMBER_ID' },
+          statuses,
+        },
+        field: 'messages',
+      }],
+    }],
+  }
+}
+
+function makeMixedPayload() {
+  const payload = makeTextPayload()
+  const value = payload.entry[0].changes[0].value
+
+  return {
+    ...payload,
+    entry: [{
+      ...payload.entry[0],
+      changes: [{
+        ...payload.entry[0].changes[0],
+        value: {
+          ...value,
+          statuses: [makeStatus('wamid.callback-mixed', 'delivered', 'outbox-mixed')],
+        },
       }],
     }],
   }
@@ -534,6 +606,208 @@ describe('POST /api/webhook/whatsapp', () => {
 })
 
 // ---------------------------------------------------------------------------
+// POST — delivery status callbacks
+// ---------------------------------------------------------------------------
+
+describe('POST — Meta delivery status callbacks', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    process.env.META_APP_SECRET = TEST_APP_SECRET
+    process.env.WHATSAPP_PHONE_NUMBER_ID = 'PHONE_NUMBER_ID'
+    delete process.env.OUTBOX_MODE
+    delete process.env.OUTBOX_GENERATION
+    delete process.env.INBOUND_WORK_ENABLED
+    mockIsInboundWorkEnabled.mockReturnValue(false)
+    mockSingle.mockResolvedValue({ data: {}, error: null })
+    mockHandleIncomingMessage.mockReset().mockResolvedValue(undefined)
+    mockProjectOutboxCallback.mockReset().mockResolvedValue({
+      ok: true,
+      result: {
+        applied: true,
+        outboxId: 'outbox-default',
+        previousStatus: 'api_accepted',
+        status: 'delivered',
+        orphaned: false,
+      },
+    })
+  })
+
+  afterEach(() => {
+    delete process.env.OUTBOX_MODE
+    delete process.env.OUTBOX_GENERATION
+    delete process.env.INBOUND_WORK_ENABLED
+    mockIsInboundWorkEnabled.mockReturnValue(false)
+  })
+
+  it('projects a status-only webhook without invoking an inbound message handler', async () => {
+    const response = await POST(makeSignedPostRequest(makeStatusPayload([
+      makeStatus('wamid.status-only', 'delivered', 'outbox-status-only'),
+    ])))
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe('OK')
+    expect(mockProjectOutboxCallback).toHaveBeenCalledOnce()
+    expect(mockProjectOutboxCallback.mock.calls[0][1]).toEqual(expect.objectContaining({
+      type: 'status',
+      status: 'delivered',
+      opaqueCallbackData: 'outbox-status-only',
+    }))
+    expect(mockInsert).not.toHaveBeenCalled()
+    expect(mockHandleIncomingMessage).not.toHaveBeenCalled()
+  })
+
+  it('processes both the message and status from a mixed webhook value', async () => {
+    const response = await POST(makeSignedPostRequest(makeMixedPayload()))
+
+    expect(response.status).toBe(200)
+    expect(mockHandleIncomingMessage).toHaveBeenCalledOnce()
+    expect(mockProjectOutboxCallback).toHaveBeenCalledOnce()
+    expect(mockProjectOutboxCallback.mock.calls[0][1]).toEqual(expect.objectContaining({
+      status: 'delivered',
+      opaqueCallbackData: 'outbox-mixed',
+    }))
+  })
+
+  it('projects every callback from a status batch', async () => {
+    const response = await POST(makeSignedPostRequest(makeStatusPayload([
+      makeStatus('wamid.sent', 'sent', 'outbox-sent'),
+      makeStatus('wamid.delivered', 'delivered', 'outbox-delivered'),
+      makeStatus('wamid.read', 'read', 'outbox-read'),
+    ])))
+
+    expect(response.status).toBe(200)
+    expect(mockProjectOutboxCallback).toHaveBeenCalledTimes(3)
+    expect(mockProjectOutboxCallback.mock.calls.map((call) => call[1])).toEqual([
+      expect.objectContaining({ status: 'sent', opaqueCallbackData: 'outbox-sent' }),
+      expect.objectContaining({ status: 'delivered', opaqueCallbackData: 'outbox-delivered' }),
+      expect.objectContaining({ status: 'read', opaqueCallbackData: 'outbox-read' }),
+    ])
+  })
+
+  it('continues processing a mixed message when callback projection fails, then returns 503', async () => {
+    mockProjectOutboxCallback.mockResolvedValueOnce({
+      ok: false,
+      error: { message: 'callback database unavailable' },
+    })
+
+    const response = await POST(makeSignedPostRequest(makeMixedPayload()))
+
+    expect(response.status).toBe(503)
+    expect(mockProjectOutboxCallback).toHaveBeenCalledOnce()
+    expect(mockHandleIncomingMessage).toHaveBeenCalledOnce()
+  })
+
+  it('continues projecting a mixed callback when message processing fails, then returns 503', async () => {
+    mockHandleIncomingMessage.mockRejectedValueOnce(new Error('message handler failed'))
+
+    const response = await POST(makeSignedPostRequest(makeMixedPayload()))
+
+    expect(response.status).toBe(503)
+    expect(mockHandleIncomingMessage).toHaveBeenCalledOnce()
+    expect(mockProjectOutboxCallback).toHaveBeenCalledOnce()
+  })
+
+  it('acknowledges an orphan callback instead of causing an infinite Meta retry', async () => {
+    mockProjectOutboxCallback.mockResolvedValueOnce({
+      ok: true,
+      result: {
+        applied: false,
+        outboxId: null,
+        previousStatus: null,
+        status: null,
+        orphaned: true,
+      },
+    })
+
+    const response = await POST(makeSignedPostRequest(makeStatusPayload([
+      makeStatus('wamid.orphan', 'delivered'),
+    ])))
+
+    expect(response.status).toBe(200)
+    expect(mockProjectOutboxCallback).toHaveBeenCalledOnce()
+  })
+
+  it('projects callbacks while OUTBOX_MODE is off', async () => {
+    process.env.OUTBOX_MODE = 'off'
+
+    const response = await POST(makeSignedPostRequest(makeStatusPayload([
+      makeStatus('wamid.off', 'read', 'outbox-off'),
+    ])))
+
+    expect(response.status).toBe(200)
+    expect(mockProjectOutboxCallback).toHaveBeenCalledOnce()
+  })
+
+  it.each(['PGRST202', '42883'])(
+    'acknowledges missing pre-migration callback RPC %s only in pristine off mode',
+    async (code) => {
+      process.env.OUTBOX_MODE = 'off'
+      process.env.OUTBOX_GENERATION = ''
+      mockProjectOutboxCallback.mockResolvedValueOnce({
+        ok: false,
+        error: { code, message: 'callback RPC is missing' },
+      })
+
+      const response = await POST(makeSignedPostRequest(makeStatusPayload([
+        makeStatus('wamid.pre-migration', 'delivered', 'outbox-pre-migration'),
+      ])))
+
+      expect(response.status).toBe(200)
+      expect(mockProjectOutboxCallback).toHaveBeenCalledOnce()
+    },
+  )
+
+  it('returns 503 for a missing callback RPC after a generation is known', async () => {
+    process.env.OUTBOX_MODE = 'off'
+    process.env.OUTBOX_GENERATION = 'known-generation'
+    mockProjectOutboxCallback.mockResolvedValueOnce({
+      ok: false,
+      error: { code: 'PGRST202', message: 'callback RPC is missing' },
+    })
+
+    const response = await POST(makeSignedPostRequest(makeStatusPayload([
+      makeStatus('wamid.rolled-back', 'delivered', 'outbox-rolled-back'),
+    ])))
+
+    expect(response.status).toBe(503)
+    expect(mockProjectOutboxCallback).toHaveBeenCalledOnce()
+  })
+
+  it.each(['shadow', 'active'] as const)(
+    'still projects a mixed callback when %s bot config rejects legacy inbound',
+    async (mode) => {
+    process.env.OUTBOX_MODE = mode
+    process.env.OUTBOX_GENERATION = 'generation-1'
+    process.env.INBOUND_WORK_ENABLED = 'false'
+
+    const response = await POST(makeSignedPostRequest(makeMixedPayload()))
+
+    expect(response.status).toBe(503)
+    expect(mockHandleIncomingMessage).not.toHaveBeenCalled()
+    expect(mockProjectOutboxCallback).toHaveBeenCalledOnce()
+    },
+  )
+
+  it('does not piggyback stale inbound work for a status-only webhook', async () => {
+    process.env.INBOUND_WORK_ENABLED = 'true'
+    mockIsInboundWorkEnabled.mockReturnValue(true)
+    mockListStaleInboundWork.mockResolvedValue([
+      { workId: 'stale-work-id', status: 'processing', attempt: 1 },
+    ])
+
+    const response = await POST(makeSignedPostRequest(makeStatusPayload([
+      makeStatus('wamid.no-piggyback', 'sent', 'outbox-no-piggyback'),
+    ])))
+
+    expect(response.status).toBe(200)
+    expect(mockProjectOutboxCallback).toHaveBeenCalledOnce()
+    expect(mockEnqueueInboundWork).not.toHaveBeenCalled()
+    expect(mockListStaleInboundWork).not.toHaveBeenCalled()
+    expect(mockProcessInboundWork).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
 // POST — audio / image / unsupported
 // ---------------------------------------------------------------------------
 
@@ -650,6 +924,18 @@ describe('POST — inbound work mode', () => {
       }
       return 'committed'
     })
+  })
+
+  it('keeps phone_number_id as the durable inbound identity across rollout', async () => {
+    await POST(makeSignedPostRequest(makeTextPayload('PHONE_NUMBER_ID')))
+
+    expect(mockEnqueueInboundWork).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        businessAccountId: 'PHONE_NUMBER_ID',
+        providerMessageId: 'wamid.abc123',
+      }),
+    )
   })
 
   afterEach(() => {

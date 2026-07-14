@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   quality:
-    name: lint · tsc · unit
+    name: lint · tsc · corpus · build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,7 +29,9 @@ jobs:
 
       - run: npx tsc --noEmit
 
-      - run: npm run test:unit
+      - run: npm test
+
+      - run: npm run build
 
   integration:
     name: integration · supabase local

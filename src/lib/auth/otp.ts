@@ -5,6 +5,7 @@ import {
   verifyAuthCode,
   countRecentCodes,
 } from '@/lib/db/queries/auth-codes'
+import { buildOtpKey } from '@/lib/outbox/policy'
 
 const RATE_LIMIT_MAX = 3
 const RATE_LIMIT_WINDOW_MINUTES = 15
@@ -39,10 +40,17 @@ export async function sendOTP(phone: string): Promise<void> {
   const code = generateOTP()
   const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000)
 
-  await createAuthCode(supabase, phone, code, expiresAt)
+  const authCodeId = await createAuthCode(supabase, phone, code, expiresAt)
 
   const message = `Seu código de acesso ao CalorieBot Web: *${code}* (expira em 5 min)`
-  await sendTextMessage(phone, message)
+  await sendTextMessage(phone, message, undefined, {
+    source: 'otp',
+    messageKind: 'otp',
+    idempotencyKey: buildOtpKey(authCodeId),
+    expiresAt,
+    resourceId: authCodeId,
+    resourceMetadata: { authCodeId },
+  })
 }
 
 /**

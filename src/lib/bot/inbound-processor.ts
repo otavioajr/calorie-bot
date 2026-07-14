@@ -15,6 +15,14 @@ import {
   hasNewerInboundWork,
   type InboundWorkStatus,
 } from '@/lib/db/queries/inbound-work'
+import { getActiveContextResult } from '@/lib/db/queries/context'
+import { findUserByPhone } from '@/lib/db/queries/users'
+import { finalizeOutboxScope } from '@/lib/outbox/repository'
+import {
+  runWithOutboxScope,
+  type OutboxScopeSummary,
+} from '@/lib/outbox/scope'
+import { isRecipientSelected, parseOutboxConfig } from '@/lib/outbox/policy'
 
 export type InboundProcessOutcome =
   | 'committed'
@@ -76,6 +84,11 @@ export async function processInboundWork(
   leaseOwner: string,
   options: ProcessInboundWorkOptions = {},
 ): Promise<InboundProcessOutcome> {
+  const outboxConfig = parseOutboxConfig(process.env, { source: 'bot' })
+  const requiresDurableTerminal = isRecipientSelected(
+    outboxConfig,
+    work.payload.from,
+  )
   const claim = await claimInboundWork(supabase, work.workId, leaseOwner)
   if (!claim.claimed) {
     return 'skipped'
@@ -164,7 +177,66 @@ export async function processInboundWork(
   }
 
   try {
-    await dispatchInboundPayload(work.payload)
+    const existingUser = await findUserByPhone(supabase, work.payload.from)
+    const { summary } = await runWithOutboxScope(
+      {
+        workId: work.workId,
+        recipient: work.payload.from,
+        userId: existingUser?.id ?? null,
+        beforeUnsafeFallback: async (incident) => {
+          const completed = await completeInboundWork(
+            supabase,
+            work.workId,
+            leaseOwner,
+            'committed',
+            'outbox_enqueue_fallback',
+            incident.error.message,
+          )
+          if (!completed.completed) {
+            throw new Error('Could not durably fence inbound replay before direct fallback')
+          }
+        },
+      },
+      () => dispatchInboundPayload(work.payload),
+    )
+
+    if (summary.idempotencyConflict) {
+      return completeInboundConflict(
+        supabase,
+        work.workId,
+        leaseOwner,
+        summary.conflictError,
+      )
+    }
+
+    if (summary.unsafeFallbackFenced) {
+      return finalizeFencedDurableInboundResponse(
+        supabase,
+        work.workId,
+        leaseOwner,
+        summary,
+      )
+    }
+
+    if (outboxConfig.mode === 'shadow') {
+      await finalizeDurableInboundResponse(
+        supabase,
+        work.workId,
+        leaseOwner,
+        summary,
+        false,
+      )
+    } else if (requiresDurableTerminal) {
+      const durableOutcome = await finalizeDurableInboundResponse(
+        supabase,
+        work.workId,
+        leaseOwner,
+        summary,
+        true,
+      )
+      if (durableOutcome) return durableOutcome
+    }
+
     const completed = await completeInboundWork(supabase, work.workId, leaseOwner, 'committed')
     if (!completed.completed) {
       console.error('[inbound-processor] complete committed failed for', work.workId)
@@ -172,6 +244,23 @@ export async function processInboundWork(
     }
     return 'committed'
   } catch (err) {
+    const scopeSummary = scopeSummaryFromError(err)
+    if (scopeSummary?.idempotencyConflict) {
+      return completeInboundConflict(
+        supabase,
+        work.workId,
+        leaseOwner,
+        scopeSummary.conflictError,
+      )
+    }
+    if (scopeSummary?.unsafeFallbackFenced) {
+      return finalizeFencedDurableInboundResponse(
+        supabase,
+        work.workId,
+        leaseOwner,
+        scopeSummary,
+      )
+    }
     const message = err instanceof Error ? err.message : 'unknown_error'
     console.error('[inbound-processor] processing failed for', work.workId, message)
     const failureStatus = failureStatusForAttempt(claim.attempt)
@@ -185,4 +274,151 @@ export async function processInboundWork(
     )
     return failureStatus
   }
+}
+
+async function completeInboundConflict(
+  supabase: SupabaseClient,
+  workId: string,
+  leaseOwner: string,
+  message: string | null,
+): Promise<InboundProcessOutcome> {
+  console.error('[outbox] critical incident:', {
+    code: 'outbox_idempotency_conflict',
+    workId,
+    message,
+  })
+  const completed = await completeInboundWork(
+    supabase,
+    workId,
+    leaseOwner,
+    'failed_terminal',
+    'outbox_idempotency_conflict',
+    message ?? 'Inbound emission key was reused with different immutable content',
+  )
+  return completed.completed ? 'failed_terminal' : 'failed_retryable'
+}
+
+function scopeSummaryFromError(error: unknown): OutboxScopeSummary | null {
+  if (!error || typeof error !== 'object' || !('summary' in error)) return null
+  const summary = (error as { summary?: unknown }).summary
+  if (!summary || typeof summary !== 'object') return null
+  return summary as OutboxScopeSummary
+}
+
+async function finalizeFencedDurableInboundResponse(
+  supabase: SupabaseClient,
+  workId: string,
+  leaseOwner: string,
+  summary: OutboxScopeSummary,
+): Promise<InboundProcessOutcome> {
+  if (summary.hasDurableTerminal) {
+    await finalizeDurableInboundResponse(
+      supabase,
+      workId,
+      leaseOwner,
+      summary,
+      false,
+    )
+  }
+  return 'committed'
+}
+
+async function finalizeDurableInboundResponse(
+  supabase: SupabaseClient,
+  workId: string,
+  leaseOwner: string,
+  summary: OutboxScopeSummary,
+  enforce: boolean,
+): Promise<InboundProcessOutcome | null> {
+  if (!summary.lastNonProgressOutboxId) {
+    console.error('[outbox] critical incident:', {
+      code: 'missing_terminal_outbox',
+      workId,
+      hasProgress: summary.hasProgress,
+    })
+    if (!enforce) return null
+    const completed = await completeInboundWork(
+      supabase,
+      workId,
+      leaseOwner,
+      'failed_terminal',
+      'missing_terminal_outbox',
+      summary.hasProgress
+        ? 'Handler completed after progress without a durable prompt or terminal response'
+        : 'Handler completed without a durable prompt or terminal response',
+    )
+    return completed.completed ? 'failed_terminal' : 'failed_retryable'
+  }
+
+  const contextResult = summary.userId
+    ? await getActiveContextResult(supabase, summary.userId)
+    : { ok: true as const, context: null }
+  if (!contextResult.ok) {
+    const expiresAt = new Date().toISOString()
+    const expired = await finalizeOutboxScope(supabase, {
+      workId,
+      lastOutboxId: summary.lastNonProgressOutboxId,
+      messageKind: 'terminal',
+      expiresAt,
+    })
+    const expirationConfirmed = expired.ok && expired.finalized
+    const message = expirationConfirmed
+      ? `Active context lookup failed: ${contextResult.error.message}`
+      : `Active context lookup failed and the scoped row remains quarantined: ${contextResult.error.message}`
+    console.error('[outbox] critical incident:', {
+      code: 'outbox_context_lookup_failed',
+      workId,
+      outboxId: summary.lastNonProgressOutboxId,
+      message,
+      outboxExpired: expirationConfirmed,
+      outboxQuarantined: !expirationConfirmed,
+    })
+    if (!enforce) return null
+    const completed = await completeInboundWork(
+      supabase,
+      workId,
+      leaseOwner,
+      'failed_terminal',
+      'outbox_context_lookup_failed',
+      message,
+    )
+    return completed.completed ? 'failed_terminal' : 'failed_retryable'
+  }
+
+  const context = contextResult.context
+  const isPrompt = context !== null && context.contextType !== 'recent_meal'
+  const messageKind = isPrompt ? 'prompt' : 'terminal'
+  const expiresAt = isPrompt
+    ? context.expiresAt
+    : new Date(Date.now() + 15 * 60_000).toISOString()
+  const finalized = await finalizeOutboxScope(supabase, {
+    workId,
+    lastOutboxId: summary.lastNonProgressOutboxId,
+    messageKind,
+    expiresAt,
+  })
+
+  if (!finalized.ok || !finalized.finalized) {
+    const message = finalized.ok
+      ? 'finalize_outbox_scope did not find the durable terminal row'
+      : finalized.error.message
+    console.error('[outbox] critical incident:', {
+      code: 'outbox_scope_finalize_failed',
+      workId,
+      outboxId: summary.lastNonProgressOutboxId,
+      message,
+    })
+    if (!enforce) return null
+    const completed = await completeInboundWork(
+      supabase,
+      workId,
+      leaseOwner,
+      'failed_terminal',
+      'outbox_scope_finalize_failed',
+      message,
+    )
+    return completed.completed ? 'failed_terminal' : 'failed_retryable'
+  }
+
+  return null
 }
