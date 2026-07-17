@@ -269,7 +269,13 @@ export function recordScopedOutboxResult(
   emission.durablyEnqueued = result.durablyEnqueued
   emission.preventInboundReplay = result.preventInboundReplay
   if (result.preventInboundReplay) store.unsafeFallbackFenced = true
-  if (result.outboxId && result.providerMessageId) {
+  // Only suppress the legacy outgoing insert when the outbox attempt result
+  // was actually persisted (and thus projected). Meta acceptance alone is not enough.
+  if (
+    result.attemptResultPersisted &&
+    result.outboxId &&
+    result.providerMessageId
+  ) {
     store.projectedProviderMessages.add(result.providerMessageId)
   }
 }

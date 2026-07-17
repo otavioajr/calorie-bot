@@ -247,6 +247,7 @@ describe('inbound outbox emission scope', () => {
               providerMessageId: wamid,
               route,
               status: 'api_accepted',
+              attemptResultPersisted: true,
             }),
           )
 
@@ -279,6 +280,31 @@ describe('inbound outbox emission scope', () => {
       )
     },
   )
+
+  it('keeps the legacy outgoing path when Meta accepted but attempt result was not persisted', async () => {
+    await runWithOutboxScope(
+      {
+        workId: 'work-unpersisted',
+        recipient: '5511999990001',
+        now: () => NOW,
+      },
+      async () => {
+        const options = requireOptions(createScopedSendOptions())
+        const wamid = 'wamid.unpersisted'
+        recordScopedOutboxResult(
+          options,
+          managedResult('outbox-unpersisted', {
+            providerMessageId: wamid,
+            route: 'active',
+            status: 'api_accepted',
+            attemptResultPersisted: false,
+          }),
+        )
+
+        expect(isOutboxProjectedProviderMessage(wamid)).toBe(false)
+      },
+    )
+  })
 
   it('passes the durable fallback fence and marks the inbound as non-replayable', async () => {
     const beforeUnsafeFallback = vi.fn().mockResolvedValue(undefined)
