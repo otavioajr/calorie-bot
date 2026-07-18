@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   parseWebhookPayload,
   parseWebhookEvents,
+  parseWhatsAppWebhookEvents,
   verifyWebhook,
   verifyWebhookSignature,
   signWebhookBody,
@@ -514,6 +515,374 @@ describe('parseWebhookEvents', () => {
     } finally {
       errorLog.mockRestore()
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// parseWhatsAppWebhookEvents
+// ---------------------------------------------------------------------------
+
+describe('parseWhatsAppWebhookEvents', () => {
+  it('enumerates messages and statuses from every entry and change', () => {
+    const payload = {
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: 'WABA_FIRST',
+          changes: [
+            {
+              value: {
+                messaging_product: 'whatsapp',
+                metadata: {
+                  display_phone_number: '15550001111',
+                  phone_number_id: 'PHONE_FIRST',
+                },
+                messages: [
+                  {
+                    from: '5511111111111',
+                    id: 'wamid.message.first',
+                    timestamp: '1710000000',
+                    type: 'text',
+                    text: { body: 'first' },
+                  },
+                ],
+                statuses: [
+                  {
+                    id: 'wamid.status.sent',
+                    status: 'sent',
+                    timestamp: '1710000001',
+                    recipient_id: '5511111111111',
+                    biz_opaque_callback_data: 'outbox-first',
+                  },
+                  {
+                    id: 'wamid.status.delivered',
+                    status: 'delivered',
+                    timestamp: '1710000002',
+                    recipient_id: '5511111111111',
+                    biz_opaque_callback_data: 'outbox-second',
+                  },
+                ],
+              },
+              field: 'messages',
+            },
+            {
+              value: {
+                messaging_product: 'whatsapp',
+                metadata: { phone_number_id: 'PHONE_FIRST_OTHER_CHANGE' },
+                messages: [
+                  {
+                    from: '5511111111111',
+                    id: 'wamid.message.second',
+                    timestamp: '1710000003',
+                    type: 'audio',
+                    audio: { id: 'audio-second' },
+                  },
+                ],
+                statuses: [
+                  {
+                    id: 'wamid.status.read',
+                    status: 'read',
+                    timestamp: '1710000004',
+                    recipient_id: '5511111111111',
+                  },
+                ],
+              },
+              field: 'messages',
+            },
+          ],
+        },
+        {
+          id: 'WABA_SECOND',
+          changes: [
+            {
+              value: {
+                messaging_product: 'whatsapp',
+                metadata: { phone_number_id: 'PHONE_SECOND' },
+                messages: [
+                  {
+                    from: '5522222222222',
+                    id: 'wamid.message.third',
+                    timestamp: '1710000005',
+                    type: 'image',
+                    image: { id: 'image-third' },
+                  },
+                ],
+                statuses: [
+                  {
+                    id: 'wamid.status.failed',
+                    status: 'failed',
+                    timestamp: '1710000006',
+                    recipient_id: '5522222222222',
+                  },
+                ],
+              },
+              field: 'messages',
+            },
+          ],
+        },
+      ],
+    }
+
+    const events = parseWhatsAppWebhookEvents(payload)
+    const messages = events.filter((event) => event.type !== 'status')
+    const statuses = events.filter((event) => event.type === 'status')
+
+    expect(messages.map((event) => event.messageId)).toEqual([
+      'wamid.message.first',
+      'wamid.message.second',
+      'wamid.message.third',
+    ])
+    expect(statuses.map((event) => event.providerMessageId)).toEqual([
+      'wamid.status.sent',
+      'wamid.status.delivered',
+      'wamid.status.read',
+      'wamid.status.failed',
+    ])
+    expect(events).toHaveLength(7)
+  })
+
+  it('preserves callback correlation and Meta routing identifiers', () => {
+    const rawStatus = {
+      id: 'wamid.callback.identifiers',
+      status: 'delivered',
+      timestamp: '1710000100',
+      recipient_id: '5511999887766',
+      biz_opaque_callback_data: '3e8c35ef-c66b-442d-8969-51ea91c998db',
+      conversation: { id: 'conversation-123', origin: { type: 'utility' } },
+    }
+    const payload = {
+      object: 'whatsapp_business_account',
+      entry: [{
+        id: 'WABA_IDENTIFIERS',
+        changes: [{
+          value: {
+            messaging_product: 'whatsapp',
+            metadata: {
+              display_phone_number: '15550001234',
+              phone_number_id: 'PHONE_IDENTIFIERS',
+            },
+            statuses: [rawStatus],
+          },
+          field: 'messages',
+        }],
+      }],
+    }
+
+    const [event] = parseWhatsAppWebhookEvents(payload)
+
+    expect(event).toMatchObject({
+      type: 'status',
+      providerMessageId: 'wamid.callback.identifiers',
+      status: 'delivered',
+      rawStatus: 'delivered',
+      timestamp: 1710000100,
+      recipientId: '5511999887766',
+      phoneNumberId: 'PHONE_IDENTIFIERS',
+      businessAccountId: 'WABA_IDENTIFIERS',
+      opaqueCallbackData: '3e8c35ef-c66b-442d-8969-51ea91c998db',
+      errors: [],
+      payload: rawStatus,
+    })
+  })
+
+  it('normalizes every Meta error attached to a failed callback', () => {
+    const payload = {
+      object: 'whatsapp_business_account',
+      entry: [{
+        id: 'WABA_ERRORS',
+        changes: [{
+          value: {
+            metadata: { phone_number_id: 'PHONE_ERRORS' },
+            statuses: [{
+              id: 'wamid.failed.errors',
+              status: 'failed',
+              timestamp: '1710000200',
+              recipient_id: '5511999887766',
+              errors: [
+                {
+                  code: 131026,
+                  title: 'Message undeliverable',
+                  message: 'Message undeliverable',
+                  error_data: { details: 'The recipient is unavailable.' },
+                  href: 'https://developers.facebook.com/docs/whatsapp/cloud-api/support/error-codes/',
+                },
+                {
+                  code: 131047,
+                  error_subcode: 2494010,
+                  title: 'Re-engagement message',
+                  message: 'Outside the allowed window',
+                },
+              ],
+            }],
+          },
+          field: 'messages',
+        }],
+      }],
+    }
+
+    const [event] = parseWhatsAppWebhookEvents(payload)
+
+    expect(event).toMatchObject({
+      type: 'status',
+      status: 'failed',
+      errors: [
+        {
+          code: 131026,
+          title: 'Message undeliverable',
+          message: 'Message undeliverable',
+          details: 'The recipient is unavailable.',
+        },
+        {
+          code: 131047,
+          subcode: 2494010,
+          title: 'Re-engagement message',
+          message: 'Outside the allowed window',
+        },
+      ],
+    })
+  })
+
+  it('keeps an unknown status as a raw ledger event without discarding it', () => {
+    const payload = {
+      object: 'whatsapp_business_account',
+      entry: [{
+        id: 'WABA_UNKNOWN',
+        changes: [{
+          value: {
+            metadata: { phone_number_id: 'PHONE_UNKNOWN' },
+            statuses: [{
+              id: 'wamid.status.future',
+              status: 'recalled',
+              timestamp: '1710000300',
+              recipient_id: '5511999887766',
+            }],
+          },
+          field: 'messages',
+        }],
+      }],
+    }
+
+    expect(parseWhatsAppWebhookEvents(payload)).toEqual([
+      expect.objectContaining({
+        type: 'status',
+        providerMessageId: 'wamid.status.future',
+        status: 'unknown',
+        rawStatus: 'recalled',
+        timestamp: 1710000300,
+      }),
+    ])
+  })
+
+  it('isolates malformed entries, changes, messages, statuses, and errors', () => {
+    const payload = {
+      object: 'whatsapp_business_account',
+      entry: [
+        null,
+        { changes: null },
+        {
+          id: 'WABA_VALID',
+          changes: [
+            null,
+            { value: null },
+            {
+              value: {
+                metadata: { phone_number_id: 'PHONE_VALID' },
+                messages: [
+                  null,
+                  { from: '5511999887766', timestamp: '1710000400', type: 'text' },
+                  {
+                    from: '5511999887766',
+                    id: 'wamid.message.valid',
+                    timestamp: '1710000401',
+                    type: 'text',
+                    text: { body: 'valid after malformed' },
+                  },
+                ],
+                statuses: [
+                  null,
+                  { status: 'read', timestamp: '1710000402' },
+                  {
+                    id: 'wamid.status.valid',
+                    status: 'read',
+                    timestamp: '1710000403',
+                    recipient_id: '5511999887766',
+                    errors: [null, { code: 'not-a-number' }],
+                  },
+                ],
+              },
+              field: 'messages',
+            },
+          ],
+        },
+      ],
+    }
+
+    const events = parseWhatsAppWebhookEvents(payload)
+
+    expect(events).toHaveLength(2)
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'text',
+        messageId: 'wamid.message.valid',
+      }),
+      expect.objectContaining({
+        type: 'status',
+        providerMessageId: 'wamid.status.valid',
+        status: 'read',
+        errors: [],
+      }),
+    ]))
+  })
+
+  it.each([
+    '-1',
+    Number.MAX_SAFE_INTEGER,
+  ])('discards a status with an invalid callback timestamp %#', (timestamp) => {
+    const payload = makeStatusPayload()
+    payload.entry[0].changes[0].value.statuses[0].timestamp = timestamp as never
+
+    expect(parseWhatsAppWebhookEvents(payload)).toEqual([])
+  })
+
+  it.each([null, undefined, 42, 'payload', [], {}, { entry: [] }])(
+    'returns an empty event list for malformed root payload %#',
+    (payload) => {
+      expect(parseWhatsAppWebhookEvents(payload)).toEqual([])
+    },
+  )
+
+  it('keeps legacy wrappers message-only and first-event compatible', () => {
+    const payload = makeTextPayload({
+      statuses: [{
+        id: 'wamid.wrapper.status',
+        status: 'delivered',
+        timestamp: '1710000500',
+        recipient_id: '5511999887766',
+      }],
+    })
+
+    const combined = parseWhatsAppWebhookEvents(payload)
+    const messages = parseWebhookEvents(payload)
+    const first = parseWebhookPayload(payload)
+
+    expect(combined).toHaveLength(2)
+    expect(messages).toHaveLength(1)
+    expect(messages[0].messageId).toBe('wamid.abc123')
+    expect(first).toMatchObject({
+      type: 'text',
+      messageId: 'wamid.abc123',
+    })
+  })
+
+  it('keeps the deprecated payload wrapper compatible for status-only callbacks', () => {
+    const payload = makeStatusPayload()
+
+    expect(parseWhatsAppWebhookEvents(payload)).toHaveLength(1)
+    expect(parseWebhookEvents(payload)).toEqual([])
+    expect(parseWebhookPayload(payload)).toEqual({
+      type: 'status',
+      status: 'delivered',
+    })
   })
 })
 

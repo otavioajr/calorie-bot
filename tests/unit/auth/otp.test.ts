@@ -57,7 +57,7 @@ describe('generateOTP', () => {
 describe('sendOTP', () => {
   it('creates a code in the DB and sends a WhatsApp message', async () => {
     mockCountRecentCodes.mockResolvedValue(0)
-    mockCreateAuthCode.mockResolvedValue(undefined)
+    mockCreateAuthCode.mockResolvedValue('auth-code-1')
     mockSendTextMessage.mockResolvedValue('msg-id-1')
 
     const { sendOTP } = await import('@/lib/auth/otp')
@@ -74,12 +74,27 @@ describe('sendOTP', () => {
     expect(mockSendTextMessage).toHaveBeenCalledWith(
       '+5511999999999',
       expect.stringContaining('CalorieBot Web'),
+      undefined,
+      expect.objectContaining({
+        source: 'otp',
+        messageKind: 'otp',
+        idempotencyKey: 'otp:auth-code-1',
+        expiresAt: expect.any(Date),
+      }),
     )
     // Verify expira em 5 min is in the message
     expect(mockSendTextMessage).toHaveBeenCalledWith(
       '+5511999999999',
       expect.stringContaining('expira em 5 min'),
+      undefined,
+      expect.objectContaining({
+        idempotencyKey: 'otp:auth-code-1',
+      }),
     )
+
+    const persistedExpiry = mockCreateAuthCode.mock.calls[0][3]
+    const sendOptions = mockSendTextMessage.mock.calls[0][3]
+    expect(sendOptions?.expiresAt).toEqual(persistedExpiry)
   })
 
   it('throws RateLimitError when 3 or more codes have been sent in the last 15 min', async () => {
@@ -94,7 +109,7 @@ describe('sendOTP', () => {
 
   it('formats the WhatsApp message correctly', async () => {
     mockCountRecentCodes.mockResolvedValue(0)
-    mockCreateAuthCode.mockResolvedValue(undefined)
+    mockCreateAuthCode.mockResolvedValue('auth-code-2')
     mockSendTextMessage.mockResolvedValue('msg-id-2')
 
     const { sendOTP } = await import('@/lib/auth/otp')
@@ -103,6 +118,25 @@ describe('sendOTP', () => {
     const [, message] = mockSendTextMessage.mock.calls[0]
     // Should contain the bold code pattern *{code}*
     expect(message).toMatch(/\*\d{6}\*/)
+  })
+
+  it('uses the new auth-code identity after an asynchronous delivery failure', async () => {
+    mockCountRecentCodes.mockResolvedValue(0)
+    mockCreateAuthCode
+      .mockResolvedValueOnce('auth-code-failed')
+      .mockResolvedValueOnce('auth-code-replacement')
+    mockSendTextMessage.mockResolvedValue(null)
+
+    const { sendOTP } = await import('@/lib/auth/otp')
+    await sendOTP('+5511999999999')
+    await sendOTP('+5511999999999')
+
+    expect(mockSendTextMessage.mock.calls[0][3]).toMatchObject({
+      idempotencyKey: 'otp:auth-code-failed',
+    })
+    expect(mockSendTextMessage.mock.calls[1][3]).toMatchObject({
+      idempotencyKey: 'otp:auth-code-replacement',
+    })
   })
 })
 

@@ -27,15 +27,24 @@ export async function createAuthCode(
   phone: string,
   code: string,
   expiresAt: Date,
-): Promise<void> {
-  const { error } = await supabase.from('auth_codes').insert({
-    phone,
-    code,
-    expires_at: expiresAt.toISOString(),
-    used: false,
-  })
+): Promise<string> {
+  const { data, error } = await supabase
+    .from('auth_codes')
+    .insert({
+      phone,
+      code,
+      expires_at: expiresAt.toISOString(),
+      used: false,
+    })
+    .select('id')
+    .single()
 
   if (error) throw new Error(error.message)
+  const id = (data as { id?: unknown } | null)?.id
+  if (typeof id !== 'string' || !id.trim()) {
+    throw new Error('Postgres did not return the auth code ID')
+  }
+  return id
 }
 
 /**

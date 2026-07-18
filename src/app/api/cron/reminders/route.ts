@@ -11,6 +11,7 @@ import {
   buildWeeklySummaryMessage,
 } from '@/lib/whatsapp/templates'
 import type { MealAnalysis } from '@/lib/llm/schemas/meal-analysis'
+import { buildReminderKey } from '@/lib/outbox/policy'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -43,6 +44,24 @@ interface ContextRow {
   user_id: string
   context_data: Record<string, unknown>
   created_at: string
+}
+
+const REMINDER_TTL_MS = 15 * 60 * 1000
+
+function reminderSendOptions(
+  userId: string,
+  reminderType: string,
+  localWindow: string,
+  metadata: Record<string, unknown>,
+) {
+  return {
+    source: 'reminder' as const,
+    messageKind: 'reminder' as const,
+    idempotencyKey: buildReminderKey(userId, reminderType, localWindow),
+    userId,
+    expiresAt: new Date(Date.now() + REMINDER_TTL_MS),
+    resourceMetadata: metadata,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -145,7 +164,15 @@ async function processDailyReminders(
     if (lunchMeals && lunchMeals.length > 0) continue
 
     try {
-      await sendTextMessage(user.phone, buildDailyReminderMessage())
+      await sendTextMessage(
+        user.phone,
+        buildDailyReminderMessage(),
+        undefined,
+        reminderSendOptions(user.id, 'daily-reminder', todayStr, {
+          reminderType: 'lunch',
+          localDate: todayStr,
+        }),
+      )
 
       await supabase
         .from('user_settings')
@@ -186,7 +213,18 @@ async function processDailySummaries(
       const consumed = await getDailyCalories(supabase, user.id, undefined, user.timezone)
       const target = user.daily_calorie_target ?? 2000
 
-      await sendTextMessage(user.phone, buildDailySummaryMessage(consumed, target))
+      await sendTextMessage(
+        user.phone,
+        buildDailySummaryMessage(consumed, target),
+        undefined,
+        {
+          ...reminderSendOptions(user.id, 'daily-summary', todayStr, {
+            summaryType: 'daily',
+            localDate: todayStr,
+          }),
+          resourceType: 'summary',
+        },
+      )
 
       await supabase
         .from('user_settings')
@@ -250,7 +288,18 @@ async function processWeeklySummaries(
 
       const target = user.daily_calorie_target ?? 2000
 
-      await sendTextMessage(user.phone, buildWeeklySummaryMessage(avgCalories, target))
+      await sendTextMessage(
+        user.phone,
+        buildWeeklySummaryMessage(avgCalories, target),
+        undefined,
+        {
+          ...reminderSendOptions(user.id, 'weekly-summary', todayStr, {
+            summaryType: 'weekly',
+            localDate: todayStr,
+          }),
+          resourceType: 'summary',
+        },
+      )
 
       // Update whichever column exists
       await supabase
@@ -339,14 +388,10 @@ async function processAutoConfirm(
 }
 
 // ---------------------------------------------------------------------------
-// POST /api/cron/reminders
+// GET and POST /api/cron/reminders
 // ---------------------------------------------------------------------------
 
-export async function POST(request: Request) {
-  if (!isCronAuthorized(request)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
+async function runAuthorizedCron() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const supabase = createServiceRoleClient() as any
 
@@ -427,3 +472,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Internal error' }, { status: 500 })
   }
 }
+
+async function handleCron(request: Request) {
+  if (!isCronAuthorized(request)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  return runAuthorizedCron()
+}
+
+export const GET = handleCron
+export const POST = handleCron

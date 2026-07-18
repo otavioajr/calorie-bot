@@ -14,6 +14,15 @@ GRANT ALL ON ALL ROUTINES IN SCHEMA public TO service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO service_role;
+
+-- Fase 2b is deliberately RPC-only even for the API service_role. Keep the
+-- broad legacy harness grants for existing tables, then restore the outbox's
+-- production least-privilege boundary explicitly.
+REVOKE ALL ON TABLE public.outbox_status_events FROM service_role, anon, authenticated;
+REVOKE ALL ON TABLE public.outbox_messages FROM service_role, anon, authenticated;
+REVOKE ALL ON SCHEMA private FROM service_role, anon, authenticated;
+REVOKE ALL ON FUNCTION private.project_outbox_bot_message(UUID, TEXT)
+  FROM service_role, anon, authenticated;
 `
 
 /** Matches `project_id` in supabase/config.toml (default: calorie-bot). */

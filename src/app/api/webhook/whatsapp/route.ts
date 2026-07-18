@@ -1,7 +1,11 @@
 export const maxDuration = 60
 
 import { randomUUID } from 'crypto'
-import { verifyWebhook, parseWebhookEvents, verifyWebhookSignature } from '@/lib/whatsapp/webhook'
+import {
+  verifyWebhook,
+  parseWhatsAppWebhookEvents,
+  verifyWebhookSignature,
+} from '@/lib/whatsapp/webhook'
 import { MAX_WEBHOOK_BODY_BYTES } from '@/lib/whatsapp/limits'
 import { createServiceRoleClient } from '@/lib/db/supabase'
 import { processInboundWork } from '@/lib/bot/inbound-processor'
@@ -20,6 +24,8 @@ import {
   type InboundPayload,
 } from '@/lib/db/queries/inbound-work'
 import type { WhatsAppMessage } from '@/lib/whatsapp/webhook'
+import { projectOutboxCallback } from '@/lib/outbox/callbacks'
+import { parseOutboxConfig } from '@/lib/outbox/policy'
 
 export async function GET(request: Request) {
   const url = new URL(request.url)
@@ -48,6 +54,13 @@ function isExpectedPhoneNumberId(phoneNumberId: string | undefined): boolean {
     return false
   }
   return true
+}
+
+function isIgnorableMissingCallbackRpc(errorCode: string | undefined): boolean {
+  const mode = process.env.OUTBOX_MODE?.trim() || 'off'
+  const generation = process.env.OUTBOX_GENERATION?.trim() || ''
+  return mode === 'off' && generation === '' &&
+    (errorCode === 'PGRST202' || errorCode === '42883')
 }
 
 function toInboundPayload(event: WhatsAppMessage): InboundPayload {
@@ -163,7 +176,12 @@ async function processInboundEvent(
   event: WhatsAppMessage,
   leaseOwner: string,
 ): Promise<'ok' | 'enqueue_failed' | 'skipped'> {
-  const businessAccountId = event.phoneNumberId ?? process.env.WHATSAPP_PHONE_NUMBER_ID ?? 'unknown'
+  // Keep the historical phone-number identity stable across the rollout. The
+  // WABA id is useful callback metadata, but changing this durable key would
+  // let an already-processed Meta delivery look like new inbound work.
+  const businessAccountId = event.phoneNumberId ??
+    process.env.WHATSAPP_PHONE_NUMBER_ID ??
+    'unknown'
   const enqueued = await enqueueInboundWork(supabase, {
     provider: INBOUND_WORK_PROVIDER,
     businessAccountId,
@@ -273,7 +291,7 @@ export async function POST(request: Request) {
       return new Response('Bad Request', { status: 400 })
     }
 
-    const events = parseWebhookEvents(body)
+    const events = parseWhatsAppWebhookEvents(body)
     if (events.length === 0) {
       return new Response('OK', { status: 200 })
     }
@@ -281,13 +299,38 @@ export async function POST(request: Request) {
     const supabase = createServiceRoleClient()
     const leaseOwner = randomUUID()
     let inboxDirty = false
+    let sawInboundMessage = false
 
     for (const event of events) {
       if (!isExpectedPhoneNumberId(event.phoneNumberId)) {
         continue
       }
 
+      if (event.type === 'status') {
+        try {
+          const result = await projectOutboxCallback(supabase, event)
+          if (!result.ok && !isIgnorableMissingCallbackRpc(result.error.code)) {
+            console.error(
+              '[webhook] Callback projection failed for',
+              event.providerMessageId,
+              result.error.message,
+            )
+            inboxDirty = true
+          }
+        } catch (err) {
+          console.error(
+            '[webhook] Error processing callback',
+            event.providerMessageId,
+            err,
+          )
+          inboxDirty = true
+        }
+        continue
+      }
+
       try {
+        parseOutboxConfig(process.env, { source: 'bot' })
+        sawInboundMessage = true
         if (isInboundWorkEnabled()) {
           const result = await processInboundEvent(supabase, event, leaseOwner)
           if (result === 'enqueue_failed') {
@@ -312,7 +355,7 @@ export async function POST(request: Request) {
       }
     }
 
-    if (isInboundWorkEnabled()) {
+    if (sawInboundMessage && isInboundWorkEnabled()) {
       await piggybackStaleInboundWork(supabase, leaseOwner, 2)
     }
 

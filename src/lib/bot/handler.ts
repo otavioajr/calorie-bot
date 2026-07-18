@@ -26,6 +26,12 @@ import {
 } from '@/lib/bot/flows/product-confirm'
 import { getLLMProvider } from '@/lib/llm/index'
 import { sendTextMessage } from '@/lib/whatsapp/client'
+import {
+  isOutboxProjectedProviderMessage,
+  setOutboxScopeUser,
+  withOutboxMessageKind,
+  withOutboxResource,
+} from '@/lib/outbox/scope'
 import { isBlankText, isTextTooLong } from '@/lib/bot/input-validation'
 import { MAX_INCOMING_TEXT_CHARS } from '@/lib/whatsapp/limits'
 import { formatOutOfScope, formatError } from '@/lib/utils/formatters'
@@ -91,7 +97,7 @@ async function saveBotMessages(
     metadata: metadata ?? null,
   })
 
-  if (outgoingMessageId) {
+  if (outgoingMessageId && !isOutboxProjectedProviderMessage(outgoingMessageId)) {
     await saveBotMessage(supabase, {
       userId,
       messageId: outgoingMessageId,
@@ -101,6 +107,26 @@ async function saveBotMessages(
       metadata: metadata ?? null,
     })
   }
+}
+
+function sendTextMessageWithResource(
+  to: string,
+  text: string,
+  resourceType: 'meal' | 'summary' | 'query' | 'weight' | null,
+  resourceId: string | null,
+  metadata?: Record<string, unknown> | null,
+  replyToMessageId?: string,
+): Promise<string | null> {
+  return withOutboxResource(
+    {
+      resourceType,
+      resourceId,
+      resourceMetadata: metadata ?? null,
+    },
+    () => replyToMessageId === undefined
+      ? sendTextMessage(to, text)
+      : sendTextMessage(to, text, replyToMessageId),
+  )
 }
 
 function productMacros(product: Product, quantityGrams: number) {
@@ -320,6 +346,7 @@ export async function handleIncomingMessage(
     if (!user) {
       user = await createUser(supabase, from)
     }
+    setOutboxScopeUser(user.id)
 
     // 2. Check if onboarding is complete
     if (!user.onboardingComplete) {
@@ -450,7 +477,12 @@ export async function handleIncomingMessage(
               }
             }
 
-            const corrSentId = await sendTextMessage(from, editResult.response)
+            const corrSentId = await sendTextMessageWithResource(
+              from,
+              editResult.response,
+              'meal',
+              recentMealId,
+            )
             saveHistory(supabase, user.id, text, editResult.response)
             await saveBotMessages(supabase, user.id, messageId, corrSentId, 'meal', recentMealId)
             return
@@ -487,7 +519,13 @@ export async function handleIncomingMessage(
         }
         case 'awaiting_clarification': {
           const mealResult = await handleMealLog(supabase, user.id, text, userSettings, context)
-          const clarSentId = await sendTextMessage(from, mealResult.response)
+          const clarResourceType = mealResult.completed && mealResult.mealId ? 'meal' : null
+          const clarSentId = await sendTextMessageWithResource(
+            from,
+            mealResult.response,
+            clarResourceType,
+            mealResult.mealId ?? null,
+          )
           saveHistory(supabase, user.id, text, mealResult.response)
           await saveBotMessages(supabase, user.id, messageId, clarSentId,
             mealResult.completed && mealResult.mealId ? 'meal' : null,
@@ -496,7 +534,13 @@ export async function handleIncomingMessage(
         }
         case 'awaiting_bulk_quantities': {
           const mealResult = await handleMealLog(supabase, user.id, text, userSettings, context)
-          const bulkSentId = await sendTextMessage(from, mealResult.response)
+          const bulkResourceType = mealResult.completed && mealResult.mealId ? 'meal' : null
+          const bulkSentId = await sendTextMessageWithResource(
+            from,
+            mealResult.response,
+            bulkResourceType,
+            mealResult.mealId ?? null,
+          )
           saveHistory(supabase, user.id, text, mealResult.response)
           await saveBotMessages(supabase, user.id, messageId, bulkSentId,
             mealResult.completed && mealResult.mealId ? 'meal' : null,
@@ -505,7 +549,13 @@ export async function handleIncomingMessage(
         }
         case 'awaiting_meal_type': {
           const mealResult = await handleMealLog(supabase, user.id, text, userSettings, context)
-          const mtSentId = await sendTextMessage(from, mealResult.response)
+          const mealTypeResourceType = mealResult.completed && mealResult.mealId ? 'meal' : null
+          const mtSentId = await sendTextMessageWithResource(
+            from,
+            mealResult.response,
+            mealTypeResourceType,
+            mealResult.mealId ?? null,
+          )
           saveHistory(supabase, user.id, text, mealResult.response)
           await saveBotMessages(supabase, user.id, messageId, mtSentId,
             mealResult.completed && mealResult.mealId ? 'meal' : null,
@@ -599,7 +649,12 @@ export async function handleIncomingMessage(
               timezone: user.timezone,
             },
           )
-          const sentId = await sendTextMessage(from, registered.response)
+          const sentId = await sendTextMessageWithResource(
+            from,
+            registered.response,
+            'meal',
+            registered.mealId,
+          )
           saveHistory(supabase, user.id, text, registered.response)
           await saveBotMessages(supabase, user.id, messageId, sentId, 'meal', registered.mealId)
           return
@@ -660,7 +715,12 @@ export async function handleIncomingMessage(
                 timezone: user.timezone,
               },
             )
-            const sentId = await sendTextMessage(from, registered.response)
+            const sentId = await sendTextMessageWithResource(
+              from,
+              registered.response,
+              'meal',
+              registered.mealId,
+            )
             saveHistory(supabase, user.id, text, registered.response)
             await saveBotMessages(supabase, user.id, messageId, sentId, 'meal', registered.mealId)
             return
@@ -750,7 +810,14 @@ export async function handleIncomingMessage(
             dailyFatG: user.dailyFatG,
             dailyCarbsG: user.dailyCarbsG,
           })
-          const sentId = await sendTextMessage(from, registerResponse, quotedMessageId)
+          const sentId = await sendTextMessageWithResource(
+            from,
+            registerResponse,
+            'meal',
+            null,
+            null,
+            quotedMessageId,
+          )
           saveHistory(supabase, user.id, text, registerResponse)
           await saveBotMessages(supabase, user.id, messageId, sentId, 'meal', null)
           return
@@ -759,7 +826,14 @@ export async function handleIncomingMessage(
         const result = await handleMealLog(supabase, user.id, text, userSettings, null)
         console.log('[handler] Meal log done, completed:', result.completed)
         if (result.completed && result.mealId) {
-          const sentId = await sendTextMessage(from, result.response, quoteContext ? quotedMessageId : undefined)
+          const sentId = await sendTextMessageWithResource(
+            from,
+            result.response,
+            'meal',
+            result.mealId,
+            null,
+            quoteContext ? quotedMessageId : undefined,
+          )
           saveHistory(supabase, user.id, text, result.response)
           await saveBotMessages(supabase, user.id, messageId, sentId, 'meal', result.mealId)
           return
@@ -795,7 +869,18 @@ export async function handleIncomingMessage(
         const queryMetadata = queryState?.contextType === 'awaiting_confirmation'
           ? (queryState.contextData as Record<string, unknown>)
           : null
-        const sentId = await sendTextMessage(from, response, quoteContext ? quotedMessageId : undefined)
+        const sentId = await withOutboxResource(
+          {
+            resourceType: 'query',
+            resourceId: null,
+            resourceMetadata: queryMetadata,
+          },
+          () => sendTextMessage(
+            from,
+            response,
+            quoteContext ? quotedMessageId : undefined,
+          ),
+        )
         saveHistory(supabase, user.id, text, response)
         await saveBotMessages(supabase, user.id, messageId, sentId, 'query', null, queryMetadata)
         return
@@ -895,7 +980,10 @@ export async function handleIncomingAudio(
       return
     }
 
-    await sendTextMessage(from, `🎤 Entendi: *${transcription}*\n\n⏳ Registrando...`)
+    await withOutboxMessageKind(
+      'progress',
+      () => sendTextMessage(from, `🎤 Entendi: *${transcription}*\n\n⏳ Registrando...`),
+    )
     await handleIncomingMessage(from, messageId, transcription, quotedMessageId)
   } catch (err) {
     console.error('[handler] Audio error:', err)
@@ -919,6 +1007,7 @@ export async function handleIncomingImage(
     if (!user) {
       user = await createUser(supabase, from)
     }
+    setOutboxScopeUser(user.id)
 
     if (!user.onboardingComplete) {
       await sendTextMessage(from, 'Primeiro preciso te conhecer! Me diz, qual o seu nome?')
@@ -926,7 +1015,10 @@ export async function handleIncomingImage(
     }
 
     // Send immediate feedback while processing
-    const processingPromise = sendTextMessage(from, '📸 Analisando sua foto... aguarda um instante!')
+    await withOutboxMessageKind(
+      'progress',
+      () => sendTextMessage(from, '📸 Analisando sua foto... aguarda um instante!'),
+    )
 
     let buffer: Buffer
     try {
@@ -942,9 +1034,6 @@ export async function handleIncomingImage(
     const mimeType = detectMimeType(buffer)
     const base64 = buffer.toString('base64')
     const dataUrl = `data:${mimeType};base64,${base64}`
-
-    // Ensure processing message was sent before continuing
-    await processingPromise
 
     const llm = getLLMProvider()
 
@@ -1115,7 +1204,12 @@ export async function handleIncomingImage(
     const { target, macros } = buildMacrosBlock(user, dailyMacros)
     const response = buildConsolidatedMealResponse(logResult, dailyMacros.calories, target, dateLabel, macros)
 
-    const imgSentId = await sendTextMessage(from, response)
+    const imgSentId = await sendTextMessageWithResource(
+      from,
+      response,
+      'meal',
+      logResult.mealId,
+    )
     saveHistory(supabase, user.id, caption || '[imagem de alimento]', response)
     await saveBotMessages(supabase, user.id, messageId, imgSentId, 'meal', logResult.mealId)
   } catch (err) {
@@ -1208,6 +1302,11 @@ async function handleLabelPortions(
   const { target, macros } = buildMacrosBlock(user, dailyMacros)
   const response = buildConsolidatedMealResponse(logResult, dailyMacros.calories, target, dateLabel, macros)
 
-  const labelSentId = await sendTextMessage(from, response)
+  const labelSentId = await sendTextMessageWithResource(
+    from,
+    response,
+    'meal',
+    logResult.mealId,
+  )
   await saveBotMessages(supabase, userId, incomingMessageId, labelSentId, 'meal', logResult.mealId)
 }

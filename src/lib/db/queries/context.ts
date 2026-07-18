@@ -56,6 +56,10 @@ export interface ConversationContext {
   createdAt: string
 }
 
+export type ActiveContextResult =
+  | { ok: true; context: ConversationContext | null }
+  | { ok: false; error: { message: string; code?: string } }
+
 /**
  * Get the active (non-expired) context for a user.
  * Queries rows where user_id = userId AND expires_at > NOW(),
@@ -65,6 +69,14 @@ export async function getActiveContext(
   supabase: SupabaseClient,
   userId: string
 ): Promise<ConversationContext | null> {
+  const result = await getActiveContextResult(supabase, userId)
+  return result.ok ? result.context : null
+}
+
+export async function getActiveContextResult(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<ActiveContextResult> {
   const now = new Date().toISOString()
 
   const { data, error } = await supabase
@@ -76,17 +88,33 @@ export async function getActiveContext(
     .limit(1)
     .single()
 
-  if (error || !data) {
-    return null
+  if (error) {
+    if (error.code === 'PGRST116') {
+      return { ok: true, context: null }
+    }
+    return {
+      ok: false,
+      error: {
+        message: error.message,
+        ...(error.code ? { code: error.code } : {}),
+      },
+    }
+  }
+
+  if (!data) {
+    return { ok: true, context: null }
   }
 
   return {
-    id: data.id as string,
-    userId: data.user_id as string,
-    contextType: data.context_type as ContextType,
-    contextData: data.context_data as Record<string, unknown>,
-    expiresAt: data.expires_at as string,
-    createdAt: data.created_at as string,
+    ok: true,
+    context: {
+      id: data.id as string,
+      userId: data.user_id as string,
+      contextType: data.context_type as ContextType,
+      contextData: data.context_data as Record<string, unknown>,
+      expiresAt: data.expires_at as string,
+      createdAt: data.created_at as string,
+    },
   }
 }
 

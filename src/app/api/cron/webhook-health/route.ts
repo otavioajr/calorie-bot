@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { isCronAuthorized } from '@/lib/auth/cron'
-import { sendTextMessage } from '@/lib/whatsapp/client'
+import { sendTextMessageDirect } from '@/lib/whatsapp/client'
 
 const GRAPH_API_BASE = 'https://graph.facebook.com/v21.0'
 
@@ -82,14 +82,10 @@ async function alertAdmin(message: string): Promise<void> {
     console.error('[webhook-health] ADMIN_PHONE_NUMBER not configured, cannot send alert')
     return
   }
-  await sendTextMessage(adminPhone, message)
+  await sendTextMessageDirect(adminPhone, message)
 }
 
-export async function POST(request: Request) {
-  if (!isCronAuthorized(request)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
+async function runAuthorizedCron() {
   try {
     const isActive = await checkSubscription()
 
@@ -128,3 +124,13 @@ export async function POST(request: Request) {
     )
   }
 }
+
+async function handleCron(request: Request) {
+  if (!isCronAuthorized(request)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  return runAuthorizedCron()
+}
+
+export const GET = handleCron
+export const POST = handleCron
