@@ -18,12 +18,44 @@ interface OpenRouterProviderPreferences {
   allow_fallbacks?: boolean
 }
 
+const REASONING_EFFORTS = [
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+] as const
+
+type ReasoningEffort = (typeof REASONING_EFFORTS)[number]
+
+interface OpenRouterReasoning {
+  effort: ReasoningEffort
+}
+
 interface OpenRouterRequestBody {
   model: string
   messages: OpenRouterMessage[]
   response_format?: { type: 'json_object' }
   temperature?: number
   provider?: OpenRouterProviderPreferences
+  reasoning?: OpenRouterReasoning
+}
+
+function parseReasoningEffort(raw: string | undefined): ReasoningEffort | undefined {
+  if (raw === undefined || raw.trim() === '') {
+    return undefined
+  }
+
+  const effort = raw.trim().toLowerCase()
+  if ((REASONING_EFFORTS as readonly string[]).includes(effort)) {
+    return effort as ReasoningEffort
+  }
+
+  throw new Error(
+    `Invalid LLM_REASONING_EFFORT="${raw}". Use one of: ${REASONING_EFFORTS.join(', ')}`,
+  )
 }
 
 type ContentPart =
@@ -41,6 +73,7 @@ interface OpenRouterVisionRequestBody {
   response_format?: { type: 'json_object' }
   temperature?: number
   provider?: OpenRouterProviderPreferences
+  reasoning?: OpenRouterReasoning
 }
 
 interface OpenRouterResponse {
@@ -56,12 +89,22 @@ export class OpenRouterProvider implements LLMProvider {
   private mealModel: string
   private classifyModel: string
   private visionModel: string
+  private reasoningEffort?: ReasoningEffort
 
   constructor() {
     this.apiKey = process.env.LLM_API_KEY!
     this.mealModel = process.env.LLM_MODEL_MEAL ?? 'openai/gpt-5.6-luna'
     this.classifyModel = process.env.LLM_MODEL_CLASSIFY ?? 'openai/gpt-5.6-luna'
     this.visionModel = process.env.LLM_MODEL_VISION ?? 'openai/gpt-5.6-luna'
+    this.reasoningEffort = parseReasoningEffort(process.env.LLM_REASONING_EFFORT)
+  }
+
+  private applyReasoning(
+    body: OpenRouterRequestBody | OpenRouterVisionRequestBody,
+  ): void {
+    if (this.reasoningEffort) {
+      body.reasoning = { effort: this.reasoningEffort }
+    }
   }
 
   async analyzeMeal(message: string, history?: { role: string; content: string }[], currentTime?: string): Promise<MealAnalysis[]> {
@@ -200,6 +243,7 @@ export class OpenRouterProvider implements LLMProvider {
         allow_fallbacks: false,
       },
     }
+    this.applyReasoning(body)
 
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
@@ -278,6 +322,7 @@ export class OpenRouterProvider implements LLMProvider {
       only: ['openai'],
       allow_fallbacks: false,
     }
+    this.applyReasoning(body)
 
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',

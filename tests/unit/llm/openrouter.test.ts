@@ -4,7 +4,10 @@ import { server } from '../../mocks/server'
 import { OpenRouterProvider } from '@/lib/llm/providers/openrouter'
 
 beforeAll(() => server.listen())
-afterEach(() => server.resetHandlers())
+afterEach(() => {
+  server.resetHandlers()
+  vi.stubEnv('LLM_REASONING_EFFORT', '')
+})
 afterAll(() => server.close())
 
 vi.stubEnv('LLM_API_KEY', 'test-key')
@@ -207,6 +210,53 @@ describe('OpenRouterProvider', () => {
         only: ['openai'],
         allow_fallbacks: false,
       })
+    })
+
+    it('sends reasoning.effort when LLM_REASONING_EFFORT is set', async () => {
+      vi.stubEnv('LLM_REASONING_EFFORT', 'max')
+
+      type CapturedBody = {
+        reasoning?: { effort?: string }
+      }
+      let capturedBody: CapturedBody | null = null
+
+      server.use(
+        http.post('https://openrouter.ai/api/v1/chat/completions', async ({ request }) => {
+          capturedBody = (await request.json()) as CapturedBody
+          return HttpResponse.json(makeOpenRouterResponse(validMealAnalysisContent))
+        }),
+      )
+
+      const provider = new OpenRouterProvider()
+      await provider.analyzeMeal('arroz')
+
+      expect(capturedBody?.reasoning).toEqual({ effort: 'max' })
+    })
+
+    it('omits reasoning when LLM_REASONING_EFFORT is unset', async () => {
+      vi.stubEnv('LLM_REASONING_EFFORT', '')
+
+      type CapturedBody = {
+        reasoning?: { effort?: string }
+      }
+      let capturedBody: CapturedBody | null = null
+
+      server.use(
+        http.post('https://openrouter.ai/api/v1/chat/completions', async ({ request }) => {
+          capturedBody = (await request.json()) as CapturedBody
+          return HttpResponse.json(makeOpenRouterResponse(validMealAnalysisContent))
+        }),
+      )
+
+      const provider = new OpenRouterProvider()
+      await provider.analyzeMeal('arroz')
+
+      expect(capturedBody?.reasoning).toBeUndefined()
+    })
+
+    it('throws on invalid LLM_REASONING_EFFORT', () => {
+      vi.stubEnv('LLM_REASONING_EFFORT', 'super')
+      expect(() => new OpenRouterProvider()).toThrow(/Invalid LLM_REASONING_EFFORT/)
     })
 
     it('sends response_format json_object for classifyIntent', async () => {
