@@ -8,8 +8,9 @@ afterEach(() => server.resetHandlers())
 afterAll(() => server.close())
 
 vi.stubEnv('LLM_API_KEY', 'test-key')
-vi.stubEnv('LLM_MODEL_MEAL', 'openai/gpt-4o-mini')
-vi.stubEnv('LLM_MODEL_CLASSIFY', 'meta-llama/llama-3.1-8b-instruct:free')
+vi.stubEnv('LLM_MODEL_MEAL', 'openai/gpt-5.6-luna')
+vi.stubEnv('LLM_MODEL_CLASSIFY', 'openai/gpt-5.6-luna')
+vi.stubEnv('LLM_MODEL_VISION', 'openai/gpt-5.6-luna')
 
 const validMealAnalysisContent = JSON.stringify({
   meal_type: 'lunch',
@@ -166,6 +167,9 @@ describe('OpenRouterProvider', () => {
     })
 
     it('uses classify model, not meal model', async () => {
+      vi.stubEnv('LLM_MODEL_MEAL', 'openai/gpt-5.6-luna')
+      vi.stubEnv('LLM_MODEL_CLASSIFY', 'openai/gpt-5.6-luna-classify')
+
       let capturedBody: { model: string } | null = null
 
       server.use(
@@ -179,7 +183,28 @@ describe('OpenRouterProvider', () => {
       await provider.classifyIntent('help me')
 
       const body = capturedBody as { model: string } | null
-      expect(body?.model).toBe('meta-llama/llama-3.1-8b-instruct:free')
+      expect(body?.model).toBe('openai/gpt-5.6-luna-classify')
+    })
+
+    it('pins OpenAI provider without fallbacks', async () => {
+      let capturedBody: {
+        provider?: { only?: string[]; allow_fallbacks?: boolean }
+      } | null = null
+
+      server.use(
+        http.post('https://openrouter.ai/api/v1/chat/completions', async ({ request }) => {
+          capturedBody = (await request.json()) as typeof capturedBody
+          return HttpResponse.json(makeOpenRouterResponse(validMealAnalysisContent))
+        }),
+      )
+
+      const provider = new OpenRouterProvider()
+      await provider.analyzeMeal('arroz')
+
+      expect(capturedBody?.provider).toEqual({
+        only: ['openai'],
+        allow_fallbacks: false,
+      })
     })
 
     it('sends response_format json_object for classifyIntent', async () => {
@@ -202,8 +227,6 @@ describe('OpenRouterProvider', () => {
 
   describe('analyzeImage', () => {
     it('sends multimodal message with image_url and text to vision model', async () => {
-      vi.stubEnv('LLM_MODEL_VISION', 'openai/gpt-4o')
-
       const mockImageResponse = JSON.stringify({
         image_type: 'food',
         meal_type: 'lunch',
@@ -216,6 +239,7 @@ describe('OpenRouterProvider', () => {
       let capturedBody: {
         model: string
         messages: Array<{ role: string; content: unknown }>
+        provider?: { only?: string[]; allow_fallbacks?: boolean }
       } | null = null
 
       server.use(
@@ -232,7 +256,11 @@ describe('OpenRouterProvider', () => {
       expect(result.items).toHaveLength(1)
 
       expect(capturedBody).not.toBeNull()
-      expect(capturedBody!.model).toBe('openai/gpt-4o')
+      expect(capturedBody!.model).toBe('openai/gpt-5.6-luna')
+      expect(capturedBody!.provider).toEqual({
+        only: ['openai'],
+        allow_fallbacks: false,
+      })
 
       const userMsg = capturedBody!.messages[1]
       expect(Array.isArray(userMsg.content)).toBe(true)
@@ -243,8 +271,6 @@ describe('OpenRouterProvider', () => {
     })
 
     it('uses default text when no caption provided', async () => {
-      vi.stubEnv('LLM_MODEL_VISION', 'openai/gpt-4o')
-
       const mockImageResponse = JSON.stringify({
         image_type: 'food',
         confidence: 'low',

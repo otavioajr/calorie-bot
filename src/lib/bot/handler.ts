@@ -1048,7 +1048,7 @@ export async function handleIncomingImage(
       console.error('[handler] Image analysis error:', err)
       logLLMUsage(supabase, {
         provider: process.env.LLM_PROVIDER || 'openrouter',
-        model: process.env.LLM_MODEL_VISION || 'openai/gpt-4o',
+        model: process.env.LLM_MODEL_VISION || 'openai/gpt-5.6-luna',
         functionType: 'vision',
         latencyMs,
         success: false,
@@ -1062,7 +1062,7 @@ export async function handleIncomingImage(
 
     logLLMUsage(supabase, {
       provider: process.env.LLM_PROVIDER || 'openrouter',
-      model: process.env.LLM_MODEL_VISION || 'openai/gpt-4o',
+      model: process.env.LLM_MODEL_VISION || 'openai/gpt-5.6-luna',
       functionType: 'vision',
       latencyMs,
       success: true,

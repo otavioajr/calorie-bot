@@ -13,12 +13,17 @@ interface OpenRouterMessage {
   content: string
 }
 
+interface OpenRouterProviderPreferences {
+  only?: string[]
+  allow_fallbacks?: boolean
+}
+
 interface OpenRouterRequestBody {
   model: string
   messages: OpenRouterMessage[]
   response_format?: { type: 'json_object' }
   temperature?: number
-  provider?: { ignore?: string[] }
+  provider?: OpenRouterProviderPreferences
 }
 
 type ContentPart =
@@ -35,7 +40,7 @@ interface OpenRouterVisionRequestBody {
   messages: OpenRouterVisionMessage[]
   response_format?: { type: 'json_object' }
   temperature?: number
-  provider?: { ignore?: string[] }
+  provider?: OpenRouterProviderPreferences
 }
 
 interface OpenRouterResponse {
@@ -54,10 +59,9 @@ export class OpenRouterProvider implements LLMProvider {
 
   constructor() {
     this.apiKey = process.env.LLM_API_KEY!
-    this.mealModel = process.env.LLM_MODEL_MEAL ?? 'openai/gpt-4o-mini'
-    this.classifyModel =
-      process.env.LLM_MODEL_CLASSIFY ?? 'meta-llama/llama-3.1-8b-instruct:free'
-    this.visionModel = process.env.LLM_MODEL_VISION ?? 'openai/gpt-4o'
+    this.mealModel = process.env.LLM_MODEL_MEAL ?? 'openai/gpt-5.6-luna'
+    this.classifyModel = process.env.LLM_MODEL_CLASSIFY ?? 'openai/gpt-5.6-luna'
+    this.visionModel = process.env.LLM_MODEL_VISION ?? 'openai/gpt-5.6-luna'
   }
 
   async analyzeMeal(message: string, history?: { role: string; content: string }[], currentTime?: string): Promise<MealAnalysis[]> {
@@ -192,7 +196,8 @@ export class OpenRouterProvider implements LLMProvider {
       response_format: { type: 'json_object' },
       temperature: 0,
       provider: {
-        ignore: ['Azure'],
+        only: ['openai'],
+        allow_fallbacks: false,
       },
     }
 
@@ -270,7 +275,8 @@ export class OpenRouterProvider implements LLMProvider {
 
     body.temperature = 0
     body.provider = {
-      ignore: ['Azure'],
+      only: ['openai'],
+      allow_fallbacks: false,
     }
 
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
