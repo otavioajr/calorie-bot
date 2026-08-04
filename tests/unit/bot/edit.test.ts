@@ -21,6 +21,7 @@ const {
   mockLLMChat,
   mockAnalyzeMeal,
   mockAppendItemsToMeal,
+  mockEnrichItemsWithTaco,
 } = vi.hoisted(() => {
   return {
     mockDeleteMeal: vi.fn().mockResolvedValue(undefined),
@@ -38,6 +39,7 @@ const {
     mockLLMChat: vi.fn(),
     mockAnalyzeMeal: vi.fn(),
     mockAppendItemsToMeal: vi.fn(),
+    mockEnrichItemsWithTaco: vi.fn(),
   }
 })
 
@@ -70,6 +72,7 @@ vi.mock('@/lib/utils/formatters', () => ({
 
 vi.mock('@/lib/bot/flows/meal-log', () => ({
   appendItemsToMeal: mockAppendItemsToMeal,
+  enrichItemsWithTaco: mockEnrichItemsWithTaco,
 }))
 
 import { handleEdit, handleEditForMeal } from '@/lib/bot/flows/edit'
@@ -694,14 +697,16 @@ describe('handleEdit — add_item via natural language', () => {
       ],
     })
     mockAnalyzeMeal.mockResolvedValue([{
-      items: [{
-        food: 'Tapioca',
-        quantity_grams: 50,
-        calories: 116,
-        protein: 0,
-        carbs: 29,
-        fat: 0,
-      }],
+      items: [{ food: 'Tapioca', quantity_grams: 50, calories: null }],
+    }])
+    mockEnrichItemsWithTaco.mockResolvedValue([{
+      food: 'Tapioca',
+      quantityGrams: 50,
+      calories: 116,
+      protein: 0,
+      carbs: 29,
+      fat: 0,
+      source: 'taco',
     }])
     mockRecalculateMealTotal.mockRejectedValueOnce(new Error('refresh failed after update'))
 
@@ -717,5 +722,97 @@ describe('handleEdit — add_item via natural language', () => {
       'item-1',
       expect.objectContaining({ foodName: 'Tapioca' }),
     )
+  })
+
+  it('prices the replacement through the enrichment pipeline instead of trusting the analyzer', async () => {
+    mockLLMChat.mockResolvedValue(JSON.stringify({
+      action: 'replace_item',
+      target_food: 'espaguete ao alho e óleo',
+      new_food: 'carbonara',
+      new_quantity: null,
+      confidence: 'high',
+      target_meal_type: null,
+      new_value: null,
+    }))
+    mockGetMealWithItems.mockResolvedValue({
+      id: 'meal-1',
+      mealType: 'breakfast',
+      totalCalories: 237,
+      registeredAt: '2024-03-21T08:00:00Z',
+      items: [
+        { id: 'item-1', foodName: 'Espaguete ao alho e óleo', quantityGrams: 150, calories: 237, proteinG: 8, carbsG: 38, fatG: 6 },
+      ],
+    })
+    // analyzeMeal never returns macros — the prompt tells the LLM to leave them null.
+    mockAnalyzeMeal.mockResolvedValue([{
+      items: [{ food: 'Espaguete à carbonara', quantity_grams: 150, calories: null, protein: null, carbs: null, fat: null }],
+    }])
+    mockEnrichItemsWithTaco.mockResolvedValue([{
+      food: 'Espaguete à carbonara',
+      quantityGrams: 150,
+      calories: 570,
+      protein: 21,
+      carbs: 52,
+      fat: 29,
+      source: 'taco_decomposed',
+    }])
+    mockRecalculateMealTotal.mockResolvedValue(732)
+
+    const result = await handleEditForMeal(supabase, USER_ID, 'não é alho e óleo, é carbonara', 'meal-1')
+
+    expect(mockUpdateMealItem).toHaveBeenCalledWith(
+      expect.anything(),
+      'item-1',
+      expect.objectContaining({
+        foodName: 'Espaguete à carbonara',
+        quantityGrams: 150,
+        calories: 570,
+        proteinG: 21,
+        carbsG: 52,
+        fatG: 29,
+      }),
+    )
+    expect(result.outcome).toBe('applied')
+    expect(result.response).toContain('237 kcal → 570 kcal')
+  })
+
+  it('keeps the original item when the enrichment cannot price the replacement', async () => {
+    mockLLMChat.mockResolvedValue(JSON.stringify({
+      action: 'replace_item',
+      target_food: 'pão',
+      new_food: 'bolo da vovó',
+      new_quantity: null,
+      confidence: 'high',
+      target_meal_type: null,
+      new_value: null,
+    }))
+    mockGetMealWithItems.mockResolvedValue({
+      id: 'meal-1',
+      mealType: 'breakfast',
+      totalCalories: 200,
+      registeredAt: '2024-03-21T08:00:00Z',
+      items: [
+        { id: 'item-1', foodName: 'Pão', quantityGrams: 50, calories: 200, proteinG: 5, carbsG: 30, fatG: 2 },
+      ],
+    })
+    mockAnalyzeMeal.mockResolvedValue([{
+      items: [{ food: 'Bolo da vovó', quantity_grams: 50, calories: null }],
+    }])
+    mockEnrichItemsWithTaco.mockResolvedValue([{
+      food: 'Bolo da vovó',
+      quantityGrams: 50,
+      calories: 0,
+      protein: 0,
+      carbs: 0,
+      fat: 0,
+      source: 'approximate',
+    }])
+
+    const result = await handleEditForMeal(supabase, USER_ID, 'era bolo da vovó', 'meal-1')
+
+    expect(mockUpdateMealItem).not.toHaveBeenCalled()
+    expect(mockRecalculateMealTotal).not.toHaveBeenCalled()
+    expect(result.outcome).toBe('not_applied')
+    expect(result.response).toContain('não mudei nada')
   })
 })

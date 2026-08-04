@@ -19,7 +19,8 @@ import { buildCorrectionPrompt, buildCorrectionPromptWithItems } from '@/lib/llm
 import { CorrectionSchema } from '@/lib/llm/schemas/correction'
 import type { Correction } from '@/lib/llm/schemas/correction'
 import type { MealAnalysis } from '@/lib/llm/schemas/meal-analysis'
-import { appendItemsToMeal } from '@/lib/bot/flows/meal-log'
+import { appendItemsToMeal, enrichItemsWithTaco } from '@/lib/bot/flows/meal-log'
+import type { EnrichedItem } from '@/lib/bot/flows/meal-log'
 import { formatProgress } from '@/lib/utils/formatters'
 import { buildMacrosBlock } from '@/lib/bot/macros'
 
@@ -626,16 +627,37 @@ async function renameItem(
     return notApplied(`Não consegui analisar *${newFoodName}*. Pode tentar de novo?`)
   }
 
+  // analyzeMeal only identifies the food — it always returns null macros by design.
+  // The nutrition comes from the same enrichment pipeline used when logging a meal.
+  let enriched: EnrichedItem | undefined
+  try {
+    const results = await enrichItemsWithTaco(
+      supabase,
+      [{ ...newItem, quantity_grams: newItem.quantity_grams ?? targetItem.quantityGrams }],
+      llm,
+      userId,
+    )
+    enriched = results[0] ?? undefined
+  } catch {
+    enriched = undefined
+  }
+
+  // Never overwrite a priced item with zeroes. A TACO/product match of 0 kcal is
+  // legitimate (água, café preto); only the "approximate" fallback means we failed.
+  if (!enriched || (enriched.calories === 0 && enriched.source === 'approximate')) {
+    return notApplied(`Não consegui calcular as calorias de *${newFoodName}*, então não mudei nada. Me manda o valor (ex: "${newFoodName} tem 450 kcal") que eu ajusto.`)
+  }
+
   const oldName = targetItem.foodName
   const oldCalories = targetItem.calories
 
   await updateMealItem(supabase, targetItem.id, {
-    quantityGrams: newItem.quantity_grams ?? targetItem.quantityGrams,
-    calories: Math.round(newItem.calories ?? 0),
-    proteinG: newItem.protein ?? 0,
-    carbsG: newItem.carbs ?? 0,
-    fatG: newItem.fat ?? 0,
-    foodName: newItem.food,
+    quantityGrams: enriched.quantityGrams,
+    calories: enriched.calories,
+    proteinG: enriched.protein,
+    carbsG: enriched.carbs,
+    fatG: enriched.fat,
+    foodName: enriched.food,
   })
 
   const newTotal = await recalculateMealTotal(supabase, mealId)
@@ -644,8 +666,8 @@ async function renameItem(
 
   return applied([
     '✏️ Corrigido!',
-    `  ${oldName} ${targetItem.quantityGrams}g → ${newItem.food} ${newItem.quantity_grams ?? targetItem.quantityGrams}g`,
-    `  ${oldCalories} kcal → ${Math.round(newItem.calories ?? 0)} kcal`,
+    `  ${oldName} ${targetItem.quantityGrams}g → ${enriched.food} ${enriched.quantityGrams}g`,
+    `  ${oldCalories} kcal → ${enriched.calories} kcal`,
     '',
     `📊 Novo total da refeição: ${newTotal} kcal`,
     progress,
