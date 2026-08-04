@@ -187,13 +187,14 @@ describe('OpenRouterProvider', () => {
     })
 
     it('pins OpenAI provider without fallbacks', async () => {
-      let capturedBody: {
+      type CapturedBody = {
         provider?: { only?: string[]; allow_fallbacks?: boolean }
-      } | null = null
+      }
+      let capturedBody: CapturedBody | null = null
 
       server.use(
         http.post('https://openrouter.ai/api/v1/chat/completions', async ({ request }) => {
-          capturedBody = (await request.json()) as typeof capturedBody
+          capturedBody = (await request.json()) as CapturedBody
           return HttpResponse.json(makeOpenRouterResponse(validMealAnalysisContent))
         }),
       )
@@ -201,7 +202,8 @@ describe('OpenRouterProvider', () => {
       const provider = new OpenRouterProvider()
       await provider.analyzeMeal('arroz')
 
-      expect(capturedBody?.provider).toEqual({
+      const body = capturedBody as CapturedBody | null
+      expect(body?.provider).toEqual({
         only: ['openai'],
         allow_fallbacks: false,
       })
