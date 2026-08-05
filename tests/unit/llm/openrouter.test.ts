@@ -7,6 +7,9 @@ beforeAll(() => server.listen())
 afterEach(() => {
   server.resetHandlers()
   vi.stubEnv('LLM_REASONING_EFFORT', '')
+  vi.stubEnv('LLM_MODEL_MEAL', 'openai/gpt-5.6-luna')
+  vi.stubEnv('LLM_MODEL_CLASSIFY', 'openai/gpt-5.6-luna')
+  vi.stubEnv('LLM_MODEL_VISION', 'openai/gpt-5.6-luna')
 })
 afterAll(() => server.close())
 
@@ -212,6 +215,30 @@ describe('OpenRouterProvider', () => {
       })
     })
 
+    it('does not pin OpenAI provider for non-OpenAI models', async () => {
+      vi.stubEnv('LLM_MODEL_MEAL', 'google/gemini-3.5-flash-lite')
+
+      type CapturedBody = {
+        model?: string
+        provider?: { only?: string[]; allow_fallbacks?: boolean }
+        reasoning?: { effort?: string }
+      }
+      let capturedBody: CapturedBody | null = null
+
+      server.use(
+        http.post('https://openrouter.ai/api/v1/chat/completions', async ({ request }) => {
+          capturedBody = (await request.json()) as CapturedBody
+          return HttpResponse.json(makeOpenRouterResponse(validMealAnalysisContent))
+        }),
+      )
+
+      const provider = new OpenRouterProvider()
+      await provider.analyzeMeal('arroz')
+
+      expect(capturedBody?.model).toBe('google/gemini-3.5-flash-lite')
+      expect(capturedBody?.provider).toBeUndefined()
+    })
+
     it('sends reasoning.effort when LLM_REASONING_EFFORT is set', async () => {
       vi.stubEnv('LLM_REASONING_EFFORT', 'max')
 
@@ -231,6 +258,41 @@ describe('OpenRouterProvider', () => {
       await provider.analyzeMeal('arroz')
 
       expect(capturedBody?.reasoning).toEqual({ effort: 'max' })
+    })
+
+    it('omits reasoning for non-OpenAI models even when effort is set', async () => {
+      vi.stubEnv('LLM_MODEL_VISION', 'google/gemini-3.5-flash-lite')
+      vi.stubEnv('LLM_REASONING_EFFORT', 'max')
+
+      const mockImageResponse = JSON.stringify({
+        image_type: 'food',
+        meal_type: 'lunch',
+        confidence: 'high',
+        items: [{ food: 'Rice', quantity_grams: 150, calories: 195, protein: 4, carbs: 42, fat: 0.5 }],
+        unknown_items: [],
+        needs_clarification: false,
+      })
+
+      type CapturedBody = {
+        model?: string
+        provider?: unknown
+        reasoning?: { effort?: string }
+      }
+      let capturedBody: CapturedBody | null = null
+
+      server.use(
+        http.post('https://openrouter.ai/api/v1/chat/completions', async ({ request }) => {
+          capturedBody = (await request.json()) as CapturedBody
+          return HttpResponse.json(makeOpenRouterResponse(mockImageResponse))
+        }),
+      )
+
+      const provider = new OpenRouterProvider()
+      await provider.analyzeImage('data:image/jpeg;base64,abc123', 'almoço')
+
+      expect(capturedBody?.model).toBe('google/gemini-3.5-flash-lite')
+      expect(capturedBody?.provider).toBeUndefined()
+      expect(capturedBody?.reasoning).toBeUndefined()
     })
 
     it('omits reasoning when LLM_REASONING_EFFORT is unset', async () => {

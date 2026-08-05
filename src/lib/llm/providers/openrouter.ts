@@ -99,10 +99,29 @@ export class OpenRouterProvider implements LLMProvider {
     this.reasoningEffort = parseReasoningEffort(process.env.LLM_REASONING_EFFORT)
   }
 
+  private isOpenAIModel(model: string): boolean {
+    return model.startsWith('openai/')
+  }
+
+  private applyProviderPreferences(
+    body: OpenRouterRequestBody | OpenRouterVisionRequestBody,
+    model: string,
+  ): void {
+    // Pin OpenAI host only for OpenAI-hosted models (cheaper Luna route).
+    // Gemini/other vendors must not inherit this pin.
+    if (this.isOpenAIModel(model)) {
+      body.provider = {
+        only: ['openai'],
+        allow_fallbacks: false,
+      }
+    }
+  }
+
   private applyReasoning(
     body: OpenRouterRequestBody | OpenRouterVisionRequestBody,
+    model: string,
   ): void {
-    if (this.reasoningEffort) {
+    if (this.reasoningEffort && this.isOpenAIModel(model)) {
       body.reasoning = { effort: this.reasoningEffort }
     }
   }
@@ -238,12 +257,9 @@ export class OpenRouterProvider implements LLMProvider {
       ],
       response_format: { type: 'json_object' },
       temperature: 0,
-      provider: {
-        only: ['openai'],
-        allow_fallbacks: false,
-      },
     }
-    this.applyReasoning(body)
+    this.applyProviderPreferences(body, model)
+    this.applyReasoning(body, model)
 
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
@@ -318,11 +334,8 @@ export class OpenRouterProvider implements LLMProvider {
     }
 
     body.temperature = 0
-    body.provider = {
-      only: ['openai'],
-      allow_fallbacks: false,
-    }
-    this.applyReasoning(body)
+    this.applyProviderPreferences(body, model)
+    this.applyReasoning(body, model)
 
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
