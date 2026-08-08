@@ -39,6 +39,13 @@ const WORD_TO_NUMBER: Record<string, number> = {
   dez: 10,
 }
 
+const PORTION_VALUE =
+  '(?:\\d+(?:[.,]\\d+)?|1\\/2|meio|meia|um|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez)'
+
+const CONSUMPTION_VERBS = '(?:tomei|comi|bebi|ingeri|tome|come|bebe)'
+
+const DEMONSTRATIVES = '(?:desse|dessa|destes|destas|desses|dessas|dele|dela|deles|delas)'
+
 function normalize(input: string): string {
   return input
     .normalize('NFD')
@@ -63,17 +70,34 @@ function parsePortionValue(rawValue: string): number | null {
   return parsed
 }
 
+/**
+ * Extrai quantidade de porções da legenda da foto de rótulo.
+ * Aceita: "1 dose", "tomei um desse", "comi 2", "uma porção", etc.
+ */
 export function extractLabelPortionsFromCaption(caption?: string | null): number | null {
   if (!caption) return null
 
   const normalized = normalize(caption)
   const keywords = PORTION_KEYWORDS.join('|')
-  const values = '(?:\\d+(?:[.,]\\d+)?|1\\/2|meio|meia|um|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez)'
-  const match = normalized.match(new RegExp(`\\b(${values})\\s+(${keywords})\\b`))
 
-  if (!match) return null
+  const patterns = [
+    // "1 dose", "uma porção", "2 scoops"
+    new RegExp(`\\b(${PORTION_VALUE})\\s+(${keywords})\\b`),
+    // "um desse", "2 dessas", "uma dela"
+    new RegExp(`\\b(${PORTION_VALUE})\\s+${DEMONSTRATIVES}\\b`),
+    // "tomei um", "comi 2", "bebi uma"
+    new RegExp(`\\b${CONSUMPTION_VERBS}\\s+(${PORTION_VALUE})\\b`),
+  ]
 
-  return parsePortionValue(match[1])
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern)
+    if (match) {
+      const value = parsePortionValue(match[1])
+      if (value !== null) return value
+    }
+  }
+
+  return null
 }
 
 export function extractLabelGramsFromCaption(caption?: string | null): number | null {
