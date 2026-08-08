@@ -17,9 +17,18 @@ describe('extractLabelPortionsFromCaption', () => {
     expect(extractLabelPortionsFromCaption('pré treino uma porção')).toBe(1)
   })
 
-  it('ignores captions without portion keywords', () => {
+  it('extracts portions from natural language consumption', () => {
+    expect(extractLabelPortionsFromCaption('Eu tomei um desse actimel no café da manhã')).toBe(1)
+    expect(extractLabelPortionsFromCaption('tomei 2 dessas no almoço')).toBe(2)
+    expect(extractLabelPortionsFromCaption('comi uma dessa')).toBe(1)
+    expect(extractLabelPortionsFromCaption('bebi dois')).toBe(2)
+    expect(extractLabelPortionsFromCaption('comi 1,5')).toBe(1.5)
+  })
+
+  it('ignores captions without a clear portion quantity', () => {
     expect(extractLabelPortionsFromCaption('café da manhã')).toBeNull()
     expect(extractLabelPortionsFromCaption('pré treino 30g')).toBeNull()
+    expect(extractLabelPortionsFromCaption('tabela nutricional actimel')).toBeNull()
   })
 })
 
